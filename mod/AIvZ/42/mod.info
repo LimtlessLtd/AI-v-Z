@@ -1,0 +1,6 @@
+name=AI-v-Z
+id=AIvZ
+author=AI-v-Z
+modversion=0.1.0
+versionMin=42.0.0
+description=Lets a local AI play your singleplayer character. Writes what the character perceives to Zomboid/Lua/aivz/percept.json and carries out goals from Zomboid/Lua/aivz/intent.txt, which the AI-v-Z bridge (a separate program on this PC) writes. F7 toggles the HUD, G toggles auto fast-forward, and pressing a movement key hands control back to you.

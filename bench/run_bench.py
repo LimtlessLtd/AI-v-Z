@@ -25,9 +25,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
 
-from prompt import build_messages, decision_request, output_schema  # noqa: E402
-import rules  # noqa: E402
+from brain import rules  # noqa: E402
+from brain.prompt import build_messages, decision_request, output_schema  # noqa: E402
 from snapshots import LONG_MEMORY, SNAPSHOTS  # noqa: E402
 
 PZ_PROCESS = "ProjectZomboid64.exe"
