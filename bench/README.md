@@ -28,6 +28,14 @@ python bench/run_bench.py --model qwen3.5:4b --cpu
 python bench/run_bench.py --model rules --repeats 1
 ```
 
+```bash
+python bench/run_bench.py --model tev1:4b-q4_K_M
+```
+
+Models with Ollama's `decision` capability (Jev-style, e.g. `tev1`) are detected automatically and called
+on `/v1/systemone` with one `choice` question over the legal goals. Their probabilities and confidence go
+into the raw results. `--cpu` isn't supported for them, because that endpoint ignores `num_gpu`.
+
 Options: `--cpu` (no GPU), `--why-first` (schema puts the reason before the goal), `--long` (adds ~25 memory
 lines to approach the 1.5k-token prompt budget), `--repeats N`, `--only <ids>`, `--tag <label>`.
 To include the game's VRAM use, start Project Zomboid and load a save first. The runner detects

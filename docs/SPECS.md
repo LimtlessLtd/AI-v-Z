@@ -20,9 +20,9 @@ Re-run these checks if the hardware, driver, Ollama or game version changes.
 
 | Drive | Free | Notes |
 |---|---|---|
-| C: | **35.1 GB** | Ollama's model store is here (`C:\Users\fab_f\.ollama\models`, 26 GB used) |
+| C: | **35.1 GB** | The old Ollama store (`C:\Users\fab_f\.ollama\models`, 35.4 GB) is still here as a copy; Ollama no longer uses it |
 | D: | 303 GB | Steam library with Project Zomboid |
-| E: | 312 GB | This project (`E:\Source\AI-v-Z`) |
+| E: | ~273 GB | This project (`E:\Source\AI-v-Z`) and, since 2026-10-08, **Ollama's model store** (`E:\Ollama\models`) |
 
 ## Software
 
@@ -39,7 +39,19 @@ Re-run these checks if the hardware, driver, Ollama or game version changes.
 > and works (schema-constrained JSON + `think:false` verified). To keep a fixed version, turn off
 > auto-update in the Ollama app settings.
 
-### Ollama models already on disk
+### Ollama model store
+
+Moved to **`E:\Ollama\models`** on 2026-10-08. The existing models were copied there (35.4 GB, 58 files),
+and the Ollama app's *Model location* setting now points at E:. That's the `models` column in
+`%LOCALAPPDATA%\Ollama\db.sqlite`, the same field the Settings screen writes. The server log confirms
+`OLLAMA_MODELS:E:\Ollama\models`. The old copy on C: is untouched; delete it to free 35 GB once you're
+happy everything works.
+
+The store holds 35 GB, not the 26 GB first measured: on the first run of each Qwen 3.5 model, Ollama 0.40.1
+made a converted copy (listed as `llamacpp:<hash>`; +2.7 GB for the 4B, +5.7 GB for the 9B). That's
+internal to Ollama, so leave it alone.
+
+### Ollama models on disk
 
 | Tag | Params | Quant | Size |
 |---|---|---|---|
@@ -49,6 +61,8 @@ Re-run these checks if the hardware, driver, Ollama or game version changes.
 | `qwen2.5:3b` | 3.1B | Q4_K_M | 1.93 GB |
 | `qwen2.5-coder:1.5b-base` | 1.5B | Q4_K_M | 0.99 GB |
 | `codestral:latest` | 22.2B | Q4_0 | 12.57 GB |
+| `tev1:0.8b` (decision model, added 2026-10-08) | 0.75B | Q8_0 | 0.81 GB |
+| `tev1:4b-q4_K_M` (decision model, added 2026-10-08) | 4.2B | Q4_K_M | 2.7 GB |
 
 ## Project Zomboid
 
@@ -106,8 +120,8 @@ Your machine is in the **≤6 GB VRAM tier**, so the brain is **Qwen3.5-4B (`qwe
    `gemma4:e4b-it-qat` is 6.1 GB, because it carries per-layer embeddings plus vision and audio towers.
    That doesn't fit alongside PZ. A fair challenger on this card is **`gemma4:e2b-it-qat` (4.3 GB)**, or
    run E4B CPU-only and accept the slower latency.
-3. **C: has only 35 GB free and the Ollama store is on C:.** Moving it to E: (`OLLAMA_MODELS=E:\ollama\models`)
-   or removing `codestral` (12.6 GB) would leave more room. This is your choice; I haven't changed anything.
+3. **C: had only 35 GB free with the Ollama store on it.** Done: the store moved to `E:\Ollama\models`
+   (see above). Deleting the old C: copy is your call.
 4. **The PZ build will change under us.** Steam updates the game automatically. The README records the
    exact version each test ran against.
 

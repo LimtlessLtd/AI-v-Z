@@ -12,8 +12,8 @@ reasoning, and a local web dashboard. It uses no cloud APIs and no multiplayer.
 | | |
 |---|---|
 | Project Zomboid | **42.21** (Steam build `25485521`, git rev `4a0e9546ec`), singleplayer |
-| Ollama | 0.40.1 |
-| Brain model | `qwen3.5:4b` (Q4_K_M) is the best LLM option on this PC; whether it or rules make the decisions is still open |
+| Ollama | 0.40.1, model store `E:\Ollama\models` |
+| Brain model | `qwen3.5:4b` (Q4_K_M) is the best LLM option on this PC. Decision models `tev1:0.8b` / `tev1:4b-q4_K_M` were also tested. Whether rules, a decision model or the LLM makes the decisions is still open |
 | OS / GPU | Windows 11, RTX 2060 6 GB (see [docs/SPECS.md](docs/SPECS.md)) |
 
 PZ mods break between builds. If Steam updates the game, re-check the version on the main menu and update

@@ -6,6 +6,7 @@ Usage (from the repo root):
     python bench/run_bench.py --model qwen3.5:4b --why-first      # schema puts "why" before "goal"
     python bench/run_bench.py --model qwen3.5:4b --long           # pad memory towards ~1.5k prompt tokens
     python bench/run_bench.py --model rules --repeats 1           # no-LLM utility baseline (bench/rules.py)
+    python bench/run_bench.py --model tev1:0.8b                   # decision model (auto-detected, /v1/systemone)
 
 Only talks to Ollama on 127.0.0.1. Uses the Python standard library only.
 """
@@ -25,7 +26,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from prompt import build_messages, output_schema  # noqa: E402
+from prompt import build_messages, decision_request, output_schema  # noqa: E402
 import rules  # noqa: E402
 from snapshots import LONG_MEMORY, SNAPSHOTS  # noqa: E402
 
@@ -79,6 +80,14 @@ def ask(host, model, snapshot, args):
         wall_ms = (time.perf_counter() - t0) * 1000
         return {"message": {"content": json.dumps({"goal": goal, "why": why})}}, wall_ms
     extra = LONG_MEMORY if args.long else ()
+    if args.decision:
+        payload = {"model": model, **decision_request(snapshot["percept"], snapshot["legal"], extra), "keep_alive": -1}
+        t0 = time.perf_counter()
+        resp = api(args.host, "/v1/systemone", payload)
+        wall_ms = (time.perf_counter() - t0) * 1000
+        ans, usage = resp["answers"]["goal"], resp.get("usage", {})
+        return {"message": {"content": json.dumps({"goal": ans.get("choice")})}, "decision": ans,
+                "prompt_eval_count": usage.get("input_tokens"), "eval_count": usage.get("output_tokens")}, wall_ms
     options = {"num_ctx": args.num_ctx, "temperature": args.temperature, "num_predict": args.num_predict}
     if args.cpu:
         options["num_gpu"] = 0
@@ -97,7 +106,7 @@ def ask(host, model, snapshot, args):
     return resp, wall_ms
 
 
-def score(snapshot, content):
+def score(snapshot, content, require_why=True):
     rec = {"raw": content, "json_ok": False, "valid": False, "goal": None, "why": None,
            "sensible": False, "bad": False}
     try:
@@ -109,7 +118,8 @@ def score(snapshot, content):
         return rec
     goal, why = obj.get("goal"), obj.get("why")
     rec["goal"], rec["why"] = goal, why
-    rec["valid"] = goal in snapshot["legal"] and isinstance(why, str) and bool(why.strip())
+    has_why = isinstance(why, str) and bool(why.strip())
+    rec["valid"] = goal in snapshot["legal"] and (has_why or not require_why)
     rec["sensible"] = goal in snapshot["sensible"]
     rec["bad"] = goal in snapshot["bad"]
     rec["why_words"] = len(why.split()) if isinstance(why, str) else None
@@ -143,11 +153,16 @@ def main():
     use_ollama = args.model != "rules"
     if not args.host.startswith(("http://127.0.0.1", "http://localhost")):
         sys.exit("Refusing to talk to a non-local Ollama host.")
+    args.decision = use_ollama and "decision" in api(args.host, "/api/show", {"model": args.model}).get("capabilities", [])
+    if args.decision and args.cpu:
+        sys.exit("--cpu is not supported for decision models: Ollama's /v1/systemone ignores options.num_gpu.")
+    backend = "rules" if not use_ollama else ("systemone" if args.decision else "chat")
 
     snapshots = [s for s in SNAPSHOTS if not args.only or s["id"] in args.only]
     pz = pz_running()
     mode = "cpu" if args.cpu else "auto"
-    label_parts = [args.model, mode, "why-first" if args.why_first else "goal-first",
+    label_parts = [args.model, mode,
+                   "systemone" if args.decision else ("why-first" if args.why_first else "goal-first"),
                    "long" if args.long else "short", "pz-open" if pz else "pz-closed"]
     if args.tag:
         label_parts.append(args.tag)
@@ -173,7 +188,10 @@ def main():
         for rep in range(args.repeats):
             for i, snap in enumerate(snapshots):
                 resp, wall_ms = ask(args.host, args.model, snap, args)
-                rec = score(snap, resp["message"]["content"])
+                rec = score(snap, resp["message"]["content"], require_why=not args.decision)
+                if "decision" in resp:
+                    rec["confidence"] = resp["decision"].get("confidence")
+                    rec["probabilities"] = resp["decision"].get("probabilities")
                 rec.update({
                     "snapshot": snap["id"], "rep": rep, "wall_ms": round(wall_ms, 2),
                     "load_ms": round(resp.get("load_duration", 0) / 1e6),
@@ -188,7 +206,8 @@ def main():
                     if used is not None and (peak_used is None or used > peak_used):
                         peak_used = used
                 mark = "ok " if rec["sensible"] else ("BAD" if rec["bad"] else " - ")
-                print(f"  r{rep} {snap['id']:<30} {mark} {str(rec['goal']):<16} {wall_ms:>8.1f} ms  {rec['why']}")
+                note = f"confidence {rec['confidence']:.2f}" if "confidence" in rec else rec["why"]
+                print(f"  r{rep} {snap['id']:<30} {mark} {str(rec['goal']):<16} {wall_ms:>8.1f} ms  {note}")
 
     walls = [r["wall_ms"] for r in records]
     by_snap = {}
@@ -205,7 +224,7 @@ def main():
 
     ollama_version = api(args.host, "/api/version").get("version") if use_ollama else None
     summary = {
-        "label": label, "model": args.model, "mode": mode, "why_first": args.why_first, "long": args.long,
+        "label": label, "model": args.model, "backend": backend, "mode": mode, "why_first": args.why_first, "long": args.long,
         "pz_running": pz, "when": datetime.now().isoformat(timespec="seconds"), "ollama": ollama_version,
         "settings": {"num_ctx": args.num_ctx, "temperature": args.temperature, "num_predict": args.num_predict,
                      "think": False, "keep_alive": -1, "repeats": args.repeats},
@@ -219,12 +238,21 @@ def main():
         "tokens": {"prompt_median": statistics.median(r["prompt_tokens"] or 0 for r in records),
                    "prompt_max": max(r["prompt_tokens"] or 0 for r in records),
                    "out_median": statistics.median(r["out_tokens"] or 0 for r in records)},
-        "why_words_median": statistics.median(r["why_words"] for r in records if r.get("why_words") is not None),
+        "why_words_median": statistics.median([r["why_words"] for r in records if r.get("why_words") is not None] or [0]),
         "vram": {"gpu_total_mib": gpu_total, "baseline_used_mib": base_used, "after_load_used_mib": after_load_used,
                  "peak_used_mib": peak_used, "ollama_model_mib": loaded and loaded["size_mib"],
                  "ollama_model_vram_mib": loaded and loaded["size_vram_mib"]},
         "per_snapshot": per_snapshot,
     }
+    if args.decision:
+        confs = [r["confidence"] for r in records if r.get("confidence") is not None]
+        routing = []
+        for t in (0.3, 0.5, 0.7):
+            kept = [r for r in records if (r.get("confidence") or 0) >= t]
+            routing.append({"threshold": t, "coverage": len(kept) / len(records),
+                            "sensible_rate": sum(r["sensible"] for r in kept) / len(kept) if kept else None,
+                            "bad_rate": sum(r["bad"] for r in kept) / len(kept) if kept else None})
+        summary["decision"] = {"mean_confidence": statistics.mean(confs) if confs else None, "routing": routing}
     (out_dir / f"{label}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     if use_ollama and not args.keep_loaded:

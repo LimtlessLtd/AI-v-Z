@@ -7,7 +7,7 @@ snapshots.py, the bridge renders it with `build_messages`, and Ollama's `format`
 
 from goals import GOALS
 
-SYSTEM_PROMPT = """You are an AI playing a survivor in Project Zomboid (Build 42, singleplayer, Riverside, Kentucky).
+GAME_BRIEF = """You are an AI playing a survivor in Project Zomboid (Build 42, singleplayer, Riverside, Kentucky).
 You are the STRATEGY layer. A reflex layer already handles zombies within 3 tiles (shove, swing, step back)
 and a tactics layer carries out the goal you pick (walking, doors, looting). Every few seconds you choose ONE
 goal from ALLOWED GOALS for the next stretch of play.
@@ -19,7 +19,9 @@ Priorities, most urgent first:
 4. Progress: loot unsearched buildings, gather water, food, weapons and medical supplies, explore.
 
 1-3 zombies are fightable with a decent weapon and good endurance. 4 or more zombies, a weak or breaking
-weapon, or severe exhaustion means flee or hide instead.
+weapon, or severe exhaustion means flee or hide instead."""
+
+SYSTEM_PROMPT = GAME_BRIEF + """
 
 Answer with JSON only: {"goal": one allowed goal id, "why": at most 12 words, first person, shown in a speech bubble}."""
 
@@ -62,6 +64,16 @@ def render_goals(legal):
 def build_messages(percept, legal, extra_memory=()):
     user = render_percept(percept, extra_memory) + "\n\n" + render_goals(legal) + "\n\nPick one goal."
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
+
+
+def decision_request(percept, legal, extra_memory=()):
+    """State + typed question for a Jev-style decision model (Ollama /v1/systemone)."""
+    return {
+        "state": render_percept(percept, extra_memory),
+        "questions": {"goal": {"type": "choice",
+                               "instructions": GAME_BRIEF + "\n\nWhich goal should the survivor pursue next?",
+                               "criteria": {g: GOALS[g] for g in legal}}},
+    }
 
 
 def output_schema(legal, why_first=False):

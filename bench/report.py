@@ -1,6 +1,7 @@
 """Prints markdown comparison tables from bench/results/*.json."""
 
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -10,13 +11,24 @@ sys.path.insert(0, str(HERE))
 from snapshots import SNAPSHOTS  # noqa: E402
 
 
+def first_pass_median(results_dir, label):
+    """Median latency of the first repeat only: later repeats re-send identical prompts and hit Ollama's cache."""
+    raw = Path(results_dir) / "raw" / f"{label}.jsonl"
+    walls = [json.loads(line)["wall_ms"] for line in raw.read_text(encoding="utf-8").splitlines()
+             if line.strip() and json.loads(line)["rep"] == 0] if raw.exists() else []
+    return statistics.median(walls) if walls else None
+
+
 def load(results_dir):
-    return sorted((json.loads(p.read_text(encoding="utf-8")) for p in Path(results_dir).glob("*.json")),
-                  key=lambda r: (r["model"] != "rules", r["model"], r["label"]))
+    results = [json.loads(p.read_text(encoding="utf-8")) for p in Path(results_dir).glob("*.json")]
+    for r in results:
+        r["first_pass_ms"] = first_pass_median(results_dir, r["label"])
+    return sorted(results, key=lambda r: (r["model"] != "rules", r.get("backend", "chat"), r["model"], r["label"]))
 
 
 def short(r):
-    parts = [r["model"], r["mode"]]
+    parts = [r["model"], r.get("backend", "chat") if r["model"] != "rules" else None, r["mode"]]
+    parts = [p for p in parts if p]
     if r["why_first"]:
         parts.append("why-first")
     if r["long"]:
@@ -30,16 +42,16 @@ def fmt_ms(v):
 
 
 def summary_table(results):
-    rows = ["| Config | Valid JSON | Sensible | Bad | Stable | Median ms | p95 ms | Cold start ms "
+    rows = ["| Config | Valid | Sensible | Bad | Stable | First-pass ms | Median ms | p95 ms | Cold start ms "
             "| Prompt tok (max) | Model VRAM MiB | GPU used before → peak MiB |",
-            "|---|---|---|---|---|---|---|---|---|---|---|"]
+            "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in results:
         lat, v, t = r["latency_ms"], r["vram"], r["tokens"]
         gpu = (f"{v['baseline_used_mib']} → {v['peak_used_mib']}"
                if v.get("baseline_used_mib") is not None and r["model"] != "rules" else "–")
         model_vram = "–" if v.get("ollama_model_vram_mib") is None else f"{v['ollama_model_vram_mib']} / {v['ollama_model_mib']}"
         rows.append(f"| {short(r)} | {r['valid_json_rate']:.0%} | {r['sensible_rate']:.0%} | {r['bad_rate']:.0%} "
-                    f"| {r['stable_rate']:.0%} | {fmt_ms(lat['median'])} | {fmt_ms(lat['p95'])} "
+                    f"| {r['stable_rate']:.0%} | {fmt_ms(r['first_pass_ms'])} | {fmt_ms(lat['median'])} | {fmt_ms(lat['p95'])} "
                     f"| {fmt_ms(lat['cold_start'])} | {t['prompt_max'] or '–'} | {model_vram} | {gpu} |")
     return "\n".join(rows)
 

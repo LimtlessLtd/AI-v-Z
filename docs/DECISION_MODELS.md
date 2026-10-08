@@ -18,6 +18,10 @@ pick the AI's goals?
   "flee 82% · fight 12%" may be just as watchable.
 - **Closest precedent:** JEV-Star (StarCraft II) found Jev alone stalled even against an easy AI. Jev plus
   an LLM planner beat the strongest fair built-in AI. That supports a hybrid design over a single model.
+- **Measured on this PC (see below):** zero-shot, `tev1:4b` is about as accurate as Qwen3.5-4B (68% vs 73%
+  sensible) and ~1.5× faster, but picks something dangerous twice as often. `tev1:0.8b` is fast (175 ms,
+  0.85 GB) but mostly answers "wait". Off the shelf they don't beat Qwen; fine-tuned on our own data is
+  where they could.
 
 ## What a "Jev-class" decision model is
 
@@ -106,12 +110,35 @@ The research points the same way as the benchmark: a layered brain where each pa
 4. **Later:** fine-tune Julia-1 or Laya (144–421M, trainable on this RTX 2060) on the AI's own logged
    decisions and your corrections.
 
-## Suggested next step (needs your OK: downloads)
+## Measured on this PC (2026-10-08, PZ closed)
 
-Add a `/v1/systemone` backend to `bench/run_bench.py` and run the same 31 situations through `tev1:0.8b`
-(~0.8 GB) and `tev1:4b-q4_K_M` (2.7 GB). That gives a like-for-like comparison with Qwen and the rules,
-including latency and VRAM. Julia-1 and Laya would come later, since they need Python packages (PyTorch is
-a multi-GB install).
+Same 31 situations, percept and game brief as the Qwen runs. Each decision model got one `choice` question
+over the legal goals. Full tables are in [BENCHMARK.md](BENCHMARK.md).
+
+| | Rules | `qwen3.5:4b` | `tev1:4b-q4_K_M` | `tev1:0.8b` |
+|---|---|---|---|---|
+| Sensible / bad | 100% / 0% (optimistic) | 73% / 5% | 68% / 10% | 39% / 19% |
+| Latency, fresh situation | <1 ms | 815 ms | 551 ms | 175 ms |
+| VRAM | 0 | 2,983 MiB | 2,761 MiB | 852 MiB |
+| Speech-bubble text | template | yes | no | no |
+
+- `tev1:4b` over-picks **looting**: it loots with zombies at the door, in the dark, and when overloaded.
+  `tev1:0.8b` answers `wait` in 18 of 31 situations.
+- Confidence: `tev1:4b` was right on every answer with confidence ≥0.7, but that's only 10% of decisions.
+  Routing low-confidence cases to Qwen gave 75% sensible / 5% bad (estimated offline), barely better than
+  Qwen alone.
+- Ollama's `/v1/systemone` ignores `options.num_gpu`, so these models always load onto the GPU. Both
+  models' Ollama packages ship the Apache 2.0 licence text.
+
+## Next step
+
+Zero-shot decision models aren't worth the extra moving part yet. The plan that fits the data:
+
+1. **Phase 1:** rules (`bench/rules.py`, ported to Lua) make the decisions. Qwen3.5-4B writes the speech
+   bubble and gets consulted when the top rule scores are close. Every decision gets logged with its percept.
+2. **Then:** use those logs, plus your corrections, to fine-tune a small decision model (Julia-1 at 144M or
+   Laya at 421M train on this RTX 2060; `tev1` is a Qwen3.5 fine-tune). Re-run this benchmark, plus a
+   held-out set from real play, before letting it drive.
 
 ## Sources
 
