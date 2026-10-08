@@ -41,6 +41,7 @@ only and must never be exposed to the network. Don't run untrusted programs that
 ```
 docs/SPECS.md       machine specs + model-tier recommendation
 docs/BENCHMARK.md   Phase 0 model benchmark results
+docs/DECISION_MODELS.md  research: Jev-style open decision models vs LLMs
 bench/              Phase 0 benchmark (Python stdlib only, talks to Ollama on 127.0.0.1:11434)
 bench/rules.py      no-LLM utility-scoring baseline
 ```
