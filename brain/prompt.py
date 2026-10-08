@@ -5,7 +5,7 @@ snapshots.py, the bridge renders it with `build_messages`, and Ollama's `format`
 `output_schema(legal_goals)`.
 """
 
-from goals import GOALS
+from .goals import GOALS
 
 GAME_BRIEF = """You are an AI playing a survivor in Project Zomboid (Build 42, singleplayer, Riverside, Kentucky).
 You are the STRATEGY layer. A reflex layer already handles zombies within 3 tiles (shove, swing, step back)

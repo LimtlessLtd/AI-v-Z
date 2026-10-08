@@ -53,7 +53,7 @@ def features(p):
         "dusk": "dusk" in time or "sunset" in time,
         "bleeding": any(re.search(r"(?<!not )bleeding", w, re.I) for w in p["wounds"]),
         "overloaded": weight > cap,
-        "edible": [f for f in food if "rotten" not in f and "can opener" not in f],
+        "edible": [f for f in food if "rotten" not in f and "can opener" not in f and "needs" not in f],
         "has_drink": any(re.search(r"[1-9]\d*/\d+", d) for d in p["inventory"].get("drink", [])),
         "water_known": any("taps on" in w for w in p["water"]),
         "shelter_near": "open door" in p["where"] or "closed doors" in p["where"],

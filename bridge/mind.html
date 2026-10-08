@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-v-Z mind</title>
+<style>
+  :root { --bg:#0f1317; --panel:#161c22; --line:#26303a; --text:#dde3ea; --muted:#8899aa; --accent:#7fd1b9; --warn:#ffd479; --bad:#e05555; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+  header { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 18px; color: var(--accent); }
+  h2 { margin: 0 0 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+  .wide { grid-column: 1 / -1; }
+  .goal { font-size: 22px; font-weight: 600; }
+  .src { font-size: 12px; color: var(--muted); margin-left: 8px; }
+  .why { color: var(--warn); font-size: 16px; margin-top: 6px; min-height: 22px; }
+  .muted { color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; margin: 3px 0; }
+  .row .label { width: 92px; color: var(--muted); font-size: 12px; }
+  .bar { flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .bar.bad i { background: var(--bad); }
+  .row .val { width: 48px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td { padding: 3px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  td.n { color: var(--muted); white-space: nowrap; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; background: var(--line); font-size: 11px; margin: 0 4px 4px 0; }
+  .err { color: var(--bad); }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>AI-v-Z: the AI's mind</h1><span id="status" class="muted">connecting…</span></header>
+
+  <section class="wide">
+    <h2>Goal</h2>
+    <div><span class="goal" id="goal">–</span><span class="src" id="source"></span></div>
+    <div class="why" id="why"></div>
+    <div class="muted" id="task"></div>
+  </section>
+
+  <section>
+    <h2>Body</h2>
+    <div id="body"></div>
+    <div class="muted" id="where" style="margin-top:8px"></div>
+  </section>
+
+  <section>
+    <h2>Threat</h2>
+    <div id="threat"></div>
+    <div id="groups" style="margin-top:6px"></div>
+  </section>
+
+  <section>
+    <h2>Rule scores (legal goals)</h2>
+    <div id="scores"></div>
+  </section>
+
+  <section>
+    <h2>Language model</h2>
+    <div id="llm"></div>
+    <h2 style="margin-top:12px">Recent events</h2>
+    <div id="recent" class="muted"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Decisions</h2>
+    <table id="decisions"></table>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function bar(label, v, bad, text) {
+  const pct = Math.max(0, Math.min(100, Math.round(v * 100)));
+  return `<div class="row"><span class="label">${label}</span><span class="bar ${bad ? "bad" : ""}"><i style="width:${pct}%"></i></span><span class="val">${text ?? pct + "%"}</span></div>`;
+}
+async function tick() {
+  let s;
+  try { s = await (await fetch("/api/state")).json(); } catch { $("status").textContent = "bridge not reachable"; return; }
+  $("status").textContent = `${s.status}${s.percept_age_s != null ? " · percept " + s.percept_age_s + " s old" : ""}${s.speed ? " · speed " + s.speed + "x" : ""}`;
+  const c = s.current || {};
+  $("goal").textContent = (c.goal || "–").replace(/_/g, " ");
+  $("source").textContent = c.source ? "decided by " + c.source : "";
+  $("why").textContent = c.why ? "“" + c.why + "”" : "";
+  const t = s.task || {};
+  $("task").innerHTML = t.goal ? `task: ${esc(t.status)} · ${esc(t.msg || t.phase)}` + (s.err ? ` · <span class="err">${esc(s.err)}</span>` : "") : "";
+  const st = s.stats || {};
+  $("body").innerHTML = s.health == null ? "" :
+    bar("health", s.health / 100, s.health < 50, Math.round(s.health)) + bar("hunger", st.hunger || 0, (st.hunger || 0) > 0.5) +
+    bar("thirst", st.thirst || 0, (st.thirst || 0) > 0.5) + bar("fatigue", st.fatigue || 0, (st.fatigue || 0) > 0.6) +
+    bar("endurance", st.endurance ?? 1, (st.endurance ?? 1) < 0.4) + bar("panic", (st.panic || 0) / 100, (st.panic || 0) > 50, Math.round(st.panic || 0));
+  $("where").textContent = [s.time, s.where, s.weapon && "weapon: " + s.weapon, s.kills != null && "kills: " + s.kills].filter(Boolean).join(" · ");
+  const z = s.zombies || {};
+  $("threat").innerHTML = `<div class="row"><span class="label">within 10</span>${z.within10 ?? 0}</div>` +
+    `<div class="row"><span class="label">within 40</span>${z.within40 ?? 0}</div>` +
+    `<div class="row"><span class="label">chasing</span>${z.chasing ?? 0}</div>` +
+    `<div class="row"><span class="label">nearest</span>${z.nearest != null ? Math.round(z.nearest) + " tiles" : "none"}</div>` +
+    (s.reflex && s.reflex.ago < 120 ? `<div class="row"><span class="label">reflex</span>${esc(s.reflex.act)}</div>` : "");
+  $("groups").innerHTML = (s.groups || []).map(g => `<span class="pill">${g.count} at ${g.dist} ${g.dir} · ${esc(g.state)}</span>`).join("");
+  const sc = s.scores || [];
+  const max = Math.max(1, ...sc.map(x => x[1]));
+  $("scores").innerHTML = sc.slice(0, 8).map(([g, v]) => bar(g.replace(/_/g, " "), Math.max(0, v) / max, false, Math.round(v))).join("") || '<span class="muted">–</span>';
+  const l = s.llm || {};
+  $("llm").innerHTML = l.model ? `${esc(l.model)} · ${l.ready ? "loaded" : "loading…"}${l.busy ? " · thinking" : ""}<br>` +
+    `calls ${l.calls} · last ${l.last_ms ?? "–"} ms · errors ${l.errors}` + (l.last_error ? `<br><span class="err">${esc(l.last_error)}</span>` : "")
+    : "off (rules only)";
+  $("recent").innerHTML = (s.recent || []).slice().reverse().map(esc).join("<br>") || "–";
+  $("decisions").innerHTML = (s.decisions || []).slice().reverse().map(d =>
+    `<tr><td class="n">#${d.seq}</td><td class="n">${esc(d.time)}</td><td><b>${esc(d.goal)}</b> <span class="muted">(${esc(d.source)}${d.clear === false ? ", close call" : ""})</span>${d.why ? "<br>“" + esc(d.why) + "”" : ""}</td></tr>`).join("");
+}
+setInterval(tick, 1000);
+tick();
+</script>
+</body>
+</html>
