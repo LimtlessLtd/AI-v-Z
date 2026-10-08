@@ -55,8 +55,8 @@ Re-run these checks if the hardware, driver, Ollama or game version changes.
 | Item | Value |
 |---|---|
 | Install | Steam, `D:\Program Files\steamapps\common\ProjectZomboid` |
-| Game version | **42.20** (from `zombie/core/Core.class` → `GameVersion(42, 20)`), git rev `b0bbce05d5`. Mod-break version 42.0 |
-| Steam build | `24909800`. **Steam has an update queued** (`TargetBuildID 25485521`); it installs the next time Steam updates the game |
+| Game version | **42.21** (from `zombie/core/Core.class` → `GameVersion(42, 21)`), git rev `4a0e9546ec`. Mod-break version 42.0. Updated from 42.20 (`b0bbce05d5`) on 2026-10-08 |
+| Steam build | `25485521` (latest available on 2026-10-08) |
 | Branch | Default (no beta key), so B42 is the stable branch |
 | JVM heap | `-Xmx3072m` (from `ProjectZomboid64.json`) |
 | User folder | `C:\Users\fab_f\Zomboid` (has `Lua\`, `mods\`, `Saves\`, `Logs\`) |
@@ -108,7 +108,7 @@ Your machine is in the **≤6 GB VRAM tier**, so the brain is **Qwen3.5-4B (`qwe
    run E4B CPU-only and accept the slower latency.
 3. **C: has only 35 GB free and the Ollama store is on C:.** Moving it to E: (`OLLAMA_MODELS=E:\ollama\models`)
    or removing `codestral` (12.6 GB) would leave more room. This is your choice; I haven't changed anything.
-4. **The PZ build will change under us.** Steam has an update queued past 42.20. The README records the
+4. **The PZ build will change under us.** Steam updates the game automatically. The README records the
    exact version each test ran against.
 
 ### Verified Ollama tags (ollama.com, 2026-10-08)

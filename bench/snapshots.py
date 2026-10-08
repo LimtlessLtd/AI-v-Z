@@ -1,0 +1,442 @@
+"""Hand-made percept snapshots for the Phase 0 brain benchmark.
+
+Each snapshot is the kind of state the Lua mod will report to the bridge, plus:
+  legal     goals the tactics layer could execute right now (the model may only pick these)
+  sensible  goals a competent player would accept here
+  bad       goals that are actively dangerous or wasteful here (scored separately)
+
+Moodle levels follow PZ: 1 mild, 2 moderate, 3 severe, 4 extreme. Distances are in tiles.
+"""
+
+
+def snap(id, title, percept, legal, sensible, bad=()):
+    assert set(sensible) <= set(legal), id
+    assert set(bad) <= set(legal), id
+    assert not set(sensible) & set(bad), id
+    return {"id": id, "title": title, "percept": percept, "legal": list(legal),
+            "sensible": list(sensible), "bad": list(bad)}
+
+
+HOME_EAST = "brick house on Fir St, 40 tiles E: doors locked, windows boarded, 12 cans, 20 L water"
+
+SNAPSHOTS = [
+    snap("day1_start", "First morning, nothing searched yet", {
+        "time": "Day 1 09:10, morning", "weather": "clear, 17C",
+        "where": "inside a 1-storey house on Elm St, bedroom",
+        "building": "doors closed, windows closed, containers searched 0/9",
+        "health": 100, "moodles": {}, "wounds": [],
+        "weapon": "none (fists)", "inventory": {"other": ["wallet", "house key"]}, "weight": "1.2/12",
+        "zombies": [], "home": None,
+        "water": ["kitchen sink in this house (taps on)"],
+        "unlooted": ["this house", "house 12 tiles E", "gas station 70 tiles S"], "looted": [],
+        "recent": ["09:00 woke up here"], "last_goal": None,
+    }, legal=["loot_here", "loot_building", "explore", "secure_building", "drink", "wait"],
+       sensible=["loot_here"]),
+
+    snap("thirsty_sink", "Severely thirsty next to a working sink", {
+        "time": "Day 2 13:30, afternoon", "weather": "overcast, 19C",
+        "where": "inside a house on Oak Ave, kitchen",
+        "building": "front door closed, back door closed, containers searched 6/10",
+        "health": 96, "moodles": {"thirst": 3, "hunger": 1}, "wounds": [],
+        "weapon": "kitchen knife (90%)", "inventory": {"food": ["bag of crisps"], "drink": []}, "weight": "4.0/12",
+        "zombies": [{"count": 1, "dist": 25, "dir": "W", "state": "wandering"}], "home": None,
+        "water": ["kitchen sink here (taps on)"],
+        "unlooted": ["house 20 tiles N"], "looted": [],
+        "recent": ["13:20 searched the living room"], "last_goal": "loot_here: in progress",
+    }, legal=["drink", "fill_water", "eat", "loot_here", "fight", "explore", "wait"],
+       sensible=["drink"], bad=["explore"]),
+
+    snap("hungry_has_food", "Severely hungry at home with food in the bag", {
+        "time": "Day 3 12:10, midday", "weather": "clear, 22C",
+        "where": "inside home base, kitchen", "building": "home base, secured",
+        "health": 100, "moodles": {"hunger": 3, "thirst": 1}, "wounds": [],
+        "weapon": "baseball bat (85%)",
+        "inventory": {"food": ["canned beans", "can opener", "bag of crisps"], "drink": ["water bottle 8/10"]},
+        "weight": "6.5/12", "zombies": [], "home": "you are at home base",
+        "water": ["kitchen sink here (taps on)"],
+        "unlooted": ["house 30 tiles S", "corner shop 60 tiles W"], "looted": ["2 houses on Elm St"],
+        "recent": ["11:50 got back home"], "last_goal": "retreat_home: done",
+    }, legal=["eat", "drink", "loot_building", "explore", "rest", "wait"],
+       sensible=["eat"]),
+
+    snap("hungry_thirsty_empty", "Hungry and thirsty with an empty bag", {
+        "time": "Day 2 16:00, afternoon", "weather": "clear, 21C",
+        "where": "outside on Maple St", "building": None,
+        "health": 92, "moodles": {"hunger": 2, "thirst": 2}, "wounds": [],
+        "weapon": "golf club (60%)", "inventory": {"food": [], "drink": []}, "weight": "3.1/12",
+        "zombies": [{"count": 2, "dist": 30, "dir": "N", "state": "wandering"}],
+        "home": "small house 60 tiles W (not secured)",
+        "water": [],
+        "unlooted": ["corner shop 18 tiles E (door closed)", "house 25 tiles S"],
+        "looted": ["house on Elm St (fully searched)"],
+        "recent": ["15:40 house on Elm St had nothing left"], "last_goal": "loot_here: done (nothing found)",
+    }, legal=["loot_building", "explore", "fight", "retreat_home", "wait"],
+       sensible=["loot_building"], bad=["fight", "wait"]),
+
+    snap("lone_zombie_armed", "One zombie approaching, good weapon, fresh", {
+        "time": "Day 2 11:00, morning", "weather": "clear, 18C",
+        "where": "outside in a front yard on Pine St", "building": None,
+        "health": 100, "moodles": {}, "wounds": [],
+        "weapon": "baseball bat (85%)", "inventory": {"food": ["apple"], "drink": ["water bottle 6/10"]},
+        "weight": "5.0/12",
+        "zombies": [{"count": 1, "dist": 6, "dir": "E", "state": "chasing you"}],
+        "home": HOME_EAST, "water": [],
+        "unlooted": ["house 10 tiles N"], "looted": [],
+        "recent": ["10:55 a zombie spotted you"], "last_goal": "loot_building: walking",
+    }, legal=["fight", "flee", "hide", "loot_building", "wait"],
+       sensible=["fight"], bad=["loot_building", "wait"]),
+
+    snap("group_five_chasing", "Five zombies chasing, weak weapon", {
+        "time": "Day 2 15:00, afternoon", "weather": "clear, 20C",
+        "where": "outside on Cedar St", "building": None,
+        "health": 95, "moodles": {"endurance": 1}, "wounds": [],
+        "weapon": "kitchen knife (70%)", "inventory": {"food": ["canned tuna"], "drink": []}, "weight": "4.2/12",
+        "zombies": [{"count": 5, "dist": 8, "dir": "S", "state": "chasing you"}],
+        "home": "small house 50 tiles N (secured)", "water": [],
+        "unlooted": [], "looted": [],
+        "recent": ["14:58 5 zombies came round the corner"], "last_goal": "explore: walking",
+    }, legal=["fight", "flee", "hide", "retreat_home", "wait"],
+       sensible=["flee"], bad=["fight", "wait"]),
+
+    snap("horde_approaching_indoors", "Horde of ~40 heading this way, house not secured", {
+        "time": "Day 4 14:00, afternoon", "weather": "overcast, 16C",
+        "where": "inside a house on Birch Rd, living room",
+        "building": "front door OPEN, back door closed, 1 window open, containers searched 3/10",
+        "health": 100, "moodles": {}, "wounds": [],
+        "weapon": "crowbar (90%)", "inventory": {"food": ["2 cans of soup"], "drink": ["water bottle 9/10"]},
+        "weight": "7.0/12",
+        "zombies": [{"count": 40, "dist": 35, "dir": "NE", "state": "horde drifting towards this street"}],
+        "home": HOME_EAST, "water": [],
+        "unlooted": ["this house", "house 20 tiles W"], "looted": [],
+        "recent": ["13:58 saw a large horde to the NE"], "last_goal": "loot_here: in progress",
+    }, legal=["secure_building", "hide", "flee", "fight", "loot_here", "explore", "wait"],
+       sensible=["secure_building", "hide", "flee"], bad=["fight", "explore"]),
+
+    snap("night_outdoors_no_light", "Dark, outside, no flashlight, home nearby", {
+        "time": "Day 2 22:40, night (dark)", "weather": "clear, 11C",
+        "where": "outside on Elm St", "building": None,
+        "health": 100, "moodles": {"tired": 1}, "wounds": [],
+        "weapon": "hammer (80%)", "inventory": {"food": ["crackers"], "drink": ["water bottle 4/10"], "light": []},
+        "weight": "5.5/12",
+        "zombies": [{"count": 2, "dist": 18, "dir": "E", "state": "wandering"}],
+        "home": "house 30 tiles W: doors locked, windows curtained", "water": [],
+        "unlooted": ["house 15 tiles E"], "looted": ["house on Oak Ave"],
+        "recent": ["22:10 finished looting on Oak Ave"], "last_goal": "loot_here: done",
+    }, legal=["retreat_home", "explore", "loot_building", "fight", "hide", "wait"],
+       sensible=["retreat_home"], bad=["explore", "loot_building"]),
+
+    snap("night_home_tired", "Late night at a secured home, very tired", {
+        "time": "Day 3 23:30, night (dark)", "weather": "clear, 10C",
+        "where": "inside home base, bedroom", "building": "home base: all doors locked, windows boarded",
+        "health": 100, "moodles": {"tired": 3}, "wounds": [],
+        "weapon": "baseball bat (80%)", "inventory": {"food": ["canned corn"], "drink": ["water bottle 10/10"]},
+        "weight": "6.0/12", "zombies": [], "home": "you are at home base", "water": [],
+        "unlooted": ["gas station 70 tiles S"], "looted": ["4 houses nearby"],
+        "recent": ["22:50 got home, locked up"], "last_goal": "retreat_home: done",
+    }, legal=["sleep", "eat", "rest", "loot_building", "explore", "wait"],
+       sensible=["sleep"], bad=["loot_building", "explore"]),
+
+    snap("tired_zombies_near_unsecured", "Tired at dusk, open door, 3 zombies near", {
+        "time": "Day 3 20:00, dusk", "weather": "clear, 14C",
+        "where": "inside a house on Spruce St, bedroom",
+        "building": "front door OPEN, back door closed, windows closed, containers searched 8/8",
+        "health": 100, "moodles": {"tired": 2}, "wounds": [],
+        "weapon": "crowbar (90%)", "inventory": {"food": ["chips"], "drink": ["water bottle 5/10"]},
+        "weight": "6.0/12",
+        "zombies": [{"count": 3, "dist": 10, "dir": "W", "state": "wandering, not aware of you"}],
+        "home": "house 120 tiles E", "water": [],
+        "unlooted": [], "looted": ["this house"],
+        "recent": ["19:45 finished searching this house"], "last_goal": "loot_here: done",
+    }, legal=["sleep", "secure_building", "fight", "flee", "hide", "wait"],
+       sensible=["secure_building", "hide", "fight"], bad=["sleep"]),
+
+    snap("bleeding_safe", "Bleeding arm, bandages, no zombies", {
+        "time": "Day 2 17:00, evening", "weather": "clear, 18C",
+        "where": "inside a house on Oak Ave, hallway",
+        "building": "doors closed, containers searched 4/9",
+        "health": 71, "moodles": {"pain": 1}, "wounds": ["left forearm: laceration, BLEEDING"],
+        "weapon": "kitchen knife (60%)",
+        "inventory": {"food": ["apple"], "drink": [], "medical": ["bandage x3", "disinfectant"]},
+        "weight": "4.5/12", "zombies": [], "home": HOME_EAST, "water": [],
+        "unlooted": ["this house"], "looted": [],
+        "recent": ["16:55 cut my arm on a broken window"], "last_goal": "loot_here: in progress",
+    }, legal=["bandage", "loot_here", "eat", "rest", "explore", "wait"],
+       sensible=["bandage"], bad=["explore"]),
+
+    snap("bleeding_chased", "Bleeding while four zombies chase", {
+        "time": "Day 2 17:20, evening", "weather": "clear, 17C",
+        "where": "outside on Oak Ave", "building": None,
+        "health": 64, "moodles": {"pain": 2, "endurance": 1}, "wounds": ["right hand: deep wound, BLEEDING"],
+        "weapon": "kitchen knife (60%)",
+        "inventory": {"food": [], "drink": [], "medical": ["ripped sheets x4"]}, "weight": "4.0/12",
+        "zombies": [{"count": 4, "dist": 12, "dir": "N", "state": "chasing you"}],
+        "home": "house 45 tiles S (secured)", "water": [],
+        "unlooted": [], "looted": [],
+        "recent": ["17:18 got hit breaking out of a window"], "last_goal": "flee: interrupted",
+    }, legal=["bandage", "flee", "fight", "hide", "wait"],
+       sensible=["flee"], bad=["fight", "wait"]),
+
+    snap("bitten_at_home", "Bitten, bleeding, safe at home", {
+        "time": "Day 5 10:00, morning", "weather": "rain, 14C",
+        "where": "inside home base, living room", "building": "home base, secured",
+        "health": 88, "moodles": {"pain": 2, "stress": 2}, "wounds": ["left calf: zombie BITE, bleeding"],
+        "weapon": "axe (90%)",
+        "inventory": {"food": ["canned peaches"], "drink": ["water bottle 7/10"], "medical": ["bandage x2", "alcohol wipes"]},
+        "weight": "7.5/12", "zombies": [], "home": "you are at home base", "water": [],
+        "unlooted": ["school 140 tiles E"], "looted": ["6 houses"],
+        "recent": ["09:52 bitten while clearing the porch"], "last_goal": "fight: done (2 killed)",
+    }, legal=["bandage", "eat", "loot_building", "explore", "rest", "wait"],
+       sensible=["bandage"], bad=["loot_building", "explore"]),
+
+    snap("house_fully_looted", "Current house is empty, other buildings known", {
+        "time": "Day 3 10:30, morning", "weather": "clear, 20C",
+        "where": "inside a house on Willow St, kitchen",
+        "building": "doors closed, containers searched 12/12 (nothing useful left)",
+        "health": 100, "moodles": {}, "wounds": [],
+        "weapon": "baseball bat (70%)",
+        "inventory": {"food": ["canned beans", "can opener"], "drink": ["water bottle 7/10"], "medical": ["bandage x2"]},
+        "weight": "6.8/12", "zombies": [], "home": HOME_EAST, "water": ["kitchen sink here (taps on)"],
+        "unlooted": ["house 20 tiles E", "pharmacy 90 tiles S"], "looted": ["this house"],
+        "recent": ["10:25 finished searching: only junk left"], "last_goal": "loot_here: done",
+    }, legal=["loot_building", "explore", "secure_building", "retreat_home", "rest", "wait"],
+       sensible=["loot_building", "explore"]),
+
+    snap("overloaded_near_home", "Carrying far too much, home close", {
+        "time": "Day 4 15:00, afternoon", "weather": "clear, 21C",
+        "where": "outside on Fir St", "building": None,
+        "health": 100, "moodles": {"heavy_load": 2, "endurance": 1}, "wounds": [],
+        "weapon": "sledgehammer (90%)",
+        "inventory": {"food": ["2 canned soup"], "drink": ["water bottle 10/10"], "other": ["bag of nails", "6 books", "toolbox"]},
+        "weight": "17.5/12", "zombies": [], "home": "brick house 20 tiles W (secured)", "water": [],
+        "unlooted": ["hardware store 50 tiles E"], "looted": ["garage on Fir St"],
+        "recent": ["14:50 grabbed everything from the garage"], "last_goal": "loot_here: done",
+    }, legal=["retreat_home", "drop_weight", "loot_building", "explore", "rest", "wait"],
+       sensible=["retreat_home", "drop_weight"], bad=["loot_building", "explore"]),
+
+    snap("exhausted_safe", "Exhausted after a fight, nothing around", {
+        "time": "Day 3 14:20, afternoon", "weather": "clear, 22C",
+        "where": "inside a house on Ash St, hallway", "building": "front door closed, containers searched 2/7",
+        "health": 94, "moodles": {"endurance": 3}, "wounds": [],
+        "weapon": "baseball bat (65%)", "inventory": {"food": ["crackers"], "drink": ["water bottle 3/10"]},
+        "weight": "5.0/12", "zombies": [], "home": HOME_EAST, "water": [],
+        "unlooted": ["this house"], "looted": [],
+        "recent": ["14:15 killed 3 zombies at the front door"], "last_goal": "fight: done",
+    }, legal=["rest", "loot_here", "eat", "explore", "wait"],
+       sensible=["rest"], bad=["explore"]),
+
+    snap("exhausted_zombies_close", "Exhausted, two zombies chasing, open house beside", {
+        "time": "Day 3 14:30, afternoon", "weather": "clear, 22C",
+        "where": "outside on Ash St, house with open door 5 tiles W", "building": None,
+        "health": 90, "moodles": {"endurance": 3}, "wounds": [],
+        "weapon": "kitchen knife (40%)", "inventory": {"food": [], "drink": ["water bottle 2/10"]},
+        "weight": "4.5/12",
+        "zombies": [{"count": 2, "dist": 7, "dir": "E", "state": "chasing you"}],
+        "home": HOME_EAST, "water": [], "unlooted": [], "looted": [],
+        "recent": ["14:25 ran out of breath fighting"], "last_goal": "fight: aborted",
+    }, legal=["fight", "flee", "hide", "rest", "wait"],
+       sensible=["hide", "flee"], bad=["rest", "wait", "fight"]),
+
+    snap("unarmed_has_weapon", "Fists equipped, hammer in bag, zombie nearby", {
+        "time": "Day 2 10:00, morning", "weather": "clear, 18C",
+        "where": "outside on Elm St", "building": None,
+        "health": 100, "moodles": {}, "wounds": [],
+        "weapon": "none (fists)",
+        "inventory": {"food": ["apple"], "drink": ["water bottle 9/10"], "weapons": ["claw hammer (95%)"]},
+        "weight": "3.0/12",
+        "zombies": [{"count": 1, "dist": 15, "dir": "S", "state": "wandering"}],
+        "home": HOME_EAST, "water": [], "unlooted": ["house 25 tiles N"], "looted": [],
+        "recent": ["09:50 found a claw hammer in a shed"], "last_goal": "loot_here: done",
+    }, legal=["equip_weapon", "fight", "flee", "loot_building", "explore", "wait"],
+       sensible=["equip_weapon"], bad=["fight"]),
+
+    snap("panic_after_chase", "Panicked indoors after losing a group", {
+        "time": "Day 3 18:00, evening", "weather": "overcast, 15C",
+        "where": "inside a house on Birch Rd, bathroom",
+        "building": "front door closed and locked, back door closed, containers searched 0/8",
+        "health": 97, "moodles": {"panic": 3, "stress": 2, "endurance": 2}, "wounds": [],
+        "weapon": "crowbar (85%)", "inventory": {"food": ["canned tuna"], "drink": ["water bottle 5/10"]},
+        "weight": "6.0/12", "zombies": [], "home": HOME_EAST, "water": [],
+        "unlooted": ["this house"], "looted": [],
+        "recent": ["17:55 lost a group of 6 zombies that chased me"], "last_goal": "flee: done",
+    }, legal=["rest", "hide", "wait", "loot_here", "explore", "eat"],
+       sensible=["rest", "hide", "wait"], bad=["explore"]),
+
+    snap("soaked_cold", "Soaked and cold in heavy rain, home close", {
+        "time": "Day 4 11:00, morning", "weather": "heavy rain, 6C",
+        "where": "outside on Spruce St", "building": None,
+        "health": 98, "moodles": {"wet": 3, "cold": 2}, "wounds": [],
+        "weapon": "baseball bat (80%)",
+        "inventory": {"food": ["crackers"], "drink": ["water bottle 6/10"], "clothing": ["dry hoodie", "dry jeans"]},
+        "weight": "6.0/12", "zombies": [], "home": "house 25 tiles E (secured)", "water": [],
+        "unlooted": ["house 60 tiles W"], "looted": [],
+        "recent": ["10:30 rain started"], "last_goal": "explore: walking",
+    }, legal=["change_clothes", "retreat_home", "loot_building", "explore", "wait"],
+       sensible=["retreat_home"], bad=["explore"]),
+
+    snap("food_poisoning", "Queasy from bad food, only rotten food left", {
+        "time": "Day 5 13:00, afternoon", "weather": "clear, 20C",
+        "where": "inside home base, bedroom", "building": "home base, secured",
+        "health": 85, "moodles": {"sick": 2, "hunger": 1, "tired": 1}, "wounds": [],
+        "weapon": "axe (90%)",
+        "inventory": {"food": ["rotten chicken", "rotten burger"], "drink": ["water bottle 5/10"]},
+        "weight": "6.0/12", "zombies": [], "home": "you are at home base", "water": [],
+        "unlooted": ["corner shop 60 tiles W"], "looted": ["6 houses"],
+        "recent": ["12:10 ate a stale sandwich, now feeling queasy"], "last_goal": "eat: done",
+    }, legal=["eat", "rest", "sleep", "drink", "wait", "loot_building"],
+       sensible=["rest", "sleep", "drink", "wait"], bad=["eat"]),
+
+    snap("water_shutoff", "Taps are off, thirsty, bottle in bag", {
+        "time": "Day 14 12:00, midday", "weather": "clear, 24C",
+        "where": "inside a house on Oak Ave, bathroom", "building": "doors closed, containers searched 5/9",
+        "health": 100, "moodles": {"thirst": 2}, "wounds": [],
+        "weapon": "axe (75%)", "inventory": {"food": ["canned corn", "can opener"], "drink": ["water bottle 6/10"]},
+        "weight": "7.0/12", "zombies": [], "home": HOME_EAST,
+        "water": ["kitchen sink here: taps OFF (water shut off on Day 9)"],
+        "unlooted": ["this house"], "looted": [],
+        "recent": ["11:50 tried the tap: no water"], "last_goal": "loot_here: in progress",
+    }, legal=["drink", "loot_here", "loot_building", "explore", "wait"],
+       sensible=["drink"]),
+
+    snap("all_good_daytime", "Everything fine, morning, at home", {
+        "time": "Day 5 10:00, morning", "weather": "clear, 20C",
+        "where": "inside home base, kitchen", "building": "home base, secured, 15 cans, 30 L water stored",
+        "health": 100, "moodles": {}, "wounds": [],
+        "weapon": "axe (90%)", "inventory": {"food": ["canned beans"], "drink": ["water bottle 10/10"], "medical": ["bandage x4"]},
+        "weight": "6.0/12", "zombies": [], "home": "you are at home base", "water": [],
+        "unlooted": ["gas station 80 tiles S", "school 140 tiles E"], "looted": ["6 houses"],
+        "recent": ["09:40 woke up"], "last_goal": "sleep: done",
+    }, legal=["loot_building", "explore", "rest", "eat", "wait"],
+       sensible=["loot_building", "explore"]),
+
+    snap("zombies_at_door", "Two zombies banging on the front door, back door open", {
+        "time": "Day 3 19:00, dusk", "weather": "clear, 15C",
+        "where": "inside a house on Pine St, kitchen",
+        "building": "front door closed (2 zombies banging on it), back door OPEN, containers searched 5/8",
+        "health": 100, "moodles": {}, "wounds": [],
+        "weapon": "baseball bat (75%)", "inventory": {"food": ["chips"], "drink": ["water bottle 6/10"]},
+        "weight": "5.0/12",
+        "zombies": [{"count": 2, "dist": 6, "dir": "N", "state": "banging on the front door"}],
+        "home": HOME_EAST, "water": [], "unlooted": ["this house"], "looted": [],
+        "recent": ["18:55 zombies started banging on the door"], "last_goal": "loot_here: in progress",
+    }, legal=["secure_building", "fight", "flee", "hide", "loot_here", "wait"],
+       sensible=["secure_building", "fight"], bad=["loot_here", "wait"]),
+
+    snap("dusk_far_from_home", "Sunset soon, home far, house nearby", {
+        "time": "Day 2 19:40, sunset in 20 min", "weather": "clear, 16C",
+        "where": "outside on Cherry Ln", "building": None,
+        "health": 100, "moodles": {"hunger": 1}, "wounds": [],
+        "weapon": "golf club (70%)", "inventory": {"food": ["apple"], "drink": ["water bottle 5/10"]},
+        "weight": "5.0/12",
+        "zombies": [{"count": 1, "dist": 40, "dir": "S", "state": "wandering"}],
+        "home": "house 150 tiles W (secured)", "water": [],
+        "unlooted": ["house 10 tiles N (doors closed)"], "looted": [],
+        "recent": ["19:20 explored Cherry Ln"], "last_goal": "explore: walking",
+    }, legal=["retreat_home", "loot_building", "explore", "wait"],
+       sensible=["retreat_home", "loot_building"], bad=["explore"]),
+
+    snap("pain_painkillers", "Severe pain from a bandaged wound, painkillers in bag", {
+        "time": "Day 4 13:00, afternoon", "weather": "overcast, 17C",
+        "where": "inside home base, living room", "building": "home base, secured",
+        "health": 78, "moodles": {"pain": 3, "tired": 1}, "wounds": ["right thigh: deep wound (bandaged, not bleeding)"],
+        "weapon": "axe (85%)",
+        "inventory": {"food": ["canned soup"], "drink": ["water bottle 8/10"], "medical": ["painkillers x6", "bandage x1"]},
+        "weight": "6.0/12", "zombies": [], "home": "you are at home base", "water": [],
+        "unlooted": ["pharmacy 90 tiles S"], "looted": ["5 houses"],
+        "recent": ["12:40 bandaged my thigh"], "last_goal": "bandage: done",
+    }, legal=["take_medicine", "bandage", "rest", "sleep", "loot_building", "wait"],
+       sensible=["take_medicine", "rest"], bad=["loot_building"]),
+
+    snap("weapon_breaking", "Knife about to break, fire axe in bag, zombies near", {
+        "time": "Day 6 11:00, morning", "weather": "clear, 19C",
+        "where": "outside on Elm St", "building": None,
+        "health": 100, "moodles": {}, "wounds": [],
+        "weapon": "kitchen knife (5%, about to break)",
+        "inventory": {"food": ["crackers"], "drink": ["water bottle 7/10"], "weapons": ["fire axe (100%)"]},
+        "weight": "8.0/12",
+        "zombies": [{"count": 2, "dist": 14, "dir": "W", "state": "wandering"}],
+        "home": HOME_EAST, "water": [], "unlooted": ["house 30 tiles N"], "looted": [],
+        "recent": ["10:50 knife is almost broken"], "last_goal": "loot_building: walking",
+    }, legal=["equip_weapon", "fight", "flee", "loot_building", "wait"],
+       sensible=["equip_weapon"], bad=["fight"]),
+
+    snap("surrounded", "Four zombies within 5 tiles on three sides", {
+        "time": "Day 3 16:00, afternoon", "weather": "clear, 20C",
+        "where": "outside in a backyard on Maple St, fence to the N", "building": None,
+        "health": 90, "moodles": {"endurance": 1, "panic": 2}, "wounds": [],
+        "weapon": "baseball bat (60%)", "inventory": {"food": ["apple"], "drink": ["water bottle 4/10"]},
+        "weight": "5.0/12",
+        "zombies": [{"count": 1, "dist": 3, "dir": "E", "state": "chasing you"},
+                    {"count": 1, "dist": 4, "dir": "S", "state": "chasing you"},
+                    {"count": 2, "dist": 5, "dir": "W", "state": "chasing you"}],
+        "home": HOME_EAST, "water": [], "unlooted": [], "looted": [],
+        "recent": ["15:58 zombies came through the side gates"], "last_goal": "loot_here: interrupted",
+    }, legal=["fight", "flee", "hide", "eat", "wait"],
+       sensible=["flee", "fight"], bad=["eat", "wait", "hide"]),
+
+    snap("extreme_thirst_blocked", "Dying of thirst, the only sink is guarded by 2 zombies", {
+        "time": "Day 4 12:00, midday", "weather": "clear, 27C",
+        "where": "outside on Cedar St", "building": None,
+        "health": 58, "moodles": {"thirst": 4}, "wounds": [],
+        "weapon": "baseball bat (80%)", "inventory": {"food": ["crackers"], "drink": []}, "weight": "4.0/12",
+        "zombies": [{"count": 2, "dist": 18, "dir": "N", "state": "standing in the yard of the house with the sink"}],
+        "home": "house 200 tiles E", "water": ["kitchen sink in house 20 tiles N (taps on)"],
+        "unlooted": ["house 20 tiles N"], "looted": [],
+        "recent": ["11:30 last water bottle ran out"], "last_goal": "explore: walking",
+    }, legal=["drink", "fight", "flee", "explore", "loot_building", "wait"],
+       sensible=["fight", "drink"], bad=["explore", "wait"]),
+
+    snap("night_home_not_tired", "1 am at a secured home, not tired, all needs fine", {
+        "time": "Day 6 01:00, night (dark)", "weather": "clear, 9C",
+        "where": "inside home base, living room", "building": "home base, secured",
+        "health": 100, "moodles": {}, "wounds": [],
+        "weapon": "axe (85%)", "inventory": {"food": ["canned peaches"], "drink": ["water bottle 10/10"]},
+        "weight": "6.0/12", "zombies": [], "home": "you are at home base", "water": [],
+        "unlooted": ["gas station 80 tiles S"], "looted": ["6 houses"],
+        "recent": ["Day 5 21:00 slept until midnight"], "last_goal": "sleep: done",
+    }, legal=["wait", "rest", "explore", "loot_building", "eat"],
+       sensible=["wait", "rest"], bad=["explore", "loot_building"]),
+
+    snap("helicopter_event", "Helicopter overhead pulling zombies from across town", {
+        "time": "Day 7 10:30, morning", "weather": "clear, 18C",
+        "where": "outside on Oak Ave, house with closed doors 8 tiles S", "building": None,
+        "health": 100, "moodles": {"stress": 1}, "wounds": [],
+        "weapon": "axe (85%)", "inventory": {"food": ["canned beans"], "drink": ["water bottle 8/10"]},
+        "weight": "6.0/12",
+        "zombies": [{"count": 10, "dist": 25, "dir": "N", "state": "heading this way"},
+                    {"count": 8, "dist": 32, "dir": "W", "state": "heading this way"},
+                    {"count": 7, "dist": 40, "dir": "S", "state": "heading this way"}],
+        "noise": "HELICOPTER circling overhead, zombies converging on it",
+        "home": HOME_EAST, "water": [], "unlooted": ["house 8 tiles S"], "looted": [],
+        "recent": ["10:25 heard a helicopter"], "last_goal": "loot_building: walking",
+    }, legal=["retreat_home", "hide", "flee", "fight", "loot_building", "explore"],
+       sensible=["retreat_home", "hide", "flee"], bad=["fight", "explore"]),
+]
+
+# Older memory lines used by --long to push prompts towards the ~1.5k-token budget.
+LONG_MEMORY = [
+    "Day 1 09:30 found a kitchen knife in the house on Elm St",
+    "Day 1 10:05 searched the bedroom: socks, a book, nothing useful",
+    "Day 1 11:20 killed a zombie in the back garden",
+    "Day 1 12:00 ate a sandwich",
+    "Day 1 13:45 neighbour house E had 2 cans of soup and a water bottle",
+    "Day 1 15:10 saw 6 zombies walking N along Oak Ave",
+    "Day 1 17:30 locked the doors and closed the curtains",
+    "Day 1 21:00 slept until 06:40",
+    "Day 2 07:10 drank from the kitchen sink",
+    "Day 2 08:00 looted the garage: hammer, nails, duct tape",
+    "Day 2 09:15 a zombie followed me two streets, lost it behind the church",
+    "Day 2 10:40 the corner shop window is broken, zombies inside",
+    "Day 2 12:30 house on Birch Rd: bandages and painkillers in the bathroom",
+    "Day 2 14:00 heard gunshots far to the S",
+    "Day 2 16:20 the gas station has 3 zombies by the pumps",
+    "Day 2 18:00 returned to Elm St, dropped off food",
+    "Day 3 07:00 power is still on",
+    "Day 3 09:30 found a backpack (capacity +6)",
+    "Day 3 11:00 killed 2 zombies with the bat",
+    "Day 3 13:20 the school gates are open, many zombies in the yard",
+    "Day 3 15:45 searched 2 houses on Pine St: mostly clothes",
+    "Day 3 18:10 barricaded the back window at home",
+    "Day 4 08:00 rain all morning",
+    "Day 4 10:30 lost my golf club, it broke",
+    "Day 4 12:15 found a crowbar in a toolbox",
+]
