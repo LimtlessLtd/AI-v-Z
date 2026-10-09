@@ -242,9 +242,10 @@ def summarize(raw, mem, rng=random):
     }
 
     # which goals the mod can carry out right now, with their arguments
-    seen = [z for z in zombies if z.get("seen")]
+    # a zombie that's chasing you is a target even when it's behind you or round a corner
+    targets = [z for z in zombies if z.get("seen") or z.get("chasing")]
     args = {}
-    if any(z["d"] <= 15 for z in seen):
+    if any(z["d"] <= 15 for z in targets):
         args["fight"] = ()
     if any(z["d"] <= 25 for z in zombies):
         args["flee"] = ()

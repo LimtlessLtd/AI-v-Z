@@ -130,6 +130,20 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(plan.goal, "flee")
         self.assertTrue(plan.clear)
 
+    def test_fights_a_lone_zombie_bare_handed_despite_a_distant_horde(self):
+        # the first in-game run: unarmed, one zombie on top of us, 40 heard 30 tiles away. It kept fleeing.
+        raw = copy.deepcopy(RAW)
+        raw["bld"], raw["outside"], raw["weapon"] = None, True, None
+        raw["zombies"] = ([{"dx": -0.5, "dy": -0.5, "d": 0.7, "seen": True, "chasing": True}]
+                          + [{"dx": 20, "dy": -22, "d": 30, "seen": False, "chasing": False}] * 40)
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "fight")
+
+    def test_chasing_zombie_out_of_sight_can_be_fought(self):
+        raw = copy.deepcopy(RAW)
+        raw["zombies"] = [{"dx": 0, "dy": 3, "d": 3, "seen": False, "chasing": True}]
+        self.assertIn("fight", summarize(raw, Memory(), random.Random(1)).legal)
+
     def test_keeps_running_goal_unless_something_is_much_better(self):
         s = summarize(RAW, Memory(), random.Random(1))
         plan = strategy.plan(s.percept, s.legal, current_goal="loot_here", current_running=True)

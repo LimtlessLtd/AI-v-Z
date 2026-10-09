@@ -31,6 +31,10 @@ def features(p):
     chasing = sum(z["count"] for z in zs if z["dist"] <= 15 and re.search(r"chasing|banging", z["state"]))
     near = sum(z["count"] for z in zs if z["dist"] <= 20)
     horde = any(z["count"] >= 10 for z in zs) or sum(z["count"] for z in zs) >= 15 or bool(p.get("noise"))
+    # A horde in the distance is a reason to shelter, not to let one zombie chew on you: in game, 40 heard
+    # 30 tiles away stopped the AI fighting the single zombie on top of it. Only a close one rules out fighting.
+    close = [z for z in zs if z["dist"] <= 20]
+    horde_close = any(z["count"] >= 10 for z in close) or sum(z["count"] for z in close) >= 15
     weapon_cond = 0 if "none" in p["weapon"] else _condition(p["weapon"])
     spare = [w for w in p["inventory"].get("weapons", []) if _condition(w) > max(weapon_cond, 30)]
     building = p.get("building") or ""
@@ -38,10 +42,12 @@ def features(p):
     weight, cap = _weight(p)
     food = p["inventory"].get("food", [])
     return {
-        "chasing": chasing, "near": near, "horde": horde,
+        "chasing": chasing, "near": near, "horde": horde, "horde_close": horde_close,
         "nearest": min((z["dist"] for z in zs), default=999),
         "weapon_cond": weapon_cond, "spare_weapon": bool(spare),
-        "can_fight": chasing <= 3 and _level(p, "endurance") <= 1 and weapon_cond >= 30,
+        # armed: up to 3 chasing. Bare hands: one zombie, nothing else close (shove it down, stomp it)
+        "can_fight": _level(p, "endurance") <= 1 and ((chasing <= 3 and weapon_cond >= 30)
+                                                       or (chasing == 1 and near <= 2)),
         "indoors": p["where"].startswith("inside"),
         "at_home": (p["home"] or "").startswith("you are at home"),
         "secured": "secured" in building or ("locked" in building and "OPEN" not in building),
@@ -90,7 +96,7 @@ def score_goals(p, legal):
         add("hide", 80)
         add("retreat_home", 85 if not f["indoors"] else 0)
         add("flee", 60)
-        add("fight", -100)
+        add("fight", -100 if f["horde_close"] or not danger else 0)
         add("explore", -80)
         add("loot_building", -60)
     if f["open_building"] and (f["near"] or f["dark"] or f["dusk"]):

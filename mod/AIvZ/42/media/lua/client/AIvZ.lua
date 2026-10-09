@@ -252,6 +252,19 @@ local MOODLES = { "HUNGRY", "THIRST", "TIRED", "ENDURANCE", "PANIC", "PAIN", "SI
 local function stat(p, k) return try(function() return p:getStats():get(CharacterStat[k]) end) or 0 end
 local function moodle(p, k) return try(function() return p:getMoodles():getMoodleLevel(MoodleType[k]) end) or 0 end
 
+-- Is a wall, door or window between you and a zombie within ~3 tiles? Checks the first step from your
+-- square towards it. Without this, a zombie banging on the other side of a shop door got shoved at
+-- forever and the AI never ran.
+local function blockedTowards(p, dx, dy)
+	local psq = p:getCurrentSquare()
+	if not psq then return false end
+	local sx = (dx > 0.5 and 1) or (dx < -0.5 and -1) or 0
+	local sy = (dy > 0.5 and 1) or (dy < -0.5 and -1) or 0
+	if sx == 0 and sy == 0 then return false end
+	local nsq = sqAt(psq:getX() + sx, psq:getY() + sy, psq:getZ())
+	return nsq ~= nil and try(function() return psq:isBlockedTo(nsq) end) == true
+end
+
 -- every zombie on this floor within 45 tiles, nearest first, scanned at most once per tick
 local function allZombies(p)
 	if S.zc and S.zc.tick == S.tick then return S.zc.list end
@@ -267,7 +280,8 @@ local function allZombies(p)
 				local sq = z:getCurrentSquare()
 				local seen = (sq and try(function() return sq:isCanSee(0) end)) and true or false
 				local chasing = try(function() return z:getTarget() == p end) and true or false
-				out[#out + 1] = { z = z, d = d, dx = dx, dy = dy, seen = seen, chasing = chasing }
+				local blocked = d < 3 and blockedTowards(p, dx, dy) or false
+				out[#out + 1] = { z = z, d = d, dx = dx, dy = dy, seen = seen, chasing = chasing, blocked = blocked }
 			end
 		end
 	end
@@ -276,7 +290,7 @@ local function allZombies(p)
 	return out
 end
 
--- zombies within R tiles (R <= 45), nearest first: {z, d, dx, dy, seen, chasing}
+-- zombies within R tiles (R <= 45), nearest first: {z, d, dx, dy, seen, chasing, blocked}
 function A.zombies(p, R)
 	local out = {}
 	for _, e in ipairs(allZombies(p)) do
@@ -498,7 +512,7 @@ function A.percept(p)
 	local zs = {}
 	for i, e in ipairs(A.zombies(p, 40)) do
 		if i > 60 then break end
-		zs[#zs + 1] = { dx = r1(e.dx), dy = r1(e.dy), d = r1(e.d), seen = e.seen, chasing = e.chasing }
+		zs[#zs + 1] = { dx = r1(e.dx), dy = r1(e.dy), d = r1(e.d), seen = e.seen, chasing = e.chasing, blocked = e.blocked }
 	end
 	s.zombies = zs
 	if not S.cache.water or S.tick - S.cache.water.at > 120 then S.cache.water = { at = S.tick, list = A.scanWater(p, 12) } end
@@ -535,8 +549,9 @@ function A.swing(p, e, w)
 	if p:isAttackStarted() or try(function() return p:isPerformingAttackAnimation() end) then return end
 	local down = try(function() return z:isOnFloor() end) and true or false
 	pcall(function() p:setAimAtFloor(down) end)
-	-- inside a weapon's reach a swing whiffs, and fists only shove: push it back instead
-	if not isMelee(w) or (e.d < 0.75 and not down) then pcall(function() p:setDoShove(true) end) end
+	-- a zombie on the floor gets stomped (bare hands) or hit low (weapon). Standing: fists shove it
+	-- down, and inside a weapon's reach a swing whiffs, so push it back instead
+	if not down and (not isMelee(w) or e.d < 0.75) then pcall(function() p:setDoShove(true) end) end
 	p:setIsAiming(true)
 	p:DoAttack(0)
 end
@@ -576,7 +591,7 @@ end
 function A.reflex(p)
 	if p:getVehicle() then return false end
 	local zs = {}
-	for _, e in ipairs(A.zombies(p, 3.5)) do if e.seen then zs[#zs + 1] = e end end
+	for _, e in ipairs(A.zombies(p, 3.5)) do if (e.seen or e.chasing) and not e.blocked then zs[#zs + 1] = e end end
 	if #zs == 0 then
 		if S.aiming then pcall(function() p:setIsAiming(false) end); S.aiming = false end
 		return false
@@ -891,7 +906,7 @@ end
 
 A.tasks.fight = function(p, t)
 	local vis = {}
-	for _, e in ipairs(A.zombies(p, 15)) do if e.seen then vis[#vis + 1] = e end end
+	for _, e in ipairs(A.zombies(p, 15)) do if (e.seen or e.chasing) and not e.blocked then vis[#vis + 1] = e end end
 	if #vis == 0 then
 		pcall(function() p:setIsAiming(false) end)
 		return done(t, "no zombies in sight")
@@ -924,8 +939,14 @@ A.tasks.flee = function(p, t)
 		return done(t, "got away")
 	end
 	if t.phase == "start" or qlen(p) == 0 then
-		t.legs = (t.legs or 0) + 1
-		if t.legs > 6 then pcall(function() p:setRunning(false) end); return done(t, "ran a long way") end
+		-- a leg only counts if it got us somewhere; legs that went nowhere (no path, interrupted) mean stuck
+		if t.legX then
+			local moved = math.abs(p:getX() - t.legX) + math.abs(p:getY() - t.legY)
+			if moved >= 3 then t.legs, t.stuck = (t.legs or 0) + 1, 0 else t.stuck = (t.stuck or 0) + 1 end
+		end
+		if (t.legs or 0) >= 6 then pcall(function() p:setRunning(false) end); return done(t, "ran a long way") end
+		if (t.stuck or 0) >= 4 then pcall(function() p:setRunning(false) end); return fail(t, "stuck, can't get away") end
+		t.legX, t.legY = p:getX(), p:getY()
 		local sq = A.fleeSquare(p, zs, 14)
 		if not sq then return fail(t, "nowhere to run") end
 		ISTimedActionQueue.clear(p)
