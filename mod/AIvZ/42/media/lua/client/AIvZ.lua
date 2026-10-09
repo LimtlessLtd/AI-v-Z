@@ -1,9 +1,11 @@
--- AIvZ.lua: the game half of AI-v-Z (Project Zomboid Build 42, singleplayer).
+-- AIvZ.lua: the game half of AI-v-Z (Project Zomboid Build 42, singleplayer): the rules baseline, and the
+-- motor skills and helpers the self-taught agent's gym (AIvZGym.lua) builds on. While the agent is
+-- connected (its heartbeat in aivz/gym.txt), the gym plays instead of the baseline.
 --
 --   percept OUT  ~/Zomboid/Lua/aivz/percept.json  about twice a second (what the character perceives)
 --   intent   IN  ~/Zomboid/Lua/aivz/intent.txt    "seq|goal|a1|a2|a3|say|why|source", written by bridge/bridge.py
 --
--- Layers in this file:
+-- Layers in this file (the baseline):
 --   reflex  every few ticks: swing, shove, grab a weapon or break away from zombies within ~3 tiles
 --   tactics carries out the goal the bridge picked (walk, loot, eat, drink, bandage, fight, flee, close up,
 --           go home, sleep, drop junk). Locked buildings are entered through a window.
@@ -18,7 +20,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.3.0"
+A.VERSION = "0.4.0"
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -681,7 +683,7 @@ function A.scanWater(p, R)
 end
 
 function A.percept(p)
-	local s = { v = 1, ver = A.VERSION, tick = S.tick, ack = S.lastSeq, manual = S.manual, err = S.err, kills = mem(p).kills or 0 }
+	local s = { v = 1, ver = A.VERSION, gym = A.gym and A.gym.VERSION or nil, tick = S.tick, ack = S.lastSeq, manual = S.manual, err = S.err, kills = mem(p).kills or 0 }
 	s.dead = p:isDead()
 	s.asleep = try(function() return p:isAsleep() end) == true
 	local d = p:getDescriptor()
@@ -1623,6 +1625,19 @@ A.tasks.drop_weight = function(p, t)
 	end
 end
 
+---------------------------------------------------------------- shared with AIvZGym.lua
+-- The gym (the self-taught agent's side of the mod) reuses these helpers and motor skills.
+A.u = {
+	try = try, P = P, sqAt = sqAt, r1 = r1, r2 = r2, Q = Q, bkey = bkey, qlen = qlen, split = split, dir8 = dir8,
+	getSpeed = getSpeed, setSpeed = setSpeed, writeFile = writeFile, readFirstLine = readFirstLine, mem = mem,
+	objList = objList, isDoor = isDoor, isWindow = isWindow, isBed = isBed, winIs = winIs, containersOn = containersOn,
+	waterAmount = waterAmount, eachItem = eachItem, foodValue = foodValue, waterIn = waterIn, medKind = medKind,
+	isMelee = isMelee, weaponScore = weaponScore, craftable = craftable, sealedCan = sealedCan, isBackBag = isBackBag,
+	backBag = backBag, bagCapacity = bagCapacity, carryInv = carryInv, stat = stat, moodle = moodle, STATS = STATS,
+	MOODLES = MOODLES, done = done, fail = fail, pathTo = pathTo, farthestFree = farthestFree,
+	closeOpening = closeOpening, closeCurtain = closeCurtain, roomNames = roomNames,
+}
+
 ---------------------------------------------------------------- intent from the bridge
 function A.pollIntent(p)
 	local line = readFirstLine("intent.txt")
@@ -1686,6 +1701,11 @@ function A.onTick()
 	if who and who ~= S.who then
 		if S.who then S.cache, S.task, S.zc = {}, nil, nil end
 		S.who = who
+	end
+	-- the self-taught agent is connected: it plays (AIvZGym.lua); you can still take over with the keys
+	if A.gym and A.gym.active() and (p:isDead() or not S.manual) then
+		safe("gym", A.gym.tick, p)
+		return
 	end
 	if p:isDead() then
 		H.action = "DEAD"
@@ -1851,5 +1871,12 @@ end
 
 -- called by the loader after a hot reload: rebuild the HUD so it uses the new code
 function A.afterReload()
+	-- a game started before AIvZGym.lua existed runs the old loader, which only reloads this file
+	if AIvZLoader and not AIvZLoader.FILES and AIvZLoader.path then
+		pcall(function()
+			local path = AIvZLoader.path():gsub("AIvZ%.lua$", "AIvZGym.lua")
+			reloadLuaFile(path)
+		end)
+	end
 	if P() then A.startHUD() end
 end

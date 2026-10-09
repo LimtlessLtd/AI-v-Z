@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-v-Z agent</title>
+<style>
+  :root { --bg:#0f1317; --panel:#161c22; --line:#26303a; --text:#dde3ea; --muted:#8899aa; --accent:#7fd1b9; --warn:#ffd479; --bad:#e05555; --good:#7fd17f; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1150px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+  header { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 18px; color: var(--accent); }
+  h2 { margin: 0 0 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+  .wide { grid-column: 1 / -1; }
+  .big { font-size: 22px; font-weight: 600; }
+  .muted { color: var(--muted); }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 2px 10px; font-size: 13px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td, th { padding: 3px 6px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.chosen td { background: #1f2d27; color: var(--accent); font-weight: 600; }
+  .pos { color: var(--good); } .neg { color: var(--bad); }
+  .opts { max-height: 380px; overflow: auto; }
+  #chart { width: 100%; height: 140px; display: block; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>AI-v-Z: the self-taught agent</h1><span id="status" class="muted">connecting…</span></header>
+
+  <section>
+    <h2>This life</h2>
+    <div class="big" id="who">–</div>
+    <div class="kv" id="life"></div>
+  </section>
+
+  <section>
+    <h2>Body and surroundings</h2>
+    <div class="kv" id="body"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Hours survived per life <span class="muted" id="avg" style="text-transform:none;letter-spacing:0"></span></h2>
+    <svg id="chart" viewBox="0 0 1000 140" preserveAspectRatio="none"></svg>
+  </section>
+
+  <section>
+    <h2>The decision <span class="muted" id="reason" style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class="opts"><table id="options"></table></div>
+  </section>
+
+  <section>
+    <h2>Last reward</h2>
+    <div class="kv" id="reward"></div>
+    <h2 style="margin-top:12px">Recent</h2>
+    <div id="recent" class="muted" style="font-size:12px"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Lives</h2>
+    <table id="lives"></table>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const kv = obj => Object.entries(obj).filter(([, v]) => v !== undefined && v !== null && v !== "")
+  .map(([k, v]) => `<span>${esc(k)}</span><span>${v}</span>`).join("");
+const sign = v => v > 0 ? `<span class="pos">+${v}</span>` : v < 0 ? `<span class="neg">${v}</span>` : String(v);
+function what(o) {
+  return o.name || o.recipe || o.dir || o.part || o.type || (o.rooms ? o.rooms.join("/") : "") || "";
+}
+function detail(o) {
+  const bits = [];
+  if (o.d !== undefined) bits.push(o.d + " tiles");
+  if (o.zombies) bits.push(o.zombies + " zombies that way");
+  if (o.chasing) bits.push("chasing");
+  if (o.open !== undefined) bits.push(o.open ? "open" : "closed");
+  if (o.locked) bits.push("locked");
+  if (o.hunger) bits.push("hunger " + o.hunger);
+  if (o.water) bits.push(o.water + " L");
+  if (o.dmg) bits.push("dmg " + o.dmg);
+  if (o.rotten) bits.push("rotten");
+  if (o.from) bits.push("in " + o.from);
+  return bits.join(", ");
+}
+function chart(lives) {
+  const svg = $("chart");
+  if (!lives.length) { svg.innerHTML = ""; $("avg").textContent = "(no finished lives yet)"; return; }
+  const max = Math.max(1, ...lives.map(l => l.hours));
+  const w = 1000 / lives.length;
+  svg.innerHTML = lives.map((l, i) => {
+    const h = 130 * l.hours / max;
+    return `<rect x="${i * w + 1}" y="${135 - h}" width="${Math.max(1, w - 2)}" height="${h}" fill="#7fd1b9"><title>life ${l.life}: ${l.hours} h, ${l.kills} kills</title></rect>`;
+  }).join("");
+  const last = lives.slice(-10), avg = last.reduce((a, l) => a + l.hours, 0) / last.length;
+  $("avg").textContent = `(last ${last.length}: average ${avg.toFixed(1)} game hours; best ever ${max} h)`;
+}
+async function tick() {
+  let s;
+  try { s = await (await fetch("/api/agent")).json(); } catch { $("status").textContent = "agent not reachable"; return; }
+  $("status").textContent = `${s.connected ? "playing" : "waiting for the game"} · ${s.policy} policy · ${s.decisions} decisions this session`;
+  const l = s.life;
+  $("who").textContent = l ? `Life ${l.number}: ${l.who}` : "–";
+  $("life").innerHTML = l ? kv({"game hours": l.hours, kills: l.kills, reward: l.reward, decisions: l.decisions,
+    "item kinds": l.items, buildings: l.buildings}) : "";
+  const o = s.obs || {}, t = o.t || {};
+  const moods = Object.entries(o.moodles || {}).map(([k, v]) => `${k} ${v}`).join(", ");
+  const wounds = (o.body || []).map(w => `${w.part}: ${(w.flags || []).join("/")}`).join("; ");
+  $("body").innerHTML = kv({time: t.hour !== undefined ? `day ${t.day} ${String(t.hour).padStart(2, "0")}:${String(t.min).padStart(2, "0")}` : "",
+    health: o.health, moodles: moods || "none", wounds: wounds || "none", carrying: o.weight !== undefined ? `${o.weight}/${o.maxWeight}` : "",
+    holding: o.held ? o.held.name : "nothing", zombies: `${o.zombies} within 30 tiles`,
+    where: o.where ? (o.where.outside ? "outside" : `inside, ${o.where.room || "a room"}`) : "",
+    "known nearby": o.near ? `${o.near.food} food, ${o.near.drink} drinks, ${o.near.weapon} weapons, ${o.near.medical} medical` : ""});
+  $("reason").textContent = s.reason ? `(asked because: ${s.reason})` : "";
+  $("options").innerHTML = `<tr><th>option</th><th></th><th>detail</th><th class="n">p</th></tr>` +
+    (s.options || []).map((op, i) => `<tr class="${i === s.choice ? "chosen" : ""}"><td>${esc(op.verb.replace(/_/g, " "))}</td>` +
+      `<td>${esc(what(op))}</td><td class="muted">${esc(detail(op))}</td><td class="n">${op.p == null ? "" : op.p.toFixed(2)}</td></tr>`).join("");
+  $("reward").innerHTML = s.parts && Object.keys(s.parts).length ? kv(Object.fromEntries(Object.entries(s.parts).map(([k, v]) => [k, sign(v)]))) : '<span class="muted">–</span>';
+  $("recent").innerHTML = (s.recent || []).map(esc).join("<br>") || "–";
+  chart(s.lives || []);
+  $("lives").innerHTML = `<tr><th>life</th><th>who</th><th class="n">game hours</th><th class="n">kills</th><th class="n">reward</th><th class="n">decisions</th><th>last choice</th><th>ended</th></tr>` +
+    (s.lives || []).slice().reverse().map(x => `<tr><td>${x.life}</td><td>${esc(x.who)}</td><td class="n">${x.hours}</td><td class="n">${x.kills}</td>` +
+      `<td class="n">${x.reward}</td><td class="n">${x.decisions}</td><td>${esc(x.last_choice)}</td><td class="muted">${esc(x.ended)} ${esc(x.finished)}</td></tr>`).join("");
+}
+setInterval(tick, 1000);
+tick();
+</script>
+</body>
+</html>
