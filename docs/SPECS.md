@@ -20,7 +20,7 @@ Re-run these checks if the hardware, driver, Ollama or game version changes.
 
 | Drive | Free | Notes |
 |---|---|---|
-| C: | **35.1 GB** | The old Ollama store (`%USERPROFILE%\.ollama\models`, 35.4 GB) is still here as a copy; Ollama no longer uses it |
+| C: | 62 GB | Was 35 GB until the old Ollama store (`%USERPROFILE%\.ollama\models`) was deleted on 2026-10-09 |
 | D: | 303 GB | Steam library with Project Zomboid |
 | E: | ~273 GB | This project (`E:\Source\AI-v-Z`) and, since 2026-10-08, **Ollama's model store** (`E:\Ollama\models`) |
 
@@ -44,8 +44,8 @@ Re-run these checks if the hardware, driver, Ollama or game version changes.
 Moved to **`E:\Ollama\models`** on 2026-10-08. The existing models were copied there (35.4 GB, 58 files),
 and the Ollama app's *Model location* setting now points at E:. That's the `models` column in
 `%LOCALAPPDATA%\Ollama\db.sqlite`, the same field the Settings screen writes. The server log confirms
-`OLLAMA_MODELS:E:\Ollama\models`. The old copy on C: is untouched; delete it to free 35 GB once you're
-happy everything works.
+`OLLAMA_MODELS:E:\Ollama\models`. All 50 blobs on E: were checked against their SHA-256 names
+(38.6 GiB, 0 mismatches) before the old copy on C: was deleted on 2026-10-09.
 
 The store holds 35 GB, not the 26 GB first measured: on the first run of each Qwen 3.5 model, Ollama 0.40.1
 made a converted copy (listed as `llamacpp:<hash>`; +2.7 GB for the 4B, +5.7 GB for the 9B). That's
