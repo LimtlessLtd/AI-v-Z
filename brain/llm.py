@@ -40,6 +40,14 @@ class OllamaBrain:
             raise ValueError(f"model picked {goal!r}, not one of {legal}")
         return goal, why, ms
 
+    def structured(self, messages, schema, num_predict=400, timeout=90):
+        """A longer answer in a JSON schema (plans, diary entries). Returns (obj, ms)."""
+        payload = {"model": self.model, "messages": messages, "format": schema, "think": False, "stream": False,
+                   "keep_alive": -1, "options": {**self.options, "num_predict": num_predict, "temperature": 0.6}}
+        t0 = time.perf_counter()
+        resp = self._post("/api/chat", payload, timeout=timeout)
+        return json.loads(resp["message"]["content"]), (time.perf_counter() - t0) * 1000
+
     def warm_up(self):
         """Load the model into memory so the first in-game decision isn't a 5-15 s cold start."""
         self._post("/api/generate", {"model": self.model, "prompt": "", "keep_alive": -1}, timeout=120)

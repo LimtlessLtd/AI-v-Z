@@ -76,6 +76,9 @@ def features(p):
         "near_visible": sum(z["count"] for z in zs if z["dist"] <= 20 and "out of sight" not in z["state"]),
         "has_drink": any(re.search(r"[1-9]\d*/\d+", d) for d in p["inventory"].get("drink", [])),
         "water_known": any("taps on" in w for w in p["water"]),
+        # a working tap a few steps away: a sip costs nothing
+        "water_near": any("taps on" in w and int((re.search(r"(\d+) tiles", w) or [0, 99])[1]) <= 10 for w in p["water"]),
+        "curtains_open": bool(re.search(r"\d+ curtains? open", building)),
         "shelter_near": "open door" in p["where"] or "closed doors" in p["where"],
     }
 
@@ -122,6 +125,8 @@ def score_goals(p, legal):
         add("loot_building", -60)
     if f["open_building"] and (f["near"] or f["dark"] or f["dusk"]):
         add("secure_building", 86)
+    elif f["curtains_open"] and f["indoors"] and (f["dark"] or f["dusk"] or f["at_home"]) and not danger:
+        add("secure_building", 70)   # draw the curtains: zombies see in through windows
     if f["bleeding"]:
         add("bandage", 92 if not danger else 20)
     if f["weapon_cond"] < 20 and f["spare_weapon"]:
@@ -131,11 +136,18 @@ def score_goals(p, legal):
         add("equip_weapon", 40)
 
     # 2. Critical needs.
-    add("drink", 30 + 15 * thirst if thirst >= 2 and (f["has_drink"] or f["water_known"]) else -5)
+    if thirst >= 2 and (f["has_drink"] or f["water_known"]):
+        add("drink", 30 + 15 * thirst)
+    elif thirst >= 1 and (f["has_drink"] or f["water_near"]) and not danger:
+        add("drink", 45)   # top up while it's right there (in game it said "thirsty" next to a tap and didn't drink)
+    else:
+        add("drink", -5)
     if thirst >= 4 and f["can_fight"]:
         add("fight", 85)  # clear the way to water
     if hunger >= 2 and f["has_food"]:
         add("eat", 30 + 15 * hunger)
+    elif hunger >= 1 and f["has_food"] and not danger:
+        add("eat", 38)
     if not f["has_food"]:
         add("eat", -50)
     if sick >= 2:

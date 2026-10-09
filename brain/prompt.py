@@ -23,7 +23,9 @@ weapon, or severe exhaustion means flee or hide instead."""
 
 SYSTEM_PROMPT = GAME_BRIEF + """
 
-Answer with JSON only: {"goal": one allowed goal id, "why": at most 12 words, first person, shown in a speech bubble}."""
+Answer with JSON only: {"goal": one allowed goal id, "why": at most 12 words, first person, shown in a speech bubble}.
+The "why" explains the goal you picked. Mention hunger, thirst or tiredness only if it's moderate or worse and
+it's the reason for the goal; don't list needs. Don't repeat your last line."""
 
 LEVELS = {1: "mild", 2: "moderate", 3: "severe", 4: "extreme"}
 
@@ -51,6 +53,8 @@ def render_percept(p, extra_memory=()):
     lines.append(f"HOME: {p['home'] or 'none yet'}.")
     lines.append(f"KNOWN WATER: {_join(p['water'])}.")
     lines.append(f"UNLOOTED: {_join(p['unlooted'])}. LOOTED: {_join(p['looted'])}.")
+    if p.get("plan"):
+        lines.append(f"YOUR PLAN: {p['plan']}.")
     memory = list(extra_memory) + list(p["recent"])
     lines.append("MEMORY:\n" + "\n".join(f"- {m}" for m in memory))
     lines.append(f"LAST GOAL: {p['last_goal'] or 'none'}.")

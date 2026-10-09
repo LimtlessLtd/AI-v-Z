@@ -7,7 +7,8 @@
 --   reflex  every few ticks: swing, shove, grab a weapon or break away from zombies within ~3 tiles
 --   tactics carries out the goal the bridge picked (walk, loot, eat, drink, bandage, fight, flee, close up,
 --           go home, sleep, drop junk). Locked buildings are entered through a window.
---   HUD     on-screen panel with the goal, the reason, the action and vitals (F7 hides it)
+--   HUD     on-screen panel with the goal, the reason, the action, the AI's own plan and vitals (F7 hides it)
+--   plan IN  ~/Zomboid/Lua/aivz/plan.txt "aim|step" (the bridge's planner), shown on the HUD
 -- The home base is remembered in the save (player mod data): the first building with a bed the AI closes
 -- up or sleeps in, moved when the AI shelters for the night somewhere far from it.
 -- G toggles auto fast-forward. Pressing a movement key hands control to you; the AI takes over again
@@ -18,7 +19,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.2.0"
+A.VERSION = "0.3.0"
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -323,11 +324,19 @@ local function isKeep(it)
 		or t:find("Flashlight") or t:find("Torch") or t:find("Battery")
 end
 
+-- a can opener, or a knife (most knives open cans in B42, slowly)
+local function isOpener(it)
+	local t = it:getType() or ""
+	return t:find("TinOpener") or t:find("CanOpener") or t:find("Knife")
+end
+
 -- what the AI carries, by kind, for the loot caps
 local function carried(p)
-	local n = { food = 0, water = 0, medical = 0 }
+	local n = { food = 0, water = 0, medical = 0, can = 0, opener = false }
 	eachItem(p:getInventory(), function(it)
-		if foodValue(it) then n.food = n.food + 1
+		if isOpener(it) then n.opener = true end
+		if sealedCan(it) then n.can = n.can + 1
+		elseif foodValue(it) then n.food = n.food + 1
 		elseif waterIn(it) or (try(function() return it:getFluidContainer() end) and not instanceof(it, "Food")) then n.water = n.water + 1
 		elseif medKind(it) then n.medical = n.medical + 1 end
 	end)
@@ -482,7 +491,7 @@ function A.scanBuilding(p, b, z)
 	local def = b:getDef()
 	local m = mem(p)
 	local info = { id = bkey(def), containers = 0, searched = 0, unsearched = {}, doorsOpen = {}, windowsOpen = {},
-		smashed = 0, food = {}, all = {} }
+		smashed = 0, food = {}, all = {}, curtainsOpen = {} }
 	local function inside(sq) return sq ~= nil and sq:getBuilding() == b end
 	for x = def:getX() - 1, def:getX2() do
 		for y = def:getY() - 1, def:getY2() do
@@ -513,6 +522,9 @@ function A.scanBuilding(p, b, z)
 						local other = o:getNorth() and sqAt(x, y - 1, z) or sqAt(x - 1, y, z)
 						if inside(sq) ~= inside(other) then
 							local open = try(function() return o:IsOpen() end)
+							-- an open curtain lets zombies see in (and light out at night)
+							local cur = isWindow(o) and o:HasCurtains() or nil
+							if cur and cur:IsOpen() then info.curtainsOpen[#info.curtainsOpen + 1] = { o = cur, sq = cur:getSquare() or sq } end
 							if isDoor(o) and open then info.doorsOpen[#info.doorsOpen + 1] = { o = o, sq = sq }
 							elseif isWindow(o) and winIs(o, "isSmashed") then
 								if not winIs(o, "isBarricaded") then info.smashed = info.smashed + 1 end
@@ -593,7 +605,7 @@ local function roomNames(def)
 	local rooms = def:getRooms()
 	for i = 0, rooms:size() - 1 do
 		local n = try(function() return rooms:get(i):getName() end)
-		if n and not seen[n] and #names < 4 then seen[n] = true; names[#names + 1] = n end
+		if n and not seen[n] and #names < 6 then seen[n] = true; names[#names + 1] = n end
 	end
 	return names
 end
@@ -629,7 +641,7 @@ function A.scanBuildings(p, R)
 		end
 	end
 	table.sort(out, function(a, b) return a.d < b.d end)
-	while #out > 10 do table.remove(out) end
+	while #out > 16 do table.remove(out) end
 	return out
 end
 
@@ -660,6 +672,8 @@ function A.percept(p)
 	local s = { v = 1, ver = A.VERSION, tick = S.tick, ack = S.lastSeq, manual = S.manual, err = S.err, kills = mem(p).kills or 0 }
 	s.dead = p:isDead()
 	s.asleep = try(function() return p:isAsleep() end) == true
+	local d = p:getDescriptor()
+	s.who = { name = d:getForename() .. " " .. d:getSurname(), save = tostring(getWorld():getWorld()) }
 	local px, py, pz = p:getX(), p:getY(), math.floor(p:getZ())
 	s.pos = { x = r1(px), y = r1(py), z = pz }
 	local gt = getGameTime()
@@ -683,13 +697,13 @@ function A.percept(p)
 		local b = sq:getBuilding()
 		s.bld = { id = info.id, doorsOpen = #info.doorsOpen, windowsOpen = #info.windowsOpen, containers = info.containers,
 			searched = info.searched, looted = mem(p).looted[info.id] and true or false, openings = openings,
-			smashed = info.smashed, food = #info.food, bed = b and hasBed(p, b) or false,
+			smashed = info.smashed, food = #info.food, bed = b and hasBed(p, b) or false, curtainsOpen = #info.curtainsOpen,
 			home = (mem(p).home and mem(p).home.id == info.id) or false }
 	end
 	local home = mem(p).home
 	if home then
 		local hx, hy = home.x + 0.5 - px, home.y + 0.5 - py
-		s.home = { x = home.x, y = home.y, z = home.z, d = r1(math.sqrt(hx * hx + hy * hy)), dir = dir8(hx, hy),
+		s.home = { id = home.id, x = home.x, y = home.y, z = home.z, d = r1(math.sqrt(hx * hx + hy * hy)), dir = dir8(hx, hy),
 			here = (info and info.id == home.id) or false }
 	end
 	local atHome = s.home and s.home.here or false
@@ -711,7 +725,8 @@ function A.percept(p)
 			score = r2(weaponScore(w) or 0) }
 	end
 	s.inv = A.inventory(p)
-	s.rags = ragSource(p) ~= nil
+	if not S.cache.rags or S.tick - S.cache.rags.at > 300 then S.cache.rags = { at = S.tick, ok = ragSource(p) ~= nil } end
+	s.rags = S.cache.rags.ok
 	local cans = 0
 	eachItem(p:getInventory(), function(it) if instanceof(it, "Food") and canRecipe(p, it) then cans = cans + 1 end end)
 	s.cans = cans
@@ -1044,6 +1059,11 @@ end
 -- Now: food it can eat as is (up to FOOD_CAP, nothing heavier than a kilo), drinks, medical supplies,
 -- a weapon only if clearly better, and a bigger backpack.
 local function wanted(it, ctx)
+	if sealedCan(it) then return (ctx.n.opener and ctx.n.can < 3) and "can" or nil end
+	if not ctx.n.opener and ((it:getType() or ""):find("TinOpener") or (it:getType() or ""):find("CanOpener")) then
+		ctx.n.opener = true
+		return "opener"
+	end
 	if foodValue(it) then
 		if ctx.n.food < FOOD_CAP and (try(function() return it:getUnequippedWeight() end) or 1) <= 1 then return "food" end
 		return nil
@@ -1116,7 +1136,7 @@ function A.lootStep(p, t)
 				names[#names + 1] = it:getDisplayName()
 				t.taking[#t.taking + 1] = it
 				if kind == "weapon" then ctx.best = weaponScore(it) end
-				if ctx.n[kind] then ctx.n[kind] = ctx.n[kind] + 1 end
+				if type(ctx.n[kind]) == "number" then ctx.n[kind] = ctx.n[kind] + 1 end
 			end
 		end
 		if #names > 0 then
@@ -1409,6 +1429,18 @@ local function closeOpening(p, e)
 	return true
 end
 
+-- a window's curtain hangs on its inside square; stand there (or next to it) and pull it, like the game's menu
+local function closeCurtain(p, e)
+	local sq = e.sq
+	if sq and sq:isFree(false) then
+		if sq ~= p:getCurrentSquare() then Q(ISWalkToTimedAction:new(p, sq)) end
+	elseif not luautils.walkAdjWindowOrDoor(p, sq, e.o, true) then
+		return false
+	end
+	Q(ISOpenCloseCurtain:new(p, e.o))
+	return true
+end
+
 A.tasks.secure_building = function(p, t)
 	if qlen(p) > 0 and S.tick - (t.t1 or 0) < 600 then return end
 	-- the building it started in: closing a door can leave you standing on its outside
@@ -1426,15 +1458,19 @@ A.tasks.secure_building = function(p, t)
 	local pick = nil
 	for _, e in ipairs(info.doorsOpen) do if (t.tries[e.o] or 0) < 2 then pick = e; break end end
 	if not pick then for _, e in ipairs(info.windowsOpen) do if (t.tries[e.o] or 0) < 2 then pick = e; break end end end
+	local curtain = false
+	if not pick then
+		for _, e in ipairs(info.curtainsOpen) do if (t.tries[e.o] or 0) < 2 then pick, curtain = e, true; break end end
+	end
 	if not pick then
 		A.maybeSetHome(p, t.b, info)
-		return done(t, "closed every door and window I could")
+		return done(t, "closed every door, window and curtain I could")
 	end
 	t.tries[pick.o] = (t.tries[pick.o] or 0) + 1
 	ISTimedActionQueue.clear(p)
-	closeOpening(p, pick)
+	if curtain then closeCurtain(p, pick) else closeOpening(p, pick) end
 	t.t1, t.resume = S.tick, "start"
-	H.action = "closing up the building"
+	H.action = curtain and "drawing the curtains" or "closing up the building"
 end
 
 A.tasks.hide = function(p, t)
@@ -1567,12 +1603,27 @@ function A.pollIntent(p)
 	if not S.manual then A.startTask(p, seq, goal, { parts[3], parts[4], parts[5] }) end
 end
 
+-- the AI's own plan (written by the bridge's planner), for the HUD: "aim|current step"
+function A.readPlan()
+	local line = readFirstLine("plan.txt")
+	if not line then H.aim, H.step = nil, nil; return end
+	local parts = split(tostring(line), "|")
+	H.aim, H.step = parts[1] ~= "" and parts[1] or nil, parts[2] ~= "" and parts[2] or nil
+end
+
 ---------------------------------------------------------------- body upkeep
 function A.manageSpeed(p)
 	if not S.autoSpeed then return end
 	local cur = getSpeed()
 	if not cur or cur == 0 then return end -- paused by you: leave it
 	local want = (#A.zombies(p, 45) == 0 and not S.manual) and 2 or 1
+	-- waiting or resting in a closed-up home with nothing within 20 tiles: the quiet hours go faster
+	local t = S.task
+	if not S.manual and t and t.status == "running" and (t.goal == "wait" or t.goal == "rest") and #A.zombies(p, 20) == 0 then
+		local info = A.buildingInfo(p, false)
+		local home = mem(p).home
+		if info and home and info.id == home.id and #info.doorsOpen == 0 and #info.windowsOpen == 0 then want = 3 end
+	end
 	if cur ~= want then setSpeed(want) end
 end
 
@@ -1633,10 +1684,13 @@ function A.onTick()
 	if not took and S.tick % TASK_EVERY == 0 then safe("task", A.taskTick, p) end
 	if S.tick % 15 == 0 then safe("speed", A.manageSpeed, p) end
 	if S.tick % 30 == 0 then safe("sneak", A.manageSneak, p) end
-	if S.observing and not took and qlen(p) == 0 and S.tick % 30 == 0 then
-		local rad = (math.floor(S.tick / 30) % 8) * (math.pi / 4)
+	-- watching: outdoors, a look round every ~7 s; indoors, stand still. (It used to turn to a new
+	-- direction every half second, which looked like spinning on the spot.)
+	if S.observing and not took and qlen(p) == 0 and S.tick % 400 == 0 and p:isOutside() then
+		local rad = ZombRand(8) * (math.pi / 4)
 		pcall(function() p:faceLocation(px + math.cos(rad) * 4, py + math.sin(rad) * 4) end)
 	end
+	if S.tick % 120 == 0 then safe("plan", A.readPlan) end
 	if S.tick % PERCEPT_EVERY == 0 then safe("percept", A.writePercept, p) end
 	if S.tick % INTENT_EVERY == 0 then safe("intent", A.pollIntent, p) end
 end
@@ -1669,7 +1723,7 @@ AIvZHUD = ISUIElement:derive("AIvZHUD")
 
 function AIvZHUD:new()
 	local sh = try(function() return getCore():getScreenHeight() end) or 1080
-	local h = 214
+	local h = 232
 	local o = ISUIElement:new(14, sh - h - 48, 400, h)
 	setmetatable(o, self)
 	self.__index = self
@@ -1712,11 +1766,14 @@ function AIvZHUD:render()
 	self:drawText("NOW: " .. tostring(H.action), 12, 46, 0.9, 0.95, 1, 1, UIFont.Small)
 	local ty = 64
 	for _, line in ipairs(self:wrap(H.why, 60)) do
-		if ty > 94 then break end
+		if ty > 79 then break end
 		self:drawText(line, 12, ty, 0.74, 0.79, 0.85, 1, UIFont.Small)
 		ty = ty + 15
 	end
-	local by = 118
+	local function cut(t, n) t = tostring(t); return #t > n and (t:sub(1, n - 1) .. "...") or t end
+	self:drawText("AIM: " .. cut(H.aim or "none yet", 56), 12, 98, 0.62, 0.86, 1, 1, UIFont.Small)
+	if H.step then self:drawText("NEXT: " .. cut(H.step, 55), 12, 113, 0.62, 0.86, 1, 1, UIFont.Small) end
+	local by = 136
 	local hp = try(function() return p:getBodyDamage():getOverallBodyHealth() end) or 0
 	self:bar("HP", hp / 100, 12, by, function(v) return v < 0.3 end)
 	self:bar("HUN", stat(p, "HUNGER"), 104, by, function(v) return v > 0.7 end)

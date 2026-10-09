@@ -234,6 +234,8 @@ def summarize(raw, mem, rng=random):
         bits.append(f"{bld['doorsOpen']} door{'s' if bld['doorsOpen'] != 1 else ''} OPEN" if bld["doorsOpen"] else "doors closed")
         if bld["windowsOpen"]:
             bits.append(f"{bld['windowsOpen']} window{'s' if bld['windowsOpen'] != 1 else ''} open")
+        if bld.get("curtainsOpen"):
+            bits.append(f"{bld['curtainsOpen']} curtain{'s' if bld['curtainsOpen'] != 1 else ''} open")
         if bld.get("smashed"):
             bits.append(f"{bld['smashed']} window{'s' if bld['smashed'] != 1 else ''} smashed")
         if not bld["doorsOpen"] and not bld["windowsOpen"] and not bld.get("smashed"):
@@ -298,7 +300,7 @@ def summarize(raw, mem, rng=random):
         args["hide"] = (shelter["tx"], shelter["ty"], shelter["tz"])
         mem.target_ids[f"{shelter['tx']},{shelter['ty']}"] = shelter["id"]
     if bld:
-        if bld["doorsOpen"] or bld["windowsOpen"]:
+        if bld["doorsOpen"] or bld["windowsOpen"] or bld.get("curtainsOpen"):
             # where we stand: the mod finds the building from it even if we've just stepped out of a door
             pos = raw.get("pos") or {}
             args["secure_building"] = (math.floor(pos.get("x", 0)), math.floor(pos.get("y", 0)), pos.get("z", 0))
