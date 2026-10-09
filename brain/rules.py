@@ -1,7 +1,7 @@
-"""No-LLM baseline: a hand-written utility scorer over the same percepts and legal goals.
+"""The baseline: a hand-written utility scorer over percepts and legal goals.
 
-Each legal goal gets a score from general survival rules (the same priorities as the LLM's system prompt);
-the highest score wins. This is what the Lua tactics layer could do on its own in <1 ms with no GPU.
+Each legal goal gets a score from general survival rules; the highest score wins (brain/strategy.py).
+This is the score to beat for the learning agent.
 
 Caveat: the same person wrote these rules and the benchmark's "sensible" answers, so its score on the
 benchmark is optimistic. Judge it on new snapshots or real game logs before trusting it.

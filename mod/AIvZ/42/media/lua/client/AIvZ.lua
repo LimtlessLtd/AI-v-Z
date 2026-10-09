@@ -7,8 +7,7 @@
 --   reflex  every few ticks: swing, shove, grab a weapon or break away from zombies within ~3 tiles
 --   tactics carries out the goal the bridge picked (walk, loot, eat, drink, bandage, fight, flee, close up,
 --           go home, sleep, drop junk). Locked buildings are entered through a window.
---   HUD     on-screen panel with the goal, the reason, the action, the AI's own plan and vitals (F7 hides it)
---   plan IN  ~/Zomboid/Lua/aivz/plan.txt "aim|step" (the bridge's planner), shown on the HUD
+--   HUD     on-screen panel with the goal, the reason, the action and vitals (F7 hides it)
 -- The home base is remembered in the save (player mod data): the first building with a bed the AI closes
 -- up or sleeps in, moved when the AI shelters for the night somewhere far from it.
 -- G toggles auto fast-forward. Pressing a movement key hands control to you; the AI takes over again
@@ -1641,14 +1640,6 @@ function A.pollIntent(p)
 	if not S.manual then A.startTask(p, seq, goal, { parts[3], parts[4], parts[5] }) end
 end
 
--- the AI's own plan (written by the bridge's planner), for the HUD: "aim|current step"
-function A.readPlan()
-	local line = readFirstLine("plan.txt")
-	if not line then H.aim, H.step = nil, nil; return end
-	local parts = split(tostring(line), "|")
-	H.aim, H.step = parts[1] ~= "" and parts[1] or nil, parts[2] ~= "" and parts[2] or nil
-end
-
 ---------------------------------------------------------------- body upkeep
 function A.manageSpeed(p)
 	if not S.autoSpeed then return end
@@ -1735,7 +1726,6 @@ function A.onTick()
 		local rad = ZombRand(8) * (math.pi / 4)
 		pcall(function() p:faceLocation(px + math.cos(rad) * 4, py + math.sin(rad) * 4) end)
 	end
-	if S.tick % 120 == 0 then safe("plan", A.readPlan) end
 	if S.tick % PERCEPT_EVERY == 0 then safe("percept", A.writePercept, p) end
 	if S.tick % INTENT_EVERY == 0 then safe("intent", A.pollIntent, p) end
 end
@@ -1768,7 +1758,7 @@ AIvZHUD = ISUIElement:derive("AIvZHUD")
 
 function AIvZHUD:new()
 	local sh = try(function() return getCore():getScreenHeight() end) or 1080
-	local h = 232
+	local h = 214
 	local o = ISUIElement:new(14, sh - h - 48, 400, h)
 	setmetatable(o, self)
 	self.__index = self
@@ -1811,14 +1801,11 @@ function AIvZHUD:render()
 	self:drawText("NOW: " .. tostring(H.action), 12, 46, 0.9, 0.95, 1, 1, UIFont.Small)
 	local ty = 64
 	for _, line in ipairs(self:wrap(H.why, 60)) do
-		if ty > 79 then break end
+		if ty > 94 then break end
 		self:drawText(line, 12, ty, 0.74, 0.79, 0.85, 1, UIFont.Small)
 		ty = ty + 15
 	end
-	local function cut(t, n) t = tostring(t); return #t > n and (t:sub(1, n - 1) .. "...") or t end
-	self:drawText("AIM: " .. cut(H.aim or "none yet", 56), 12, 98, 0.62, 0.86, 1, 1, UIFont.Small)
-	if H.step then self:drawText("NEXT: " .. cut(H.step, 55), 12, 113, 0.62, 0.86, 1, 1, UIFont.Small) end
-	local by = 136
+	local by = 118
 	local hp = try(function() return p:getBodyDamage():getOverallBodyHealth() end) or 0
 	self:bar("HP", hp / 100, 12, by, function(v) return v < 0.3 end)
 	self:bar("HUN", stat(p, "HUNGER"), 104, by, function(v) return v > 0.7 end)

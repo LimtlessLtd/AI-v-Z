@@ -1,5 +1,9 @@
 # Decision models for the AI's brain — research (2026-10-08)
 
+> **Historical (Phase 0).** Qwen and the LLM benchmark code were removed on 2026-10-09, when the project
+> switched to a self-taught agent (see the README's Roadmap). This page is kept as the record of what was
+> measured and why the language model was chosen, then dropped.
+
 Question: instead of a chat LLM (Qwen), could a smaller **decision model like Jev**, with open weights,
 pick the AI's goals?
 
