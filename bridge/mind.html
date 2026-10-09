@@ -107,7 +107,7 @@ async function tick() {
   $("scores").innerHTML = sc.slice(0, 8).map(([g, v]) => bar(g.replace(/_/g, " "), Math.max(0, v) / max, false, Math.round(v))).join("") || '<span class="muted">–</span>';
   const l = s.llm || {};
   $("llm").innerHTML = l.model ? `${esc(l.model)} · ${l.ready ? "loaded" : "loading…"}${l.busy ? " · thinking" : ""}<br>` +
-    `calls ${l.calls} · last ${l.last_ms ?? "–"} ms · errors ${l.errors}` + (l.last_error ? `<br><span class="err">${esc(l.last_error)}</span>` : "")
+    `calls ${l.calls} · last ${l.last_ms ?? "–"} ms · errors ${l.errors} · reloads ${l.reloads ?? 0}` + (l.last_error ? `<br><span class="err">${esc(l.last_error)}</span>` : "")
     : "off (rules only)";
   $("recent").innerHTML = (s.recent || []).slice().reverse().map(esc).join("<br>") || "–";
   $("decisions").innerHTML = (s.decisions || []).slice().reverse().map(d =>

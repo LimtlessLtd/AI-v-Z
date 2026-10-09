@@ -123,6 +123,11 @@ docs/               SPECS, BENCHMARK, DECISION_MODELS, REVIEW
   house it can't path into is marked unreachable ("no route") and it moves on.
 - **Weapons are scarce early.** It fights bare-handed only against a single zombie and flees from more.
   It picks up melee weapons it finds while looting, but doesn't go looking for them.
+- **It hoards.** Looting takes every better weapon it finds (two canoe paddles in the first run) and
+  fills the bag to the limit. Dropping junk and managing weight are Phase 2.
+- **Ollama can bog down after ~30 min.** In the first run every Qwen call started timing out until
+  Ollama was restarted. The bridge now reloads the model after two slow calls; the dashboard's LLM
+  panel shows `reloads`. If speech bubbles stop for long, restart Ollama.
 - Only the floor you're on is looted. Unopened cans aren't opened, so they don't count as food yet.
   Curtains aren't closed.
 - There's no home base yet, so `retreat_home` and `sleep` aren't offered (Phase 2).
