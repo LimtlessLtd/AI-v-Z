@@ -44,10 +44,13 @@ and zero reward, excluding time when the agent was off. The save file
 The repository test suite passes with `python -m unittest discover -s tests`.
 
 The focused probe subsequently equipped and unequipped a pencil three times each, at both 1×
-and 20×. Drinking from a carried container remains unobserved. Review of the game's fluid
-menu showed that it offers beverages other than water; gym 0.3.1 now includes those fluid
-containers and the probe seeks one when naturally offered. No item was placed and the save
-was not changed for testing. This executor still needs live confirmation.
+and 20×. Review of the game's fluid menu showed that it offers beverages other than water;
+gym 0.3.1 now includes those fluid containers. The probe found chocolate milk in a naturally
+searched container, took it and completed a carried-fluid drink at 20×. Its inventory entry
+disappeared and thirst fell from 0.13 to 0.09 in the next observation. No item was placed and
+no practice scenario was staged. Across the probe logs, all 27 defined option types have at
+least one `done` outcome. This establishes executor coverage, while the path and item variants
+described above can still fail in play.
 
 The hot reload cleanup no longer calls `GameTime:setMultiplier`. The live loader accepted mod
 0.4.3 / gym 0.3.1 with no Lua error; game speed remains under the game's own controls.

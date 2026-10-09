@@ -21,7 +21,7 @@ a player could do, and learns from what happens. No cloud services, no language 
 | 0. Specs and benchmark | Hardware, model benchmarks | Done ([docs/SPECS.md](docs/SPECS.md); the Qwen benchmark is kept for the record in [docs/BENCHMARK.md](docs/BENCHMARK.md)) |
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
-| **3. The game as a gym** | The mod lists what a player could do right now (like the right-click menus), describes what a player would see (container contents once opened), carries out the chosen option with the existing motor skills, and starts a new character after a death. Keeps the game speed you pick. | In progress: works with a random agent; option executors still being checked |
+| **3. The game as a gym** | The mod lists what a player could do right now (like the right-click menus), describes what a player would see (container contents once opened), carries out the chosen option with the existing motor skills, and starts a new character after a death. Keeps the game speed you pick. | Done: all 27 option types exercised in natural play; see [verification](docs/PHASE3_VERIFICATION.md) |
 | 4. Learning | A small network scores every option; rewards come from the body (hunger, thirst, pain, panic, bleeding), progress (places, items, kills, time alive) and death. It trains on the CPU while the game runs. A Learning page on the dashboard. | |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
@@ -217,9 +217,6 @@ docs/               SPECS, REVIEW; BENCHMARK and DECISION_MODELS (Phase 0 record
   either speed improves pathfinding. The earlier 1×/3× comparison was also in different places.
 - **Fast forward only helps in quiet stretches.** With zombies close the game holds 1×, and the random
   agent is near zombies a lot, so a fast setting gains less than its number suggests.
-- **Carried-container drinking still needs a live check.** Gym 0.3.1 offers drinkable fluid containers,
-  including beverages, using the game's menu conditions; the natural-play probe has not yet found one
-  in the bag. Tap drinking has been observed.
 - **Screenshots of the game freeze in borderless mode.** Windows hands back a stale frame; windowed mode
   captures fine. (This only matters when testing.)
 
