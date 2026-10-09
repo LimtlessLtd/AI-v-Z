@@ -15,7 +15,7 @@ goal from ALLOWED GOALS for the next stretch of play.
 Priorities, most urgent first:
 1. Stay alive: zombies chasing you, bleeding, hordes. Never walk towards a horde.
 2. Critical needs: severe or extreme thirst, hunger, exhaustion, cold.
-3. Be inside a secured building at night. Sleep only when secured and no zombies are near.
+3. Be at home (or in another closed-up building if home is far) by dark. Sleep only there, with no zombies near.
 4. Progress: loot unsearched buildings, gather water, food, weapons and medical supplies, explore.
 
 1-3 zombies are fightable with a decent weapon and good endurance. 4 or more zombies, a weak or breaking

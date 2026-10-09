@@ -88,13 +88,14 @@ async function tick() {
   $("source").textContent = c.source ? "decided by " + c.source : "";
   $("why").textContent = c.why ? "“" + c.why + "”" : "";
   const t = s.task || {};
-  $("task").innerHTML = t.goal ? `task: ${esc(t.status)} · ${esc(t.msg || t.phase)}` + (s.err ? ` · <span class="err">${esc(s.err)}</span>` : "") : "";
+  $("task").innerHTML = t.goal ? `${s.action ? "now: " + esc(s.action) + " · " : ""}task: ${esc(t.status)} · ${esc(t.msg || t.phase)}` + (s.err ? ` · <span class="err">${esc(s.err)}</span>` : "") : "";
   const st = s.stats || {};
   $("body").innerHTML = s.health == null ? "" :
     bar("health", s.health / 100, s.health < 50, Math.round(s.health)) + bar("hunger", st.hunger || 0, (st.hunger || 0) > 0.5) +
     bar("thirst", st.thirst || 0, (st.thirst || 0) > 0.5) + bar("fatigue", st.fatigue || 0, (st.fatigue || 0) > 0.6) +
     bar("endurance", st.endurance ?? 1, (st.endurance ?? 1) < 0.4) + bar("panic", (st.panic || 0) / 100, (st.panic || 0) > 50, Math.round(st.panic || 0));
-  $("where").textContent = [s.time, s.where, s.weapon && "weapon: " + s.weapon, s.kills != null && "kills: " + s.kills].filter(Boolean).join(" · ");
+  $("where").textContent = [s.time, s.asleep && "ASLEEP", s.where, s.home || "no home yet", s.weight && "carrying " + s.weight + " kg",
+    s.weapon && "weapon: " + s.weapon, s.kills != null && "kills: " + s.kills].filter(Boolean).join(" · ");
   const z = s.zombies || {};
   $("threat").innerHTML = `<div class="row"><span class="label">within 10</span>${z.within10 ?? 0}</div>` +
     `<div class="row"><span class="label">within 40</span>${z.within40 ?? 0}</div>` +

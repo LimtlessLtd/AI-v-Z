@@ -15,6 +15,8 @@ MOODLES = {"hungry": "hunger", "thirst": "thirst", "tired": "tired", "endurance"
            "pain": "pain", "sick": "sick", "wet": "wet", "hypothermia": "cold", "heavy_load": "heavy_load",
            "stress": "stress"}
 HOUSE_ROOMS = {"bedroom", "kitchen", "bathroom", "livingroom", "hall", "laundry"}
+HOME_FAR = 120     # tiles: further than this, shelter nearby for the night instead of walking home
+HIDE_RANGE = 30    # tiles: buildings this close can be run into to hide
 DIRS = {"N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1), "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1)}
 
 
@@ -37,7 +39,10 @@ class Memory:
     recent: deque = field(default_factory=lambda: deque(maxlen=8))
     last_event_id: int = 0
     last_health: float | None = None
-    unreachable: set = field(default_factory=set)   # "x,y" of building targets we couldn't reach
+    unreachable: set = field(default_factory=set)   # ids (or "x,y") of buildings we couldn't get into
+    # target "x,y" -> building id. The mod picks a random free square in a building each scan, so in game
+    # one locked house came back four times under four different targets.
+    target_ids: dict = field(default_factory=dict)
     explore_dir: str | None = None
     failed_dirs: dict = field(default_factory=dict)  # heading -> times it failed
     last_task: tuple | None = None                   # (seq, status) already recorded
@@ -61,8 +66,8 @@ class Memory:
         if task.get("status") in ("done", "failed") and key != self.last_task:
             self.last_task = key
             if task.get("status") == "failed" and task.get("target"):
-                if task.get("goal") == "loot_building":
-                    self.unreachable.add(task["target"])
+                if task.get("goal") in ("loot_building", "hide"):
+                    self.unreachable.add(self.target_ids.get(task["target"], task["target"]))
                 elif task.get("goal") == "explore":
                     dx, dy = (float(v) for v in task["target"].split(","))
                     heading = dir8(dx, dy)
@@ -138,7 +143,7 @@ def _weapon_text(w):
     return f"{w['name']} ({pct}%)" if w.get("melee") else f"{w['name']} (gun, {pct}%)"
 
 
-def _inventory(inv):
+def _inventory(inv, raw_rags=False, cans=0):
     inv = _obj(inv)
     food = []
     for f in inv.get("food") or []:
@@ -150,7 +155,12 @@ def _inventory(inv):
             food.append(f"{f['name']} (needs cooking or opening)")
     drink = [f"{w['name']} {round(w['amount'] * 10)}/{round(w['cap'] * 10)}" for w in inv.get("water") or []]
     medical = [m["name"] for m in inv.get("medical") or []]
+    if raw_rags:
+        medical.append("a spare shirt to tear into bandages")
     weapons = [f"{w['name']} ({round(100 * w['cond'] / w['max']) if w.get('max') else 0}%)" for w in inv.get("weapons") or []]
+    if cans:
+        food = [f.replace("(needs cooking or opening)", "(can, you can open it)") if "Can" in f or "Tin" in f else f
+                for f in food]
     out = {"food": food, "drink": drink, "medical": medical}
     if weapons:
         out["weapons"] = weapons
@@ -181,6 +191,33 @@ def choose_explore(raw, mem, rng=random):
     return best, (round(ux * scale), round(uy * scale), 0)
 
 
+def hide_target(raw, mem):
+    """The building to run into when hiding from outside: close, and not where the zombies are."""
+    pos = raw.get("pos") or {}
+    px, py = pos.get("x", 0), pos.get("y", 0)
+    zs = raw.get("zombies") or []
+    best, best_cost = None, None
+    for b in raw.get("buildings") or []:
+        if b["d"] > HIDE_RANGE or b["id"] in mem.unreachable or f"{b['tx']},{b['ty']}" in mem.unreachable:
+            continue
+        bx, by = b["tx"] - px, b["ty"] - py
+        crowd = sum(1 for z in zs if math.hypot(z["dx"] - bx, z["dy"] - by) < 8)
+        cost = b["d"] + 6 * crowd
+        if best_cost is None or cost < best_cost:
+            best, best_cost = b, cost
+    return best
+
+
+def home_text(raw):
+    home = raw.get("home")
+    if not home:
+        return None
+    if home.get("here"):
+        return "you are at home base"
+    far = " (far: shelter nearby tonight)" if home["d"] > HOME_FAR else ""
+    return f"home base {home['d']:.0f} tiles {home['dir']}{far}"
+
+
 def summarize(raw, mem, rng=random):
     t = raw.get("time", {})
     moods = {MOODLES[k]: v for k, v in _obj(raw.get("moodles")).items() if k in MOODLES}
@@ -192,13 +229,19 @@ def summarize(raw, mem, rng=random):
 
     # where am I
     if bld:
-        where = f"inside a building, {raw.get('room') or 'a room'}"
-        bits = [f"{bld['doorsOpen']} door{'s' if bld['doorsOpen'] != 1 else ''} OPEN" if bld["doorsOpen"] else "doors closed"]
+        where = f"inside {'home base' if bld.get('home') else 'a building'}, {raw.get('room') or 'a room'}"
+        bits = ["home base"] if bld.get("home") else []
+        bits.append(f"{bld['doorsOpen']} door{'s' if bld['doorsOpen'] != 1 else ''} OPEN" if bld["doorsOpen"] else "doors closed")
         if bld["windowsOpen"]:
             bits.append(f"{bld['windowsOpen']} window{'s' if bld['windowsOpen'] != 1 else ''} open")
-        if not bld["doorsOpen"] and not bld["windowsOpen"]:
+        if bld.get("smashed"):
+            bits.append(f"{bld['smashed']} window{'s' if bld['smashed'] != 1 else ''} smashed")
+        if not bld["doorsOpen"] and not bld["windowsOpen"] and not bld.get("smashed"):
             bits.append("closed up (secured)")
         bits.append(f"containers searched {bld['searched']}/{bld['containers']} on this floor")
+        if bld.get("food"):
+            bits.append(f"{bld['food']} food item{'s' if bld['food'] != 1 else ''} in the cupboards here")
+        bits.append("has a bed" if bld.get("bed") else "no bed")
         building = ", ".join(bits)
     else:
         where = "outside"
@@ -215,7 +258,7 @@ def summarize(raw, mem, rng=random):
 
     here_id = bld["id"] if bld else None
     unlooted = [b for b in buildings if not b.get("looted") and b["id"] != here_id
-                and f"{b['tx']},{b['ty']}" not in mem.unreachable]
+                and b["id"] not in mem.unreachable and f"{b['tx']},{b['ty']}" not in mem.unreachable]
     looted = [b for b in buildings if b.get("looted")]
     clean_water = [w for w in water if not w.get("tainted")]
     task = raw.get("task") or {}
@@ -229,10 +272,10 @@ def summarize(raw, mem, rng=random):
         "moodles": moods,
         "wounds": wounds,
         "weapon": _weapon_text(raw.get("weapon")),
-        "inventory": _inventory(inv),
+        "inventory": _inventory(inv, raw.get("rags"), raw.get("cans") or 0),
         "weight": f"{raw.get('weight', 0):.1f}/{raw.get('maxWeight', 1):.0f}",
         "zombies": zombie_groups(zombies),
-        "home": None,
+        "home": home_text(raw),
         "water": [f"{w['name']} {w['d']:.0f} tiles {w['dir']} ({'taps on' if not w.get('tainted') else 'tainted'})" for w in water],
         "unlooted": [f"{building_kind(b.get('rooms'))} {b['d']:.0f} tiles {b['dir']}" for b in unlooted[:4]],
         "looted": [f"{building_kind(b.get('rooms'))} {b['d']:.0f} tiles {b['dir']}" for b in looted[:3]],
@@ -247,30 +290,48 @@ def summarize(raw, mem, rng=random):
     args = {}
     if any(z["d"] <= 15 for z in targets):
         args["fight"] = ()
-    if any(z["d"] <= 25 for z in zombies):
+    if any(z["d"] <= 20 for z in zombies):   # the mod's flee ends at 22 tiles; offered further out it ends at once
         args["flee"] = ()
     if bld:
         args["hide"] = ()
+    elif (shelter := hide_target(raw, mem)) is not None:
+        args["hide"] = (shelter["tx"], shelter["ty"], shelter["tz"])
+        mem.target_ids[f"{shelter['tx']},{shelter['ty']}"] = shelter["id"]
+    if bld:
         if bld["doorsOpen"] or bld["windowsOpen"]:
-            args["secure_building"] = ()
+            # where we stand: the mod finds the building from it even if we've just stepped out of a door
+            pos = raw.get("pos") or {}
+            args["secure_building"] = (math.floor(pos.get("x", 0)), math.floor(pos.get("y", 0)), pos.get("z", 0))
         if bld["searched"] < bld["containers"]:
             args["loot_here"] = ()
     if inv.get("water") or clean_water:
         args["drink"] = ()
-    if any(f.get("edible") for f in inv.get("food") or []):
+    if any(f.get("edible") for f in inv.get("food") or []) or (bld or {}).get("food") or raw.get("cans"):
         args["eat"] = ()
     if any(f == "bleeding" or f in ("bite", "deep wound", "laceration")
            for w in raw.get("wounds") or [] if "bandaged" not in w.get("flags", []) for f in w.get("flags", [])) \
-            and any(m.get("kind") == "bandage" for m in inv.get("medical") or []):
-        args["bandage"] = ()
+            and (any(m.get("kind") == "bandage" for m in inv.get("medical") or []) or raw.get("rags")):
+        args["bandage"] = ()   # a spare shirt tears into rags
     if unlooted:
         b = unlooted[0]
         args["loot_building"] = (b["tx"], b["ty"], b["tz"])
+        mem.target_ids[f"{b['tx']},{b['ty']}"] = b["id"]
     held = (raw.get("weapon") or {}).get("score", 0) if (raw.get("weapon") or {}).get("melee") else 0
     if any(w.get("score", 0) > held * 1.1 for w in inv.get("weapons") or []):
         args["equip_weapon"] = ()
     if moods.get("endurance", 0) >= 1 or moods.get("panic", 0) >= 1:
         args["rest"] = ()
+    home = raw.get("home")
+    if home and not home.get("here"):
+        args["retreat_home"] = (home["x"], home["y"], home["z"])
+    # the game refuses to sleep with zombies in sight or while panicking
+    seen_near = any((z.get("seen") or z.get("chasing")) and z["d"] <= 25 for z in zombies)
+    if bld and moods.get("tired", 0) >= 1 and not seen_near and moods.get("panic", 0) == 0:
+        args["sleep"] = ()
+    junk = _obj(raw.get("junk"))
+    weight, cap = raw.get("weight", 0), raw.get("maxWeight", 1) or 1
+    if (junk.get("drop", 0) >= 0.5 and weight >= 0.85 * cap) or junk.get("store", 0) >= 1:
+        args["drop_weight"] = ()
     heading, args["explore"] = choose_explore(raw, mem, rng)
     args["wait"] = ()
 

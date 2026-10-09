@@ -41,7 +41,10 @@ SLOW_MS = 8000     # an LLM call this slow (or a timeout) is a strike; 2 in a ro
 # before it's retried. Securing or hiding can "finish" without having changed anything, so those rest
 # too even when done. Survival goals are never held back.
 COOLDOWN_FAILED_S = 60
-COOLDOWN_DONE_S = {"secure_building": 90, "hide": 60}
+# A flee or fight that failed ("stuck", "surrounded") gets a short pause so the alternatives get a turn;
+# in game a flee that couldn't find a path was re-sent eight times in ten seconds.
+COOLDOWN_FAILED_SHORT_S = {"flee": 15, "fight": 15}
+COOLDOWN_DONE_S = {"secure_building": 90, "hide": 60, "sleep": 300, "drop_weight": 120}
 NEVER_COOL = {"fight", "flee", "wait", "explore"}
 MIND_HTML = (Path(__file__).resolve().parent / "mind.html").read_bytes()
 
@@ -151,6 +154,10 @@ class Bridge:
                 return
             self.dead_logged = False
             self.mem.update(raw)
+            if raw.get("asleep"):
+                # the game runs the night; the sleep task reports when the AI wakes up
+                self.status = "asleep"
+                return
             task = raw.get("task") or {}
             cur = self.current
             ours = cur is not None and task.get("seq") == cur["seq"]
@@ -158,9 +165,13 @@ class Bridge:
             finished = ours and task.get("status") in ("done", "failed")
             if finished and task["seq"] != self.ended_seq:
                 self.ended_seq = task["seq"]
-                hold = COOLDOWN_FAILED_S if task["status"] == "failed" else COOLDOWN_DONE_S.get(task.get("goal"), 0)
-                if hold and task.get("goal") not in NEVER_COOL:
-                    self.cooldown[task["goal"]] = time.time() + hold
+                goal = task.get("goal")
+                if task["status"] == "failed" and goal in COOLDOWN_FAILED_SHORT_S:
+                    self.cooldown[goal] = time.time() + COOLDOWN_FAILED_SHORT_S[goal]
+                elif goal not in NEVER_COOL:
+                    hold = COOLDOWN_FAILED_S if task["status"] == "failed" else COOLDOWN_DONE_S.get(goal, 0)
+                    if hold:
+                        self.cooldown[goal] = time.time() + hold
             situ = summarize(raw, self.mem)
             now = time.time()
             cooled = [g for g in situ.legal if self.cooldown.get(g, 0) > now]
@@ -239,6 +250,8 @@ class Bridge:
                     cur = self.current
                     if cur is None or cur["seq"] != job["seq"]:
                         continue   # something newer was decided while the LLM thought: drop this answer
+                    if (self.raw or {}).get("asleep"):
+                        continue   # read on waking, a late "sleep" line would put the AI back to bed
                     if goal == cur["goal"]:
                         source = cur["source"] if job["kind"] == "narrate" else "rules+AI"
                         self._issue(goal, cur["args"], situ, self.plan, source, why=why, say=why)
@@ -276,8 +289,11 @@ class Bridge:
                 "percept_age_s": round(time.time() - self.raw_at, 1) if self.raw else None,
                 "current": self.current,
                 "task": raw.get("task"), "reflex": raw.get("reflex"), "manual": raw.get("manual"),
+                "action": raw.get("action"),
                 "err": raw.get("err"), "kills": raw.get("kills"), "speed": raw.get("speed"),
                 "health": raw.get("health"), "stats": raw.get("stats"), "moodles": raw.get("moodles"),
+                "asleep": raw.get("asleep"), "home": situ.percept["home"] if situ else None,
+                "weight": f"{raw.get('weight', 0):.1f}/{raw.get('maxWeight', 0):.0f}" if raw else None,
                 "time": situ.percept["time"] if situ else None, "where": situ.percept["where"] if situ else None,
                 "weapon": situ.percept["weapon"] if situ else None,
                 "zombies": {"within10": sum(1 for z in zs if z["d"] <= 10), "within40": len(zs),
