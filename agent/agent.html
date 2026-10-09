@@ -26,12 +26,22 @@
   .pos { color: var(--good); } .neg { color: var(--bad); }
   .opts { max-height: 380px; overflow: auto; }
   #chart { width: 100%; height: 140px; display: block; }
+  .speed { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .speed button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 10px; font: inherit; cursor: pointer; }
+  .speed button.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .speed button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <main>
-  <header><h1>AI-v-Z: the self-taught agent</h1><span id="status" class="muted">connecting…</span></header>
+  <header><h1>AI-v-Z: the self-taught agent</h1>
+    <div class="speed"><span class="muted">game speed</span>
+      <button data-speed="1" title="normal speed, to watch">1×</button><button data-speed="2">2×</button>
+      <button data-speed="3" title="learns three times as fast">3×</button>
+      <span id="speednow" class="muted"></span></div>
+    <span id="status" class="muted">connecting…</span></header>
 
   <section>
     <h2>This life</h2>
@@ -105,6 +115,7 @@ async function tick() {
   let s;
   try { s = await (await fetch("/api/agent")).json(); } catch { $("status").textContent = "agent not reachable"; return; }
   $("status").textContent = `${s.connected ? "playing" : "waiting for the game"} · ${s.policy} policy · ${s.decisions} decisions this session`;
+  showSpeed(s.speed || {});
   const l = s.life;
   $("who").textContent = l ? `Life ${l.number}: ${l.who}` : "–";
   $("life").innerHTML = l ? kv({"game hours": l.hours, kills: l.kills, reward: l.reward, decisions: l.decisions,
@@ -128,6 +139,19 @@ async function tick() {
     (s.lives || []).slice().reverse().map(x => `<tr><td>${x.life}</td><td>${esc(x.who)}</td><td class="n">${x.hours}</td><td class="n">${x.kills}</td>` +
       `<td class="n">${x.reward}</td><td class="n">${x.decisions}</td><td>${esc(x.last_choice)}</td><td class="muted">${esc(x.ended)} ${esc(x.finished)}</td></tr>`).join("");
 }
+// the game's own setting wins the highlight (G in game may have changed it), once it has seen the last ask
+function showSpeed(sp) {
+  const mode = sp.pending || sp.mode == null ? sp.asked : sp.mode;
+  document.querySelectorAll(".speed button").forEach(b => b.classList.toggle("on", Number(b.dataset.speed) === mode));
+  $("speednow").textContent = sp.now === 0 ? "(paused)" : sp.now != null && sp.now !== mode ? `(now ${sp.now}×)` : "";
+}
+document.querySelectorAll(".speed button").forEach(b => b.addEventListener("click", async () => {
+  try {
+    await fetch("/api/speed", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speed: Number(b.dataset.speed) }) });
+  } catch { /* the next refresh shows what the game is doing */ }
+  showSpeed({ mode: Number(b.dataset.speed) });
+}));
 setInterval(tick, 1000);
 tick();
 </script>

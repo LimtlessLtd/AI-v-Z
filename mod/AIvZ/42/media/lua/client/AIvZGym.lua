@@ -3,8 +3,10 @@
 --   obs.json OUT  when a decision is needed: what the character perceives, and every option a player
 --                 would have right now. Written again with "dead" when the character dies.
 --   act.txt  IN   "id|option|note" from the agent (option is 0-based; note shows on the HUD)
---   gym.txt  IN   heartbeat "on|n" from the agent. While it keeps changing, the agent plays instead of the
---                 rules baseline (the keys still hand control to you, as before)
+--   gym.txt  IN   heartbeat "on|n|speed|ask" from the agent. While it keeps changing, the agent plays instead
+--                 of the rules baseline (the keys still hand control to you, as before). speed (1, 2 or 3)
+--                 is the game speed picked on the agent's dashboard and ask counts the picks; a speed is
+--                 taken once per pick, so the G key can still change it in game in between
 --
 -- The options are what a player could do now, like the right-click menus: wait, rest, walk or run in a
 -- direction, go into a building or another room, attack or shove a zombie, open or close a door, window or
@@ -18,15 +20,20 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.1.0"
+G.VERSION = "0.2.0"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
+GS.gt = GS.gt or 0
+if GS.lastReq > GS.gt then GS.lastReq = -99999 end   -- reloaded over a version that counted real ticks
 local try, P, sqAt, Q, qlen, r1, r2 = U.try, U.P, U.sqAt, U.Q, U.qlen, U.r1, U.r2
 local H = A.hud
 
-local DECIDE_GAP = 45      -- ticks: at most this often while something is running (interrupts)
-local RECHECK = 600        -- ticks: a long-running option gets a "continue?" decision this often
-local ANSWER_WAIT = 600    -- ticks: give up waiting for the agent and ask again
+-- DECIDE_GAP and RECHECK are in game-time ticks (GS.gt: a tick at 2x counts twice), so the agent gets
+-- the same rhythm of decisions per game minute at any speed
+local DECIDE_GAP = 45      -- at most this often while something is running (interrupts)
+local RECHECK = 600        -- a long-running option gets a "continue?" decision this often
+local ANSWER_WAIT = 600    -- real ticks: give up waiting for the agent and ask again
+local DIRECT_RECIPES = { "RipClothing", "OpenCannedFood", "OpenCannedFoodWithKnifeOrSharpStoneFlake" }
 local DIRS = { { "N", 0, -1 }, { "NE", 1, -1 }, { "E", 1, 0 }, { "SE", 1, 1 }, { "S", 0, 1 }, { "SW", -1, 1 },
 	{ "W", -1, 0 }, { "NW", -1, -1 } }
 
@@ -44,9 +51,27 @@ function G.active()
 	if now - GS.beatCheck > 1000 then
 		GS.beatCheck = now
 		local line = U.readFirstLine("gym.txt")
-		if line and line:sub(1, 2) == "on" and line ~= GS.beat then GS.beat, GS.beatAt = line, now end
+		if line and line:sub(1, 2) == "on" and line ~= GS.beat then
+			GS.beat, GS.beatAt = line, now
+			local f = U.split(line, "|")
+			G.askedSpeed(tonumber(f[3]), f[4])
+		end
 	end
 	return GS.beat ~= nil and now - GS.beatAt < 6000
+end
+
+-- the speed asked for on the dashboard, taken only when it's asked again (the G key may have changed it
+-- since): the request number goes up with every click
+function G.askedSpeed(v, n)
+	local key = tostring(v) .. "#" .. tostring(n)
+	if not v or key == GS.asked then return end
+	GS.asked = key
+	for _, s in ipairs(U.SPEEDS) do
+		if s == v and A.s.speedMode ~= v then
+			A.s.speedMode = v
+			A.event("speed " .. v .. "x (dashboard)")
+		end
+	end
 end
 
 ---------------------------------------------------------------- what an item is, for the agent
@@ -204,9 +229,13 @@ function G.scanAround(p)
 end
 
 ---------------------------------------------------------------- the options
+-- each option gets its own copy of the info: one item can be eaten, dropped and crafted, and those must not
+-- share (they did: the agent was told "drop Cabbage" for what the game would have eaten)
 local function add(list, verb, info, data)
-	info.verb = verb
-	list[#list + 1] = { verb = verb, info = info, data = data or {} }
+	local i = {}
+	for k, v in pairs(info) do i[k] = v end
+	i.verb = verb
+	list[#list + 1] = { verb = verb, info = i, data = data or {} }
 end
 
 local function count(list, verb)
@@ -280,11 +309,7 @@ function G.options(p)
 		local info = { d = r1(e.d), dx = r1(e.dx), dy = r1(e.dy), seen = e.seen, chasing = e.chasing, blocked = e.blocked,
 			down = try(function() return e.z:isOnFloor() end) == true }
 		add(list, "attack", info, { z = e.z })
-		if e.d < 1.6 and count(list, "shove") < 2 then
-			local s = {}
-			for k, v in pairs(info) do s[k] = v end
-			add(list, "shove", s, { z = e.z })
-		end
+		if e.d < 1.6 and count(list, "shove") < 2 then add(list, "shove", info, { z = e.z }) end
 	end
 	-- doors, windows, curtains
 	local ar = G.scanAround(p)
@@ -342,10 +367,9 @@ function G.options(p)
 			for _, r in ipairs(G.recipes(p, it)) do
 				if crafts < 5 then
 					crafts = crafts + 1
-					local ci = {}
-					for k, v in pairs(info) do ci[k] = v end
-					ci.recipe = r.name
-					add(list, "craft", ci, { it = it, recipe = r.recipe })
+					info.recipe = r.name
+					add(list, "craft", info, { it = it, recipe = r.recipe })
+					info.recipe = nil
 				end
 			end
 		end
@@ -397,6 +421,16 @@ function G.recipes(p, it)
 				return logic:canPerformCurrentRecipe()
 			end)
 			if ok then out[#out + 1] = { recipe = r, name = r:getName() } end
+		end
+	end
+	-- the game's list came back empty for every item when tested (42.21, worn clothes, food, a bread knife);
+	-- these three are known to work through the same crafting call, so they're checked directly too
+	for _, name in ipairs(DIRECT_RECIPES) do
+		local seenIt = false
+		for _, e in ipairs(out) do if e.name == name then seenIt = true end end
+		if not seenIt then
+			local r = U.craftable(p, name, it)
+			if r then out[#out + 1] = { recipe = r, name = name } end
 		end
 	end
 	GS.rcache[it] = { at = tick(), list = out }
@@ -610,10 +644,11 @@ function G.request(p, reason)
 	local out = {}
 	for i, o in ipairs(opts) do out[i] = o.info end
 	local cur = GS.cur
-	local msg = { id = GS.id, reason = reason, obs = G.observe(p), options = out,
-		last = cur and { verb = cur.verb, status = cur.status, msg = cur.msg, age = tick() - cur.t0 } or nil }
+	local msg = { id = GS.id, reason = reason, err = A.s.err, gym = G.VERSION, obs = G.observe(p), options = out,
+		last = cur and { verb = cur.verb, status = cur.status, msg = cur.msg, age = tick() - cur.t0 } or nil,
+		speed = { mode = A.s.speedMode, asked = GS.asked } }
 	U.writeFile("obs.json", A.json(msg))
-	GS.waiting, GS.reqTick, GS.lastReq = true, tick(), tick()
+	GS.waiting, GS.reqTick, GS.lastReq = true, tick(), GS.gt
 	GS.lastHp = p:getBodyDamage():getOverallBodyHealth()
 	local n = 0
 	for _, e in ipairs(A.zombies(p, 4)) do if not e.blocked then n = n + 1 end end
@@ -634,12 +669,12 @@ end
 function G.needDecision(p)
 	local cur = GS.cur
 	if not cur or cur.status ~= "running" then return cur and cur.status or "idle" end
-	if tick() - GS.lastReq < DECIDE_GAP then return nil end
+	if GS.gt - GS.lastReq < DECIDE_GAP then return nil end
 	if GS.lastHp and p:getBodyDamage():getOverallBodyHealth() < GS.lastHp - 0.5 then return "hurt" end
 	local n = 0
 	for _, e in ipairs(A.zombies(p, 4)) do if not e.blocked then n = n + 1 end end
 	if n > (GS.lastClose or 0) then return "zombie close" end
-	if tick() - GS.lastReq > RECHECK then return "still at it" end
+	if GS.gt - GS.lastReq > RECHECK then return "still at it" end
 	return nil
 end
 
@@ -688,14 +723,6 @@ function G.newLife()
 end
 
 ---------------------------------------------------------------- every tick while the agent is connected
-function G.speed(p)
-	if not A.s.autoSpeed then return end
-	local cur = U.getSpeed()
-	if not cur or cur == 0 then return end -- paused by you: leave it
-	local want = #A.zombies(p, 30) == 0 and 2 or 1
-	if cur ~= want then U.setSpeed(want) end
-end
-
 function G.tick(p)
 	if p:isDead() then return G.dead(p) end
 	if GS.deadSent then G.newLife() end
@@ -704,6 +731,10 @@ function G.tick(p)
 		if tick() % 10 == 0 then G.step(p) end
 		return
 	end
+	local sp = U.getSpeed() or 1
+	GS.gt = GS.gt + sp
+	-- the speed picked with G or on the dashboard (the game drops to 1x by itself when a zombie is spotted)
+	if tick() % 15 == 0 then U.setSpeed(A.s.speedMode) end
 	if tick() % 4 == 0 then G.step(p) end
 	if GS.waiting then
 		if tick() % 2 == 0 then G.poll(p) end
@@ -712,5 +743,4 @@ function G.tick(p)
 	end
 	local why = G.needDecision(p)
 	if why then G.request(p, why) end
-	if tick() % 15 == 0 then G.speed(p) end
 end

@@ -4,11 +4,13 @@ A neural network running entirely on your own PC learns to play **Project Zomboi
 in real time while you watch. It isn't told how to survive. It sees what a player would see, can do what
 a player could do, and learns from what happens. No cloud services, no language model, no multiplayer.
 
-> **Status (2026-10-09):** Phase 3 (the game as a gym) has started. Until the learning agent can play, a
-> hand-written **rules baseline** plays the character: it loots, fights, flees, gets into locked houses
-> through windows, keeps a home base, sleeps, bandages wounds with torn clothes and opens cans. That
-> baseline is the score the self-taught agent has to beat. The earlier Qwen language model (speech
-> bubbles, plans) was removed on 2026-10-09; see [Roadmap](#roadmap).
+> **Status (2026-10-09):** Phase 3 (the game as a gym) works end to end: the mod lists what the character
+> could do, the agent (`agent/`) picks, the mod does it, and every decision is logged with its reward.
+> **Nothing is learning yet**: the agent picks at random, which collects experience for Phase 4. With
+> the agent off, a hand-written **rules baseline** plays instead: it loots, fights, flees, gets into
+> locked houses through windows, keeps a home base, sleeps, bandages wounds with torn clothes and opens
+> cans. That baseline is the score the self-taught agent has to beat. The earlier Qwen language model
+> was removed on 2026-10-09; see [Roadmap](#roadmap).
 
 ## Roadmap
 
@@ -17,7 +19,7 @@ a player could do, and learns from what happens. No cloud services, no language 
 | 0. Specs and benchmark | Hardware, model benchmarks | Done ([docs/SPECS.md](docs/SPECS.md); the Qwen benchmark is kept for the record in [docs/BENCHMARK.md](docs/BENCHMARK.md)) |
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
-| **3. The game as a gym** | The mod lists what a player could do right now (like the right-click menus), describes what a player would see (container contents once opened), carries out the chosen option with the existing motor skills, and starts a new character after a death. | In progress |
+| **3. The game as a gym** | The mod lists what a player could do right now (like the right-click menus), describes what a player would see (container contents once opened), carries out the chosen option with the existing motor skills, and starts a new character after a death. Game speed 1×/2×/3×. | In progress: works with a random agent; option executors still being checked |
 | 4. Learning | A small network scores every option; rewards come from the body (hunger, thirst, pain, panic, bleeding), progress (places, items, kills, time alive) and death. It trains on the CPU while the game runs. A Learning page on the dashboard. | |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
@@ -52,20 +54,23 @@ that are possible right now are offered.
 | | What the baseline does |
 |---|---|
 | Home base | The first house with a bed it searches, closes up or sleeps in becomes home (kept in the save). If it shelters for the night more than 120 tiles from home, that shelter becomes the new home. |
-| Nights | From an hour before sunset it heads home, or into the nearest building if home is far, closes the doors, windows and curtains, and stays in. It sleeps in the nearest bed when tired; the game won't allow sleep with zombies in sight, panic or bad pain. Quiet nights at home run at fast-forward speed 3. |
+| Nights | From an hour before sunset it heads home, or into the nearest building if home is far, closes the doors, windows and curtains, and stays in. It sleeps in the nearest bed when tired; the game won't allow sleep with zombies in sight, panic or bad pain. |
 | Locked houses | No route in: it walks round to the cheapest ground-floor window, opens it, or smashes it and clears the glass if it's locked, climbs in and shuts it behind. Smashing is loud and the last resort. |
 | Loads | It carries up to 8 foods it can eat as is (none over 1 kg), 2 drinks, 6 medical items and two weapons, and swaps to a bigger backpack. With the bag 85% full it drops junk; at home it stores spare food in a cupboard and eats from there later. |
 | Wounds | Bleeding with no bandage: it tears a spare shirt into rags, or takes off the one it's wearing and tears that. |
 | Cans | Opened and eaten with a can opener or a sharp knife. |
 | Fights | It fights at most 3 zombies with a decent weapon (counting every zombie within 4 tiles, seen or not), one bare-handed, and otherwise runs; once running it doesn't turn back to fight for 8 s. It doesn't loot buildings with 3+ zombies round them. |
 
-The mod and the bridge talk through files in `%USERPROFILE%\Zomboid\Lua\aivz\`, because PZ Lua mods
-can't open sockets:
+The mod talks to the bridge and to the agent through files in `%USERPROFILE%\Zomboid\Lua\aivz\`, because
+PZ Lua mods can't open sockets:
 
 | File | Written by | Contents |
 |---|---|---|
-| `percept.json` | mod, ~2×/s | What the character perceives: needs, wounds, inventory, zombies, nearby water and buildings, task status |
+| `percept.json` | mod, ~2×/s (baseline) | What the character perceives: needs, wounds, inventory, zombies, nearby water and buildings, task status |
 | `intent.txt` | bridge | `seq\|goal\|a1\|a2\|a3\|say\|why\|source` |
+| `gym.txt` | agent, every second | Heartbeat `on\|n\|speed\|ask`. While it keeps changing, the agent plays instead of the baseline. `speed` is 1, 2 or 3; the mod takes it once per new `ask` |
+| `obs.json` | mod, at each decision | `{id, reason, obs, options, last, speed}`: what the character perceives and every option a player has right now; `{dead: true}` after a death |
+| `act.txt` | agent | `id\|option\|note`: the chosen option (0-based) |
 | `reload.txt` | you / `scripts\reload-mod.ps1` | Changing it hot-reloads the mod's Lua |
 | `loader.txt` | mod | Loader status and the last Lua error |
 
@@ -100,20 +105,66 @@ Needs Python 3.10+ and Project Zomboid Build 42.
 Every decision is logged to `logs/decisions-YYYYMMDD.jsonl` (with the percept); deaths go to
 `logs/deaths-YYYYMMDD.jsonl`.
 
+## Run (self-taught agent)
+
+Start it instead of the bridge (both use port 8799):
+
+```bash
+python -m agent.run
+```
+
+It starts the game at 3× speed so it gets through more lives; to watch at normal speed, click **1×** at the
+top of the dashboard (<http://127.0.0.1:8799/>), press **G** in game, or start it with:
+
+```bash
+python -m agent.run --speed 1
+```
+
+Load your game. Within a few seconds the agent takes over from the baseline; when the character dies it
+starts a new one in a random town by itself. Stopping the agent (Ctrl+C) hands the character back to the
+baseline within ~6 s.
+
+What it writes, all under `logs/`:
+
+| File | Contents |
+|---|---|
+| `experience/YYYYMMDD-HH.jsonl.gz` | Every decision: what it saw, the options, its choice and the reward since the last one. This is what Phase 4 learns from. |
+| `lives.jsonl` | One line per life: game hours survived, kills, total reward and its parts, cause of the end |
+| `agent-state.json` | The life count, so it carries on across restarts |
+
+### Game speed
+
+Speed is set on the game clock, so 2× and 3× mean exactly that. (PZ's own buttons are 1×, 5×, 20× and
+40×.) Measured on this PC on 2026-10-09, over 1½ minutes at each speed, counting only time awake (PZ
+runs its own fast clock while the character sleeps):
+
+| Speed | Game minutes per real minute | Decisions per real minute |
+|---|---|---|
+| 1× | 18 | 84 |
+| 2× | 32 | 132 |
+| 3× | 48 | 202 |
+
+It's a little under 2× and 3× because the game drops back to 1× by itself whenever the character spots a
+zombie or swings; the mod puts the chosen speed back within a quarter of a second. The agent gets the
+same rhythm of decisions per game minute at every speed.
+
 ## Controls (in game)
 
 | Key | Effect |
 |---|---|
 | **F7** | Show/hide the AI's HUD. *(H, in the original plan, opens the Health panel in 42.21, so the HUD moved to F7.)* |
-| **G** | Toggle auto fast-forward: speed 2 when no zombie is within 45 tiles, speed 3 while it waits or rests in its closed-up home with nothing within 20 tiles. *(G is otherwise only the multiplayer safety toggle.)* |
-| W A S D, arrows, E, Space, F, R, Q | **Manual override:** the AI stops at once and you're driving. It takes over again after ~10 s with no input and no movement. |
+| **G** | Cycle the speed the AI plays at: 1× → 2× → 3× → 1×. The HUD's bottom line shows it (e.g. `G speed 3x`), plus the real speed when that differs, e.g. `(now 1x)` while you drive. The agent's dashboard buttons set the same thing; the latest press wins. *(G is otherwise only the multiplayer safety toggle.)* |
+| W A S D, arrows, E, Space, F, R, Q | **Manual override:** the AI stops at once and you're driving, at 1×. It takes over again, at its speed, after ~10 s with no input and no movement. |
 | Pause (speed 0) | Respected: the AI never unpauses the game. |
+| PZ's own fast-forward buttons | Left alone while one is pressed (5×, 20×, 40×). Pressing PZ's Play button goes back to the AI's speed. |
 
 ## Security: local only
 
 The IPC files let **any program running as you drive your character**, which is the same trust level as
-your mods folder. Nothing in AI-v-Z executes code from those files. The dashboard binds `127.0.0.1`,
-rejects other `Host` headers, and changes nothing. Don't expose port 8799. The review of the two repos
+your mods folder. Nothing in AI-v-Z executes code from those files. Both dashboards bind `127.0.0.1` and
+reject other `Host` headers. The baseline's changes nothing; the agent's can change one thing, the game
+speed, and only from its own page: requests carrying another site's `Origin`, or without a JSON body,
+are refused, so other web pages open in your browser can't use it. Don't expose port 8799. The review of the two repos
 this builds on, and what was left out for safety, is in [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Development
@@ -134,13 +185,29 @@ pick a sensible goal in all of them.
 ## Repository layout
 
 ```
-mod/AIvZ/           the Build 42 Lua mod (AIvZ.lua: reflex, tactics, HUD; AIvZLoader.lua: events, hot reload)
+mod/AIvZ/           the Build 42 Lua mod (AIvZ.lua: reflex, tactics, HUD; AIvZGym.lua: the agent's options,
+                    observations and respawns; AIvZLoader.lua: events, hot reload)
+agent/              the self-taught agent: run.py (loop, logs, dashboard), link.py (the files), reward.py,
+                    lives.py, policies.py (random for now), agent.html
 bridge/             bridge.py (rules baseline decision loop, dashboard server) and mind.html
 brain/              baseline decision code: goals, rules, percept conversion, strategy
 tests/              unit tests, and the 31 benchmark situations
 scripts/            install-mod.ps1, reload-mod.ps1
 docs/               SPECS, REVIEW; BENCHMARK and DECISION_MODELS (Phase 0 record, Qwen era)
 ```
+
+## Known issues (agent and gym)
+
+- **It doesn't learn yet.** The random policy dies within a few game hours most lives (15 lives in the
+  first 40 minutes). That's expected until Phase 4.
+- **Many options fail.** About half of walk, run, search and go-to-room choices end "no way there" or
+  "couldn't reach it": the game's pathfinder gives up on targets behind walls or furniture. In the speed
+  test the rate rose from 49% at 1× to 68% at 3×, but the three runs were in different places, so it isn't
+  clear yet whether speed is the cause. A longer comparison is due.
+- **Speed dips.** The game itself drops to 1× when the character spots a zombie or swings, for up to a
+  quarter of a second each time, so 3× averages about 2.6×.
+- **Screenshots of the game freeze in borderless mode.** Windows hands back a stale frame; windowed mode
+  captures fine. (This only matters when testing.)
 
 ## Known issues (rules baseline)
 

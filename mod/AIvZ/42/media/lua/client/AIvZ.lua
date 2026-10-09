@@ -12,15 +12,15 @@
 --   HUD     on-screen panel with the goal, the reason, the action and vitals (F7 hides it)
 -- The home base is remembered in the save (player mod data): the first building with a bed the AI closes
 -- up or sleeps in, moved when the AI shelters for the night somewhere far from it.
--- G toggles auto fast-forward. Pressing a movement key hands control to you; the AI takes over again
--- after ~10 s without input.
+-- G cycles the speed the AI plays at: 1x, 2x, 3x (the agent's dashboard can set it too). Pressing a
+-- movement key hands control to you at 1x; the AI takes over again after ~10 s without input.
 --
 -- Adapted from ClaudeSurvivor (c) 2026 Joel and ClaudeBot (c) 2026 whatcheers, both MIT licensed;
 -- see THIRD_PARTY_NOTICES.md. All logic lives in the AIvZ table so AIvZLoader.lua can hot-reload it.
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.4.0"
+A.VERSION = "0.4.1"
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -36,8 +36,9 @@ local KEY_HUD = Keyboard.KEY_F7
 local KEY_SPEED = Keyboard.KEY_G
 
 A.s = A.s or { tick = 0, lastSeq = 0, task = nil, manual = false, lastHumanKey = -99999, lastMove = 0,
-	reflexTick = -99999, reflexAct = "", rearmUntil = 0, autoSpeed = true, err = "", observing = false,
+	reflexTick = -99999, reflexAct = "", rearmUntil = 0, speedMode = 1, err = "", observing = false,
 	kills = 0, cache = {} }
+A.s.speedMode = A.s.speedMode or 1   -- 1x, 2x or 3x: the G key, or the agent's dashboard
 A.hud = A.hud or { visible = true, goal = "", why = "", source = "", action = "waiting for the bridge" }
 A.ev = A.ev or { n = 0, list = {} }
 local S, H = A.s, A.hud
@@ -79,10 +80,23 @@ local function dir8(dx, dy)
 	return ns .. ew
 end
 
-local function getSpeed() local sc = UIManager.getSpeedControls(); return sc and sc:getCurrentGameSpeed() end
+-- Game speed. The game's own buttons are 1x, 5x, 20x and 40x, and SetCurrentGameSpeed only changes which
+-- button is lit (it puts the clock back to 1x), so speed is set on the game clock's multiplier instead,
+-- which takes any value. The game drops back to 1x by itself when the character spots a zombie or swings;
+-- the speed upkeep puts it back.
+local SPEEDS = { 1, 2, 3 }
+local function getSpeed()   -- how fast the game runs now: 0 paused, 1 normal, 2 twice as fast...
+	local sc = UIManager.getSpeedControls()
+	if not sc then return nil end
+	if sc:getCurrentGameSpeed() == 0 then return 0 end
+	return r1(getGameTime():getTrueMultiplier())
+end
 local function setSpeed(v)
 	local sc = UIManager.getSpeedControls()
-	if sc and sc:getCurrentGameSpeed() ~= 0 then sc:SetCurrentGameSpeed(v) end
+	-- paused, or one of the game's own fast-forward buttons pressed: that's yours, leave it
+	if not sc or sc:getCurrentGameSpeed() ~= 1 then return end
+	local gt = getGameTime()
+	if math.abs(gt:getTrueMultiplier() - v) > 0.05 then gt:setMultiplier(v) end
 end
 
 function A.event(msg)
@@ -1629,7 +1643,7 @@ end
 -- The gym (the self-taught agent's side of the mod) reuses these helpers and motor skills.
 A.u = {
 	try = try, P = P, sqAt = sqAt, r1 = r1, r2 = r2, Q = Q, bkey = bkey, qlen = qlen, split = split, dir8 = dir8,
-	getSpeed = getSpeed, setSpeed = setSpeed, writeFile = writeFile, readFirstLine = readFirstLine, mem = mem,
+	getSpeed = getSpeed, setSpeed = setSpeed, SPEEDS = SPEEDS, writeFile = writeFile, readFirstLine = readFirstLine, mem = mem,
 	objList = objList, isDoor = isDoor, isWindow = isWindow, isBed = isBed, winIs = winIs, containersOn = containersOn,
 	waterAmount = waterAmount, eachItem = eachItem, foodValue = foodValue, waterIn = waterIn, medKind = medKind,
 	isMelee = isMelee, weaponScore = weaponScore, craftable = craftable, sealedCan = sealedCan, isBackBag = isBackBag,
@@ -1656,19 +1670,17 @@ function A.pollIntent(p)
 end
 
 ---------------------------------------------------------------- body upkeep
+-- the speed you chose with G (1x, 2x, 3x) while the AI plays; 1x while you drive
 function A.manageSpeed(p)
-	if not S.autoSpeed then return end
-	local cur = getSpeed()
-	if not cur or cur == 0 then return end -- paused by you: leave it
-	local want = (#A.zombies(p, 45) == 0 and not S.manual) and 2 or 1
-	-- waiting or resting in a closed-up home with nothing within 20 tiles: the quiet hours go faster
-	local t = S.task
-	if not S.manual and t and t.status == "running" and (t.goal == "wait" or t.goal == "rest") and #A.zombies(p, 20) == 0 then
-		local info = A.buildingInfo(p, false)
-		local home = mem(p).home
-		if info and home and info.id == home.id and #info.doorsOpen == 0 and #info.windowsOpen == 0 then want = 3 end
-	end
-	if cur ~= want then setSpeed(want) end
+	setSpeed(S.manual and 1 or S.speedMode)
+end
+
+function A.cycleSpeed()
+	local i = 1
+	for k, v in ipairs(SPEEDS) do if v == S.speedMode then i = k end end
+	S.speedMode = SPEEDS[i % #SPEEDS + 1]
+	if not S.manual then setSpeed(S.speedMode) end
+	A.event("speed " .. S.speedMode .. "x")
 end
 
 -- sneak at mid range to avoid drawing attention; never while fleeing or in melee
@@ -1758,15 +1770,12 @@ local MOVE_KEYS = {
 
 function A.onKeyPressed(key)
 	if key == KEY_HUD then H.visible = not H.visible; return end
-	if key == KEY_SPEED then
-		S.autoSpeed = not S.autoSpeed
-		if not S.autoSpeed then setSpeed(1) end
-		return
-	end
+	if key == KEY_SPEED then A.cycleSpeed(); return end
 	if MOVE_KEYS[key] then
 		S.lastHumanKey = S.tick
 		if not S.manual then
 			S.manual = true
+			setSpeed(1)
 			local p = P()
 			if p then ISTimedActionQueue.clear(p) end
 		end
@@ -1848,8 +1857,10 @@ function AIvZHUD:render()
 	end
 	self:drawText(string.format("%s  |  %.1f/%.0f kg", ht, p:getInventory():getCapacityWeight(), p:getMaxWeight()), 12, by + 56, 0.55, 0.6, 0.66, 1, UIFont.Small)
 	local gt = getGameTime()
-	self:drawTextRight(string.format("day %d  %02d:%02d   F7 hide  G speed%s", gt:getNightsSurvived() + 1, gt:getHour(), gt:getMinutes(),
-		S.autoSpeed and "" or " (off)"), w - 12, by + 74, 0.55, 0.6, 0.66, 1, UIFont.Small)
+	local sp = getSpeed()
+	local now = sp == 0 and " (paused)" or ((sp and math.abs(sp - S.speedMode) > 0.05) and (" (now " .. sp .. "x)") or "")
+	self:drawTextRight(string.format("day %d  %02d:%02d   F7 hide  G speed %dx%s", gt:getNightsSurvived() + 1, gt:getHour(),
+		gt:getMinutes(), S.speedMode, now), w - 12, by + 74, 0.55, 0.6, 0.66, 1, UIFont.Small)
 end
 
 function A.startHUD()

@@ -1,7 +1,9 @@
 """The agent's end of the file link with the mod's gym (mod/.../AIvZGym.lua).
 
-    gym.txt   agent -> mod   heartbeat "on|n" every second; while it changes, the agent plays
-    obs.json  mod -> agent   a decision request: {id, reason, obs, options, last} (or {dead: true})
+    gym.txt   agent -> mod   heartbeat "on|n|speed|ask" every second; while it changes, the agent plays.
+                             speed is the game speed asked for (1, 2 or 3); ask goes up with every new ask,
+                             and the mod takes each ask once (the G key can change the speed in between)
+    obs.json  mod -> agent   a decision request: {id, reason, obs, options, last, speed} (or {dead: true})
     act.txt   agent -> mod   "id|option|note": the chosen option, 0-based, and a note for the HUD
 
 Local files only: anything that can write to %USERPROFILE%\\Zomboid\\Lua\\aivz can drive the character,
@@ -15,6 +17,7 @@ import time
 from pathlib import Path
 
 DEFAULT_LUA_DIR = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Zomboid" / "Lua" / "aivz"
+SPEEDS = (1, 2, 3)
 
 
 def _clean(text, n=80):
@@ -22,18 +25,31 @@ def _clean(text, n=80):
 
 
 class GameLink:
-    def __init__(self, lua_dir=DEFAULT_LUA_DIR):
+    def __init__(self, lua_dir=DEFAULT_LUA_DIR, speed=1):
         self.dir = Path(lua_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.obs_path, self.act_path, self.beat_path = self.dir / "obs.json", self.dir / "act.txt", self.dir / "gym.txt"
         self.last_id, self.mtime = None, None
         self._beat = 0
         self._stop = threading.Event()
+        self._beat_lock = threading.Lock()   # the heartbeat thread and the dashboard both beat
+        self.speed = speed if speed in SPEEDS else 1
+        self.ask = int(time.time())   # a fresh number per run: starting the agent always sets its speed
 
     # ------------------------------------------------------------------ heartbeat
     def beat(self):
-        self._beat += 1
-        self._write(self.beat_path, f"on|{self._beat}")
+        with self._beat_lock:
+            self._beat += 1
+            self._write(self.beat_path, f"on|{self._beat}|{self.speed}|{self.ask}")
+
+    def ask_speed(self, speed):
+        """Ask the game to run at 1x, 2x or 3x; it takes it within a second or two."""
+        if speed not in SPEEDS:
+            raise ValueError(f"speed must be one of {SPEEDS}")
+        with self._beat_lock:
+            self.speed = speed
+            self.ask += 1
+        self.beat()
 
     def start_heartbeat(self):
         def loop():
@@ -49,7 +65,8 @@ class GameLink:
         """Hand the character back to the rules baseline (the mod notices within ~6 s)."""
         self._stop.set()
         try:
-            self._write(self.beat_path, "off")
+            with self._beat_lock:
+                self._write(self.beat_path, "off")
         except OSError:
             pass
 
