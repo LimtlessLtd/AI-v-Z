@@ -57,7 +57,7 @@ which the next character's planner reads. Every plan request and answer is logge
 | Nights | From an hour before sunset it heads home, or into the nearest building if home is far, closes the doors, windows and curtains, and stays in. It sleeps in the nearest bed when tired; the game won't allow sleep with zombies in sight, panic or bad pain, and the dashboard says why. Quiet nights at home run at fast-forward speed 3. |
 | Locked houses | No route in: it walks round to the cheapest ground-floor window, opens it, or smashes it and clears the glass if it's locked, climbs in and shuts it behind. Smashing is loud and the last resort. |
 | Loads | It carries up to 8 foods it can eat as is (none over 1 kg), 2 drinks, 6 medical items and two weapons, and swaps to a bigger backpack. With the bag 85% full it drops junk (spare weapons and clothes, rotten food); at home it stores spare food in a cupboard and eats from there later. |
-| Wounds | Bleeding with no bandage: it tears a spare shirt into rags. |
+| Wounds | Bleeding with no bandage: it tears a spare shirt into rags, or takes off the one it's wearing and tears that. |
 | Cans | Opened and eaten with a can opener or a sharp knife. |
 
 The mod and the bridge talk through files in `%USERPROFILE%\Zomboid\Lua\aivz\`, because PZ Lua mods
@@ -146,12 +146,15 @@ docs/               SPECS, BENCHMARK, DECISION_MODELS, REVIEW
 
 ## Known issues
 
-- **Early deaths happen.** The first Phase 2 character died at 20:13 on day 1: bleeding, no bandage,
-  cornered in a house where fleeing kept failing. Since then a cornered AI fights back, never walks off
-  to drink with zombies on it, and tears clothes into bandages, but one bad fight can still end a run.
+- **Early deaths happen.** Two Phase 2 characters died on days 1 and 2. The first was bleeding with no
+  bandage, cornered in a house. The second walked into 7 zombies round a barn and flipped between
+  fighting and fleeing. Since then it counts every zombie within 4 tiles before fighting, keeps
+  running once it flees (the reflex used to stop each flee to swing), avoids buildings with zombies
+  round them, and makes bandages from clothes. These fixes are tested in unit tests but haven't
+  had a long run in game yet.
 - **Fleeing indoors is weak.** Flee picks a square away from the zombies and pathfinds there; inside a
-  house that often goes nowhere ("stuck, can't get away"). After a failed flee it fights or hides for
-  15 s before trying again.
+  house that often goes nowhere ("stuck, can't get away"). After a failed flee it fights for 15 s
+  before trying again.
 - **Weapons are scarce early.** It fights bare-handed only against a single zombie and flees from more.
   It picks up melee weapons it finds while looting, but doesn't go looking for them.
 - **Smashed windows stay open.** A house it smashed its way into can't be closed up (no barricading yet),

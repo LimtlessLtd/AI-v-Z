@@ -301,6 +301,28 @@ local function ragSource(p)
 	return best
 end
 
+-- a worn cotton top (T-shirt, shirt, vest): bleeding with nothing else, it comes off and becomes bandages
+local function wornTop(p)
+	local best = nil
+	eachItem(p:getInventory(), function(it)
+		local t = it:getType() or ""
+		if not best and instanceof(it, "Clothing") and try(function() return p:isEquipped(it) end)
+			and (t:find("Tshirt") or t:find("Shirt") or t:find("Vest") or t:find("TankTop")) and not t:find("Jacket") then
+			best = it
+		end
+	end, 1)
+	return best
+end
+
+local function bleeding(p)
+	local parts = p:getBodyDamage():getBodyParts()
+	for i = 0, parts:size() - 1 do
+		local bp = parts:get(i)
+		if bp:bleeding() and not bp:bandaged() then return true end
+	end
+	return false
+end
+
 -- backpacks: B42 reports where a bag is worn in canBeEquipped() ("" for anything that isn't worn)
 local function isBackBag(it)
 	if not instanceof(it, "InventoryContainer") then return false end
@@ -727,7 +749,7 @@ function A.percept(p)
 	end
 	s.inv = A.inventory(p)
 	if not S.cache.rags or S.tick - S.cache.rags.at > 300 then S.cache.rags = { at = S.tick, ok = ragSource(p) ~= nil } end
-	s.rags = S.cache.rags.ok
+	s.rags = S.cache.rags.ok or (bleeding(p) and wornTop(p) ~= nil)
 	local cans = 0
 	eachItem(p:getInventory(), function(it) if instanceof(it, "Food") and canRecipe(p, it) then cans = cans + 1 end end)
 	s.cans = cans
@@ -1038,6 +1060,20 @@ A.tasks.bandage = function(p, t)
 		eachItem(p:getInventory(), function(it) if not band and medKind(it) == "bandage" then band = it end end)
 		if not band then
 			local cloth = not t.ripped and ragSource(p)
+			if not cloth and not t.stripped and bleeding(p) then
+				-- nothing spare to tear: take off the shirt on your back, then tear that
+				local top = wornTop(p)
+				if top then
+					t.stripped = true
+					ISTimedActionQueue.clear(p)
+					Q(ISUnequipAction:new(p, top, 50))
+					t.msg = "taking off " .. top:getDisplayName() .. " to make bandages"
+					H.action = t.msg
+					A.event(t.msg)
+					t.phase, t.t1, t.resume = "wrap", S.tick, "start"
+					return
+				end
+			end
 			if not cloth then return fail(t, "no bandages and nothing to tear into rags") end
 			t.ripped = true
 			ISTimedActionQueue.clear(p)
