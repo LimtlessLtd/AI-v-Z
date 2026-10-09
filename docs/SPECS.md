@@ -20,7 +20,7 @@ Re-run these checks if the hardware, driver, Ollama or game version changes.
 
 | Drive | Free | Notes |
 |---|---|---|
-| C: | **35.1 GB** | The old Ollama store (`C:\Users\fab_f\.ollama\models`, 35.4 GB) is still here as a copy; Ollama no longer uses it |
+| C: | **35.1 GB** | The old Ollama store (`%USERPROFILE%\.ollama\models`, 35.4 GB) is still here as a copy; Ollama no longer uses it |
 | D: | 303 GB | Steam library with Project Zomboid |
 | E: | ~273 GB | This project (`E:\Source\AI-v-Z`) and, since 2026-10-08, **Ollama's model store** (`E:\Ollama\models`) |
 
@@ -73,7 +73,7 @@ internal to Ollama, so leave it alone.
 | Steam build | `25485521` (latest available on 2026-10-08) |
 | Branch | Default (no beta key), so B42 is the stable branch |
 | JVM heap | `-Xmx3072m` (from `ProjectZomboid64.json`) |
-| User folder | `C:\Users\fab_f\Zomboid` (has `Lua\`, `mods\`, `Saves\`, `Logs\`) |
+| User folder | `%USERPROFILE%\Zomboid` (has `Lua\`, `mods\`, `Saves\`, `Logs\`) |
 | Last game launch | `console.txt` is dated **2024-06-20 (Build 41)**, so B42 hasn't been launched on this PC yet. Old saves are B41 and won't load in B42 |
 
 ## First measurements (PZ closed, warm model)
