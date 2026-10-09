@@ -1,7 +1,7 @@
 """Turns the mod's raw percept (Zomboid/Lua/aivz/percept.json) into what the brain reasons over.
 
-`summarize` returns a percept dict with the same shape as the benchmark snapshots in bench/snapshots.py,
-so brain/rules.py and brain/prompt.py work unchanged on live game data. It also works out which goals are
+`summarize` returns a percept dict with the same shape as the snapshots in tests/snapshots.py,
+so brain/rules.py works unchanged on live game data. It also works out which goals are
 legal right now and the arguments the mod needs to carry each one out (a building to walk to, a heading).
 """
 
@@ -10,7 +10,7 @@ import random
 from collections import deque
 from dataclasses import dataclass, field
 
-# raw moodle names from the mod -> the names rules.py and the prompt use
+# raw moodle names from the mod -> the names rules.py uses
 MOODLES = {"hungry": "hunger", "thirst": "thirst", "tired": "tired", "endurance": "endurance", "panic": "panic",
            "pain": "pain", "sick": "sick", "wet": "wet", "hypothermia": "cold", "heavy_load": "heavy_load",
            "stress": "stress"}
@@ -76,7 +76,7 @@ class Memory:
 
 @dataclass
 class Situation:
-    percept: dict          # snapshot-shaped percept for rules.py / prompt.py
+    percept: dict          # snapshot-shaped percept for rules.py
     legal: list            # goal ids that can be carried out right now
     args: dict             # goal id -> (a1, a2, a3) for the intent line
     threat: dict           # numbers the bridge uses to notice a changed situation
@@ -260,7 +260,7 @@ def summarize(raw, mem, rng=random):
             where += f", {building_kind(near.get('rooms'))} with closed doors {near['d']:.0f} tiles {near['dir']}"
         building = None
 
-    # wounds, written the way rules.py and the prompt expect
+    # wounds, written the way rules.py expects
     wounds = []
     for w in raw.get("wounds") or []:
         flags = [("BLEEDING" if f == "bleeding" else f) for f in w.get("flags", [])]

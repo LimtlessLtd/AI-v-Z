@@ -1,10 +1,10 @@
 -- AIvZLoader.lua: event glue and hot reload for AIvZ.lua.
 -- Adapted from ClaudeBotLoader (c) 2026 whatcheers, MIT licensed; see THIRD_PARTY_NOTICES.md.
 --
--- The game loads AIvZ.lua (all the logic) before this file. Changing the contents of
--- ~/Zomboid/Lua/aivz/reload.txt re-runs AIvZ.lua from this mod's folder with reloadLuaFile (B42 has
--- no loadstring), so code changes apply without restarting the game. Only the mod's own file is
--- ever reloaded; there is deliberately no way to run arbitrary code from a file.
+-- The game loads AIvZ.lua and AIvZGym.lua (all the logic) before this file. Changing the contents of
+-- ~/Zomboid/Lua/aivz/reload.txt re-runs both from this mod's folder with reloadLuaFile (B42 has no
+-- loadstring), so code changes apply without restarting the game. Only the mod's own files are ever
+-- reloaded; there is deliberately no way to run arbitrary code from a file.
 AIvZLoader = AIvZLoader or {}
 local L = AIvZLoader
 
@@ -24,17 +24,23 @@ local function status(msg)
 	w:close()
 end
 
-function L.path()
+-- the mod's own files, and only those: AIvZ.lua (baseline, motor skills) and AIvZGym.lua (the agent's side)
+L.FILES = { "AIvZ.lua", "AIvZGym.lua" }
+
+function L.path(name)
 	local info = getModInfoByID("AIvZ")
 	local v = info.getVersionDir and info:getVersionDir()
-	if v then return v .. "/media/lua/client/AIvZ.lua" end
-	return info:getDir() .. "/42/media/lua/client/AIvZ.lua"
+	if v then return v .. "/media/lua/client/" .. name end
+	return info:getDir() .. "/42/media/lua/client/" .. name
 end
 
 function L.reload()
-	local ok, e = pcall(function() reloadLuaFile(L.path()) end)
-	if not ok then status("ERR reload: " .. tostring(e)); return false end
-	status("OK reloaded v" .. tostring(AIvZ and AIvZ.VERSION) .. " at " .. tostring(getTimestampMs()) .. " from " .. L.path())
+	for _, name in ipairs(L.FILES) do
+		local ok, e = pcall(function() reloadLuaFile(L.path(name)) end)
+		if not ok then status("ERR reload " .. name .. ": " .. tostring(e)); return false end
+	end
+	status("OK reloaded v" .. tostring(AIvZ and AIvZ.VERSION) .. " (gym " .. tostring(AIvZ and AIvZ.gym and AIvZ.gym.VERSION)
+		.. ") at " .. tostring(getTimestampMs()))
 	if AIvZ and AIvZ.afterReload then pcall(AIvZ.afterReload) end
 	return true
 end

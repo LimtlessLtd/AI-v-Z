@@ -1,7 +1,7 @@
-"""Hand-made percept snapshots for the Phase 0 brain benchmark.
+"""31 hand-made situations from the Phase 0 benchmark, now a regression test for the rules baseline.
 
-Each snapshot is the kind of state the Lua mod will report to the bridge, plus:
-  legal     goals the tactics layer could execute right now (the model may only pick these)
+Each snapshot is the kind of state the Lua mod reports to the bridge, plus:
+  legal     goals the tactics layer could execute right now
   sensible  goals a competent player would accept here
   bad       goals that are actively dangerous or wasteful here (scored separately)
 

@@ -1,25 +1,27 @@
--- AIvZ.lua: the game half of AI-v-Z (Project Zomboid Build 42, singleplayer).
+-- AIvZ.lua: the game half of AI-v-Z (Project Zomboid Build 42, singleplayer): the rules baseline, and the
+-- motor skills and helpers the self-taught agent's gym (AIvZGym.lua) builds on. While the agent is
+-- connected (its heartbeat in aivz/gym.txt), the gym plays instead of the baseline.
 --
 --   percept OUT  ~/Zomboid/Lua/aivz/percept.json  about twice a second (what the character perceives)
 --   intent   IN  ~/Zomboid/Lua/aivz/intent.txt    "seq|goal|a1|a2|a3|say|why|source", written by bridge/bridge.py
 --
--- Layers in this file:
+-- Layers in this file (the baseline):
 --   reflex  every few ticks: swing, shove, grab a weapon or break away from zombies within ~3 tiles
 --   tactics carries out the goal the bridge picked (walk, loot, eat, drink, bandage, fight, flee, close up,
 --           go home, sleep, drop junk). Locked buildings are entered through a window.
---   HUD     on-screen panel with the goal, the reason, the action, the AI's own plan and vitals (F7 hides it)
---   plan IN  ~/Zomboid/Lua/aivz/plan.txt "aim|step" (the bridge's planner), shown on the HUD
+--   HUD     on-screen panel with the goal, the reason, the action and vitals (F7 hides it)
 -- The home base is remembered in the save (player mod data): the first building with a bed the AI closes
 -- up or sleeps in, moved when the AI shelters for the night somewhere far from it.
--- G toggles auto fast-forward. Pressing a movement key hands control to you; the AI takes over again
--- after ~10 s without input.
+-- Game speed is yours, with PZ's own buttons or keys; while the AI plays it keeps the one you picked (see
+-- A.holdSpeed). Pressing a movement key hands control to you; the AI takes over again after ~10 s without
+-- input.
 --
 -- Adapted from ClaudeSurvivor (c) 2026 Joel and ClaudeBot (c) 2026 whatcheers, both MIT licensed;
 -- see THIRD_PARTY_NOTICES.md. All logic lives in the AIvZ table so AIvZLoader.lua can hot-reload it.
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.3.0"
+A.VERSION = "0.4.3"
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -32,11 +34,11 @@ local FOOD_CAP = 8         -- edible food items worth carrying
 local WATER_CAP = 2        -- drink containers worth carrying
 local MED_CAP = 6          -- medical items worth carrying
 local KEY_HUD = Keyboard.KEY_F7
-local KEY_SPEED = Keyboard.KEY_G
 
 A.s = A.s or { tick = 0, lastSeq = 0, task = nil, manual = false, lastHumanKey = -99999, lastMove = 0,
-	reflexTick = -99999, reflexAct = "", rearmUntil = 0, autoSpeed = true, err = "", observing = false,
+	reflexTick = -99999, reflexAct = "", rearmUntil = 0, err = "", observing = false,
 	kills = 0, cache = {} }
+A.s.speed = A.s.speed or { held = 1, keyAt = -99999 }   -- the speed button you picked (A.holdSpeed)
 A.hud = A.hud or { visible = true, goal = "", why = "", source = "", action = "waiting for the bridge" }
 A.ev = A.ev or { n = 0, list = {} }
 local S, H = A.s, A.hud
@@ -78,10 +80,14 @@ local function dir8(dx, dy)
 	return ns .. ew
 end
 
-local function getSpeed() local sc = UIManager.getSpeedControls(); return sc and sc:getCurrentGameSpeed() end
-local function setSpeed(v)
+-- PZ's speed buttons by level: Play 1x, Fast Forward 5x and 20x, Wait 40x (keys F3-F6 by default, F2 pauses)
+local SPEED_BUTTONS = { "Play", "Fast Forward x 1", "Fast Forward x 2", "Wait" }
+local SPEED_X = { 1, 5, 20, 40 }
+local function getSpeed()   -- how fast the game runs now: 0 paused, 1 normal, 5, 20 or 40
 	local sc = UIManager.getSpeedControls()
-	if sc and sc:getCurrentGameSpeed() ~= 0 then sc:SetCurrentGameSpeed(v) end
+	if not sc then return nil end
+	if sc:getCurrentGameSpeed() == 0 then return 0 end
+	return r1(getGameTime():getTrueMultiplier())
 end
 
 function A.event(msg)
@@ -259,11 +265,13 @@ end
 local function craftable(p, name, it)
 	local recipe = try(function() return getScriptManager():getCraftRecipe(name) end)
 	if not recipe then return nil end
+	-- the recipe must use this item: RipClothing passed for any item while some other shirt was in the bag,
+	-- and the agent was offered (and did) "craft RipClothing (Key)"
 	local ok = try(function()
 		local logic = HandcraftLogic.new(p, nil, nil)
 		logic:setContainers(ISInventoryPaneContextMenu.getContainers(p))
 		logic:setRecipeFromContextClick(recipe, it)
-		return logic:canPerformCurrentRecipe()
+		return logic:canPerformCurrentRecipe() and logic:getRecipeData():getAllInputItems():contains(it)
 	end)
 	return ok and recipe or nil
 end
@@ -682,7 +690,7 @@ function A.scanWater(p, R)
 end
 
 function A.percept(p)
-	local s = { v = 1, ver = A.VERSION, tick = S.tick, ack = S.lastSeq, manual = S.manual, err = S.err, kills = mem(p).kills or 0 }
+	local s = { v = 1, ver = A.VERSION, gym = A.gym and A.gym.VERSION or nil, tick = S.tick, ack = S.lastSeq, manual = S.manual, err = S.err, kills = mem(p).kills or 0 }
 	s.dead = p:isDead()
 	s.asleep = try(function() return p:isAsleep() end) == true
 	local d = p:getDescriptor()
@@ -905,6 +913,35 @@ local function pathTo(p, t, x, y, z)
 	Q(act)
 end
 
+-- The game's walk-to action (ISWalkToTimedAction, behind luautils.walkToContainer and walkAdjWindowOrDoor) is
+-- only valid at game speed 2 (5x) or slower: at 20x and 40x the game drops it at once, and searching, taking,
+-- doors, windows, curtains and climbing all failed at those speeds. ISPathFindAction, the same pathfinder
+-- without that check, works at any speed, so these do what the luautils ones do with it. Queue only; the
+-- callers clear the queue first. `t` (optional) gets t.pathFailed = true when there's no way.
+local function walkTo(p, sq, t)
+	if sq == p:getCurrentSquare() then return true end
+	if t then pathTo(p, t, sq:getX(), sq:getY(), sq:getZ())
+	else Q(ISPathFindAction:pathToLocationF(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())) end
+	return true
+end
+
+local function walkToContainer(p, c, t)
+	local obj = c:getParent()
+	if c:getType() == "floor" or not obj or not obj:getSquare() or c:isInCharacterInventory(p) then return true end
+	if instanceof(obj, "BaseVehicle") or instanceof(obj, "IsoDeadBody") then return luautils.walkToContainer(c, p:getPlayerNum()) end
+	if obj:getSquare():DistToProper(p:getCurrentSquare()) < 2 then return true end
+	local adj = AdjacentFreeTileFinder.Find(obj:getSquare(), p)
+	if not adj then return false end
+	return walkTo(p, adj, t)
+end
+
+-- also returns the square it will stand on, next to the opening
+local function walkAdjOpening(p, sq, o, t)
+	local adj = AdjacentFreeTileFinder.FindWindowOrDoor(sq, o, p)
+	if not adj then return false end
+	return walkTo(p, adj, t), adj
+end
+
 local function farthestFree(p, dx, dy)
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
 	for i = 10, 1, -1 do
@@ -912,6 +949,62 @@ local function farthestFree(p, dx, dy)
 		if sq and sq:getFloor() and try(function() return sq:isFree(false) end) then return sq end
 	end
 	return nil
+end
+
+-- Standing inside furniture: one town's spawn point puts new characters in a sofa (11735,6691), and the
+-- pathfinder can't start on a blocked square, so every walk from there failed at once (four lives spent their
+-- whole time on that sofa). A player walks off with the keys; this does the same with the game's auto-walk,
+-- toward the nearest free square next to it. Called every tick by both players; true while stepping off.
+local function inFurniture(sq)
+	return sq ~= nil and try(function() return sq:isSolid() or sq:isSolidTrans() end) == true
+end
+
+-- what makes the square solid, for the logs
+local function furnitureName(sq)
+	for _, o in ipairs(objList(sq)) do
+		local props = try(function() return o:getProperties() end)
+		if props and (props:has(IsoFlagType.solid) or props:has(IsoFlagType.solidtrans)) then
+			return try(function() return o:getSprite():getName() end) or tostring(o:getObjectName())
+		end
+	end
+	return "?"
+end
+
+local NEIGHBOURS = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 }, { 1, -1 }, { 1, 1 }, { -1, 1 }, { -1, -1 } }
+function A.stepOff(p)
+	local so, sq = S.stepOff, p:getCurrentSquare()
+	if so then
+		if inFurniture(sq) and S.tick - so.t0 < 90 then return true end
+		pcall(function() p:setAutoWalk(false) end)
+		S.stepOff = nil
+		if inFurniture(sq) then S.stepOffNext = S.tick + 600; A.event("couldn't step off the furniture") end
+		return false
+	end
+	-- only when idle there, and after half a second in it: passing through (a climb through a window, a smash)
+	-- counted once, and failed the climb. While it waits, true too: no new orders until it's off (a climb in
+	-- through a window can land on a table, and the next walk from there fails at once).
+	if not inFurniture(sq) then S.inFurnSince = nil; return false end
+	S.inFurnSince = S.inFurnSince or S.tick
+	if qlen(p) > 0 or S.tick < (S.stepOffNext or 0) then return false end
+	if try(function() return p:isAsleep() or p:isClimbing() or p:isSittingOnFurniture() or p:isSitOnGround() end) then return false end
+	if S.tick - S.inFurnSince < 30 then return true end
+	local best, bd = nil, 99
+	for _, d in ipairs(NEIGHBOURS) do
+		local n = sqAt(sq:getX() + d[1], sq:getY() + d[2], sq:getZ())
+		if n and n:getFloor() and try(function() return n:isFree(false) end) and not try(function() return sq:isBlockedTo(n) end) then
+			local dd = math.sqrt((n:getX() + 0.5 - p:getX()) ^ 2 + (n:getY() + 0.5 - p:getY()) ^ 2)
+			if dd < bd then best, bd = n, dd end
+		end
+	end
+	if not best then S.stepOffNext = S.tick + 600; return false end
+	ISTimedActionQueue.clear(p)
+	local v = Vector2.new(best:getX() + 0.5 - p:getX(), best:getY() + 0.5 - p:getY())
+	v:normalize()
+	p:setAutoWalkDirection(v)
+	p:setAutoWalk(true)
+	S.stepOff = { t0 = S.tick, what = furnitureName(sq) }
+	A.event("standing in furniture (" .. S.stepOff.what .. "): stepping off")
+	return true
 end
 
 function A.startTask(p, seq, goal, args)
@@ -987,7 +1080,7 @@ A.tasks.eat = function(p, t)
 			if not f or (t.fetches or 0) >= 2 then return fail(t, "no food I can eat as is") end
 			t.fetches = (t.fetches or 0) + 1
 			ISTimedActionQueue.clear(p)
-			luautils.walkToContainer(f.c, p:getPlayerNum())
+			walkToContainer(p, f.c)
 			Q(ISInventoryTransferAction:new(p, f.it, f.c, p:getInventory()))
 			t.msg = "fetching " .. f.it:getDisplayName()
 			H.action = t.msg
@@ -1141,7 +1234,7 @@ function A.lootStep(p, t)
 		end
 		t.cur = best
 		ISTimedActionQueue.clear(p)
-		luautils.walkToContainer(best.c, p:getPlayerNum())
+		walkToContainer(p, best.c)
 		t.phase, t.t1, t.resume = "walk", S.tick, "next"
 		H.action = "searching a " .. tostring(best.c:getType())
 	elseif t.phase == "walk" then
@@ -1461,18 +1554,18 @@ A.tasks.flee = function(p, t)
 	H.action = "fleeing"
 end
 
-local function closeOpening(p, e)
-	if not luautils.walkAdjWindowOrDoor(p, e.sq, e.o, true) then return false end
+local function closeOpening(p, e, t)
+	if not walkAdjOpening(p, e.sq, e.o, t) then return false end
 	if isDoor(e.o) then Q(ISOpenCloseDoor:new(p, e.o)) else Q(ISOpenCloseWindow:new(p, e.o)) end
 	return true
 end
 
 -- a window's curtain hangs on its inside square; stand there (or next to it) and pull it, like the game's menu
-local function closeCurtain(p, e)
+local function closeCurtain(p, e, t)
 	local sq = e.sq
 	if sq and sq:isFree(false) then
-		if sq ~= p:getCurrentSquare() then Q(ISWalkToTimedAction:new(p, sq)) end
-	elseif not luautils.walkAdjWindowOrDoor(p, sq, e.o, true) then
+		walkTo(p, sq, t)
+	elseif not walkAdjOpening(p, sq, e.o, t) then
 		return false
 	end
 	Q(ISOpenCloseCurtain:new(p, e.o))
@@ -1547,6 +1640,22 @@ end
 
 -- Sleep in the nearest bed in this building (on the floor if there's none), through the game's own sleep
 -- flow. The game refuses with zombies in sight, panic or bad pain; the reason is reported back.
+-- Walk next to the bed with the pathfinder, then lie down the way the game's menu does (bed nil: the floor).
+-- The menu's own walk to a one-square bed is the speed-limited kind (see walkTo). Call it every few ticks
+-- until it returns true: asked to sleep (the game may still refuse).
+local function bedStep(p, t, bed)
+	if not t.bedT then
+		t.bedT = S.tick
+		if bed and not AdjacentFreeTileFinder.isTileOrAdjacent(p:getCurrentSquare(), bed:getSquare()) then
+			luautils.walkAdjObject(p, bed, true, true)
+		end
+		return false
+	end
+	if qlen(p) > 0 and S.tick - t.bedT < 1800 then return false end
+	ISWorldObjectContextMenu.onConfirmSleep(nil, { internal = "YES" }, p:getPlayerNum(), bed)
+	return true
+end
+
 A.tasks.sleep = function(p, t)
 	local asleep = try(function() return p:isAsleep() end) == true
 	if t.phase == "start" then
@@ -1556,10 +1665,11 @@ A.tasks.sleep = function(p, t)
 		local bed = b and A.beds(p, b)[1] or nil
 		ISTimedActionQueue.clear(p)
 		pcall(function() p:setSneaking(false) end)
-		ISWorldObjectContextMenu.onConfirmSleep(nil, { internal = "YES" }, p:getPlayerNum(), bed and bed.o or nil)
-		t.b, t.bed = b, bed ~= nil
-		t.phase, t.t1, t.resume = "lie", S.tick, "start"
+		t.b, t.bed, t.bedo, t.bedT = b, bed ~= nil, bed and bed.o or nil, nil
+		t.phase, t.resume = "tobed", "start"
 		H.action = bed and "going to bed" or "lying down on the floor"
+	elseif t.phase == "tobed" then
+		if bedStep(p, t, t.bedo) then t.phase, t.t1 = "lie", S.tick end
 	elseif t.phase == "lie" then
 		if asleep then
 			t.phase = "asleep"
@@ -1601,7 +1711,7 @@ A.tasks.drop_weight = function(p, t)
 		end
 		ISTimedActionQueue.clear(p)
 		local stored, dropped = {}, {}
-		if stash then luautils.walkToContainer(stash.c, p:getPlayerNum()) end
+		if stash then walkToContainer(p, stash.c) end
 		for _, j in ipairs(list) do
 			local it = j.it
 			if stash and j.rank > 1 and j.kg <= room then
@@ -1624,6 +1734,20 @@ A.tasks.drop_weight = function(p, t)
 	end
 end
 
+---------------------------------------------------------------- shared with AIvZGym.lua
+-- The gym (the self-taught agent's side of the mod) reuses these helpers and motor skills.
+A.u = {
+	try = try, P = P, sqAt = sqAt, r1 = r1, r2 = r2, Q = Q, bkey = bkey, qlen = qlen, split = split, dir8 = dir8,
+	getSpeed = getSpeed, writeFile = writeFile, readFirstLine = readFirstLine, mem = mem,
+	objList = objList, isDoor = isDoor, isWindow = isWindow, isBed = isBed, winIs = winIs, containersOn = containersOn,
+	waterAmount = waterAmount, eachItem = eachItem, foodValue = foodValue, waterIn = waterIn, medKind = medKind,
+	isMelee = isMelee, weaponScore = weaponScore, craftable = craftable, sealedCan = sealedCan, isBackBag = isBackBag,
+	backBag = backBag, bagCapacity = bagCapacity, carryInv = carryInv, stat = stat, moodle = moodle, STATS = STATS,
+	MOODLES = MOODLES, done = done, fail = fail, pathTo = pathTo, farthestFree = farthestFree, inFurniture = inFurniture,
+	closeOpening = closeOpening, closeCurtain = closeCurtain, roomNames = roomNames, walkTo = walkTo,
+	walkToContainer = walkToContainer, walkAdjOpening = walkAdjOpening, bedStep = bedStep,
+}
+
 ---------------------------------------------------------------- intent from the bridge
 function A.pollIntent(p)
 	local line = readFirstLine("intent.txt")
@@ -1641,28 +1765,42 @@ function A.pollIntent(p)
 	if not S.manual then A.startTask(p, seq, goal, { parts[3], parts[4], parts[5] }) end
 end
 
--- the AI's own plan (written by the bridge's planner), for the HUD: "aim|current step"
-function A.readPlan()
-	local line = readFirstLine("plan.txt")
-	if not line then H.aim, H.step = nil, nil; return end
-	local parts = split(tostring(line), "|")
-	H.aim, H.step = parts[1] ~= "" and parts[1] or nil, parts[2] ~= "" and parts[2] or nil
+---------------------------------------------------------------- body upkeep
+-- Keep the speed you picked with PZ's buttons or keys. The game drops back to Play by itself when a
+-- zombie in sight comes within 4 tiles (7 with more than 4 in sight) or the character swings; while the AI
+-- plays, the button you picked is pressed again once no zombie in sight is within 8 tiles (any sooner and
+-- the game would drop it straight back). The game never speeds itself up, so a faster level is always
+-- your pick; Play is yours when the mouse is on the speed buttons or a speed key was just pressed.
+-- Called every tick; it only presses buttons while the AI is in control.
+function A.holdSpeed(p, inControl)
+	local sc = UIManager.getSpeedControls()
+	if not sc then return end
+	local sp, lvl = S.speed, sc:getCurrentGameSpeed()
+	if lvl ~= sp.seen then
+		if lvl >= 2 or (lvl == 1 and (sc:isMouseOver() or S.tick - sp.keyAt < 30)) then sp.held = lvl end
+		sp.seen = lvl
+	end
+	if not inControl or lvl ~= 1 or sp.held <= 1 or S.tick % 15 ~= 0 then return end
+	for _, e in ipairs(A.zombies(p, 8)) do if e.seen then return end end
+	if try(function() return p:isAsleep() end) then return end
+	sc:ButtonClicked(SPEED_BUTTONS[sp.held])
+	sp.seen = sc:getCurrentGameSpeed()
 end
 
----------------------------------------------------------------- body upkeep
-function A.manageSpeed(p)
-	if not S.autoSpeed then return end
-	local cur = getSpeed()
-	if not cur or cur == 0 then return end -- paused by you: leave it
-	local want = (#A.zombies(p, 45) == 0 and not S.manual) and 2 or 1
-	-- waiting or resting in a closed-up home with nothing within 20 tiles: the quiet hours go faster
-	local t = S.task
-	if not S.manual and t and t.status == "running" and (t.goal == "wait" or t.goal == "rest") and #A.zombies(p, 20) == 0 then
-		local info = A.buildingInfo(p, false)
-		local home = mem(p).home
-		if info and home and info.id == home.id and #info.doorsOpen == 0 and #info.windowsOpen == 0 then want = 3 end
+-- the keys bound to PZ's speed controls (F2-F6 unless you changed them)
+local speedKeys
+local function isSpeedKey(key)
+	if not speedKeys then
+		speedKeys = { [Keyboard.KEY_F2] = true, [Keyboard.KEY_F3] = true, [Keyboard.KEY_F4] = true,
+			[Keyboard.KEY_F5] = true, [Keyboard.KEY_F6] = true }
+		pcall(function()
+			for _, id in ipairs({ KeybindId.PAUSE, KeybindId.NORMAL_SPEED, KeybindId.FAST_FORWARD_X1,
+				KeybindId.FAST_FORWARD_X2, KeybindId.FAST_FORWARD_X3 }) do
+				speedKeys[getCore():getKey(id:getId())] = true
+			end
+		end)
 	end
-	if cur ~= want then setSpeed(want) end
+	return speedKeys[key] == true
 end
 
 -- sneak at mid range to avoid drawing attention; never while fleeing or in melee
@@ -1693,8 +1831,14 @@ function A.onTick()
 	-- (the first new map once listed two buildings from the other end of the county)
 	local who = try(function() local d = p:getDescriptor(); return d:getForename() .. " " .. d:getSurname() end)
 	if who and who ~= S.who then
-		if S.who then S.cache, S.task, S.zc = {}, nil, nil end
+		if S.who then S.cache, S.task, S.zc, S.stepOff, S.stepOffNext = {}, nil, nil, nil, nil end
 		S.who = who
+	end
+	if not p:isDead() then safe("speed", A.holdSpeed, p, not S.manual) end
+	-- the self-taught agent is connected: it plays (AIvZGym.lua); you can still take over with the keys
+	if A.gym and A.gym.active() and (p:isDead() or not S.manual) then
+		safe("gym", A.gym.tick, p)
+		return
 	end
 	if p:isDead() then
 		H.action = "DEAD"
@@ -1724,10 +1868,14 @@ function A.onTick()
 		end
 	end
 
+	if safe("step off", A.stepOff, p) then
+		H.action = "stepping off the furniture"
+		if S.tick % PERCEPT_EVERY == 0 then safe("percept", A.writePercept, p) end
+		return
+	end
 	local took = false
 	if S.tick % REFLEX_EVERY == 0 then took = safe("reflex", A.reflex, p) end
 	if not took and S.tick % TASK_EVERY == 0 then safe("task", A.taskTick, p) end
-	if S.tick % 15 == 0 then safe("speed", A.manageSpeed, p) end
 	if S.tick % 30 == 0 then safe("sneak", A.manageSneak, p) end
 	-- watching: outdoors, a look round every ~7 s; indoors, stand still. (It used to turn to a new
 	-- direction every half second, which looked like spinning on the spot.)
@@ -1735,7 +1883,6 @@ function A.onTick()
 		local rad = ZombRand(8) * (math.pi / 4)
 		pcall(function() p:faceLocation(px + math.cos(rad) * 4, py + math.sin(rad) * 4) end)
 	end
-	if S.tick % 120 == 0 then safe("plan", A.readPlan) end
 	if S.tick % PERCEPT_EVERY == 0 then safe("percept", A.writePercept, p) end
 	if S.tick % INTENT_EVERY == 0 then safe("intent", A.pollIntent, p) end
 end
@@ -1748,11 +1895,7 @@ local MOVE_KEYS = {
 
 function A.onKeyPressed(key)
 	if key == KEY_HUD then H.visible = not H.visible; return end
-	if key == KEY_SPEED then
-		S.autoSpeed = not S.autoSpeed
-		if not S.autoSpeed then setSpeed(1) end
-		return
-	end
+	if isSpeedKey(key) then S.speed.keyAt = S.tick; return end
 	if MOVE_KEYS[key] then
 		S.lastHumanKey = S.tick
 		if not S.manual then
@@ -1768,7 +1911,7 @@ AIvZHUD = ISUIElement:derive("AIvZHUD")
 
 function AIvZHUD:new()
 	local sh = try(function() return getCore():getScreenHeight() end) or 1080
-	local h = 232
+	local h = 214
 	local o = ISUIElement:new(14, sh - h - 48, 400, h)
 	setmetatable(o, self)
 	self.__index = self
@@ -1811,14 +1954,11 @@ function AIvZHUD:render()
 	self:drawText("NOW: " .. tostring(H.action), 12, 46, 0.9, 0.95, 1, 1, UIFont.Small)
 	local ty = 64
 	for _, line in ipairs(self:wrap(H.why, 60)) do
-		if ty > 79 then break end
+		if ty > 94 then break end
 		self:drawText(line, 12, ty, 0.74, 0.79, 0.85, 1, UIFont.Small)
 		ty = ty + 15
 	end
-	local function cut(t, n) t = tostring(t); return #t > n and (t:sub(1, n - 1) .. "...") or t end
-	self:drawText("AIM: " .. cut(H.aim or "none yet", 56), 12, 98, 0.62, 0.86, 1, 1, UIFont.Small)
-	if H.step then self:drawText("NEXT: " .. cut(H.step, 55), 12, 113, 0.62, 0.86, 1, 1, UIFont.Small) end
-	local by = 136
+	local by = 118
 	local hp = try(function() return p:getBodyDamage():getOverallBodyHealth() end) or 0
 	self:bar("HP", hp / 100, 12, by, function(v) return v < 0.3 end)
 	self:bar("HUN", stat(p, "HUNGER"), 104, by, function(v) return v > 0.7 end)
@@ -1841,8 +1981,12 @@ function AIvZHUD:render()
 	end
 	self:drawText(string.format("%s  |  %.1f/%.0f kg", ht, p:getInventory():getCapacityWeight(), p:getMaxWeight()), 12, by + 56, 0.55, 0.6, 0.66, 1, UIFont.Small)
 	local gt = getGameTime()
-	self:drawTextRight(string.format("day %d  %02d:%02d   F7 hide  G speed%s", gt:getNightsSurvived() + 1, gt:getHour(), gt:getMinutes(),
-		S.autoSpeed and "" or " (off)"), w - 12, by + 74, 0.55, 0.6, 0.66, 1, UIFont.Small)
+	-- the speed, and the one it goes back to when the game has dropped to 1x for a close zombie
+	local sp = getSpeed()
+	local st = sp == 0 and "paused" or (sp and ("speed " .. sp .. "x") or "")
+	if sp and sp > 0 and S.speed.held > 1 and S.speed.seen == 1 then st = st .. " (" .. SPEED_X[S.speed.held] .. "x when clear)" end
+	self:drawTextRight(string.format("day %d  %02d:%02d   %s   F7 hide", gt:getNightsSurvived() + 1, gt:getHour(),
+		gt:getMinutes(), st), w - 12, by + 74, 0.55, 0.6, 0.66, 1, UIFont.Small)
 end
 
 function A.startHUD()
@@ -1864,5 +2008,12 @@ end
 
 -- called by the loader after a hot reload: rebuild the HUD so it uses the new code
 function A.afterReload()
+	-- a game started before AIvZGym.lua existed runs the old loader, which only reloads this file
+	if AIvZLoader and not AIvZLoader.FILES and AIvZLoader.path then
+		pcall(function()
+			local path = AIvZLoader.path():gsub("AIvZ%.lua$", "AIvZGym.lua")
+			reloadLuaFile(path)
+		end)
+	end
 	if P() then A.startHUD() end
 end

@@ -1,5 +1,7 @@
 # Machine specs (measured 2026-10-08)
 
+> Ollama is no longer used by AI-v-Z (removed 2026-10-09); its rows are kept as a record.
+
 Collected with `Get-CimInstance`, `nvidia-smi`, `Get-PSDrive` and the Ollama API on this PC.
 Re-run these checks if the hardware, driver, Ollama or game version changes.
 

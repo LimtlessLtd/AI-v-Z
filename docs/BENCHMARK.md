@@ -1,5 +1,9 @@
 # Phase 0 — brain benchmark
 
+> **Historical (Phase 0).** Qwen and the LLM benchmark code were removed on 2026-10-09, when the project
+> switched to a self-taught agent (see the README's Roadmap). This page is kept as the record of what was
+> measured and why the language model was chosen, then dropped.
+
 **Date:** 2026-10-08 · **Ollama:** 0.40.1 (models on `E:\Ollama\models`) · **GPU:** RTX 2060 6 GB ·
 **PZ:** closed, except the rows marked "PZ open" (42.21 with a save loaded, same day)
 
