@@ -191,18 +191,23 @@ def choose_explore(raw, mem, rng=random):
     return best, (round(ux * scale), round(uy * scale), 0)
 
 
+CROWDED = 3   # zombies within 8 tiles of a building that make it a bad place to go
+
+
+def crowd_at(raw, x, y, radius=8):
+    """Zombies (of the ones the AI knows about) within `radius` tiles of the map square (x, y)."""
+    pos = raw.get("pos") or {}
+    bx, by = x - pos.get("x", 0), y - pos.get("y", 0)
+    return sum(1 for z in raw.get("zombies") or [] if math.hypot(z["dx"] - bx, z["dy"] - by) < radius)
+
+
 def hide_target(raw, mem):
     """The building to run into when hiding from outside: close, and not where the zombies are."""
-    pos = raw.get("pos") or {}
-    px, py = pos.get("x", 0), pos.get("y", 0)
-    zs = raw.get("zombies") or []
     best, best_cost = None, None
     for b in raw.get("buildings") or []:
         if b["d"] > HIDE_RANGE or b["id"] in mem.unreachable or f"{b['tx']},{b['ty']}" in mem.unreachable:
             continue
-        bx, by = b["tx"] - px, b["ty"] - py
-        crowd = sum(1 for z in zs if math.hypot(z["dx"] - bx, z["dy"] - by) < 8)
-        cost = b["d"] + 6 * crowd
+        cost = b["d"] + 6 * crowd_at(raw, b["tx"], b["ty"])
         if best_cost is None or cost < best_cost:
             best, best_cost = b, cost
     return best
@@ -259,8 +264,10 @@ def summarize(raw, mem, rng=random):
         wounds.append(f"{w['part']}: {', '.join(flags)}")
 
     here_id = bld["id"] if bld else None
+    # a building with zombies standing round it isn't worth walking into (the second death: 7 round a barn)
     unlooted = [b for b in buildings if not b.get("looted") and b["id"] != here_id
-                and b["id"] not in mem.unreachable and f"{b['tx']},{b['ty']}" not in mem.unreachable]
+                and b["id"] not in mem.unreachable and f"{b['tx']},{b['ty']}" not in mem.unreachable
+                and crowd_at(raw, b["tx"], b["ty"]) < CROWDED]
     looted = [b for b in buildings if b.get("looted")]
     clean_water = [w for w in water if not w.get("tainted")]
     task = raw.get("task") or {}

@@ -815,6 +815,10 @@ end
 -- Reflex: anything within ~3 tiles is handled here, every few ticks, without asking the bridge.
 function A.reflex(p)
 	if p:getVehicle() then return false end
+	-- running away: keep running. Swinging at whatever is in reach cleared the flee path every time, so in
+	-- game every flee "went nowhere" and the AI died surrounded, twice.
+	local cur = S.task
+	if cur and cur.status == "running" and cur.goal == "flee" then return false end
 	local zs = {}
 	for _, e in ipairs(A.zombies(p, 3.5)) do if (e.seen or e.chasing) and not e.blocked then zs[#zs + 1] = e end end
 	if #zs == 0 then
@@ -1374,7 +1378,8 @@ A.tasks.fight = function(p, t)
 	end
 	local close = 0
 	for _, e in ipairs(vis) do if e.d < 2 then close = close + 1 end end
-	if close >= 3 then return fail(t, "surrounded") end
+	-- surrounded: keep swinging at the nearest (the reflex breaks away when it can); giving up here left the
+	-- AI with no goal at all while three zombies bit it
 	if stat(p, "ENDURANCE") < 0.25 then return fail(t, "too exhausted to fight") end
 	local e = vis[1]
 	local w = p:getPrimaryHandItem()

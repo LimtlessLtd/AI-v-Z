@@ -339,6 +339,37 @@ class SurvivalTests(unittest.TestCase):
         legal = [g for g in s.legal if g != "flee"]   # flee cooling down after it failed
         self.assertEqual(strategy.plan(s.percept, legal).goal, "fight")
 
+    def test_zombies_behind_you_count_against_a_fight(self):
+        # the second death: 3 chasing in front, 4 more within 3 tiles out of sight; it fought with a frying pan
+        raw = outside(RAW, [{"dx": -2, "dy": 0, "d": 2, "seen": True, "chasing": True}] * 3
+                      + [{"dx": 1, "dy": 2, "d": 2.2, "seen": False, "chasing": False}] * 4)
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "flee")
+
+    def test_buildings_with_zombies_round_them_are_not_looted(self):
+        raw = outside(RAW, [{"dx": 0, "dy": 25, "d": 25, "seen": False, "chasing": False}] * 4)   # at the house S
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertNotEqual(s.args.get("loot_building"), (10500, 9826, 0))   # the house next door instead
+
+    def test_a_flee_is_not_dropped_for_a_fight_straight_away(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            args = __import__("argparse").Namespace(lua_dir=tmp, log_dir=tmp, no_llm=True, model="none", ollama=None, port=0)
+            b = bridge_mod.Bridge(args)
+            raw = outside(RAW, [{"dx": 0, "dy": 6, "d": 6, "seen": True, "chasing": True}] * 5)
+            b.on_percept(raw)
+            self.assertEqual(b.current["goal"], "flee")
+            raw = copy.deepcopy(raw)
+            raw["zombies"] = [{"dx": 0, "dy": 6, "d": 6, "seen": True, "chasing": True}]   # down to one
+            raw["task"] = {"seq": b.seq, "goal": "flee", "status": "running", "msg": "", "phase": "run", "age": 30}
+            b.current["at"] = 0
+            b.on_percept(raw)
+            self.assertEqual(b.current["goal"], "flee")   # still running
+            b.current["t0"] -= 10
+            b.current["at"] = 0
+            b.on_percept(copy.deepcopy(raw))
+            self.assertEqual(b.current["goal"], "fight")
+
     def test_bleeding_without_bandages_tears_a_shirt(self):
         raw = copy.deepcopy(RAW)
         raw["zombies"], raw["rags"] = [], True

@@ -30,6 +30,9 @@ def features(p):
     zs = p["zombies"]
     chasing = sum(z["count"] for z in zs if z["dist"] <= 15 and re.search(r"chasing|banging", z["state"]))
     near = sum(z["count"] for z in zs if z["dist"] <= 20)
+    # everything within 4 tiles counts, seen or not: in game 7 stood round the AI, only the 3 in front were
+    # "chasing", and it picked a fight with a frying pan
+    within4 = sum(z["count"] for z in zs if z["dist"] <= 4)
     # A big group anywhere in earshot is a horde. Scattered ones only count when many are close: in game,
     # 16 spread over 22-40 tiles of town (none chasing, none in sight) had the AI "fleeing" on the spot.
     horde = (any(z["count"] >= 10 for z in zs) or sum(z["count"] for z in zs if z["dist"] <= 25) >= 15
@@ -52,8 +55,8 @@ def features(p):
         "nearest": min((z["dist"] for z in zs), default=999),
         "weapon_cond": weapon_cond, "spare_weapon": bool(spare),
         # armed: up to 3 chasing. Bare hands: one zombie, nothing else close (shove it down, stomp it)
-        "can_fight": _level(p, "endurance") <= 1 and ((chasing <= 3 and weapon_cond >= 30)
-                                                       or (chasing == 1 and near <= 2)),
+        "can_fight": _level(p, "endurance") <= 1 and ((chasing <= 3 and within4 <= 3 and weapon_cond >= 30)
+                                                       or (chasing == 1 and within4 <= 1 and near <= 2)),
         "indoors": p["where"].startswith("inside"),
         "at_home": home.startswith("you are at home"),
         "home_known": bool(home),
@@ -113,6 +116,8 @@ def score_goals(p, legal):
         add("hide", -40 if not f["indoors"] else 0)
         if f["nearest"] < 5:
             add("secure_building", -60)   # they're already in reach: no time to go round the doors
+        if f["nearest"] < 10:
+            add("retreat_home", -80)      # a walk home with zombies on you: run first, go home after
         for g in ("eat", "drink", "wait", "rest", "sleep", "loot_here", "loot_building", "explore", "drop_weight"):
             add(g, -80)
     if f["horde"]:

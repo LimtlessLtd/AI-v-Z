@@ -156,6 +156,8 @@ class WorldMemory:
                 bits.append("your home base")
             if p.get("locked"):
                 bits.append("couldn't get in")
+            if p.get("zombies"):
+                bits.append(f"zombies all round it on day {p['zombies']}")
             bits.append("searched" if p.get("looted") else "not searched yet")
             if p.get("found"):
                 bits.append("found there: " + ", ".join(p["found"][-4:]))

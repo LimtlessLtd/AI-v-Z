@@ -55,7 +55,9 @@ SLOW_MS = 8000     # an LLM call this slow (or a timeout) is a strike; 2 in a ro
 COOLDOWN_FAILED_S = 60
 # A flee or fight that failed ("stuck", "surrounded") gets a short pause so the alternatives get a turn;
 # in game a flee that couldn't find a path was re-sent eight times in ten seconds.
-COOLDOWN_FAILED_SHORT_S = {"flee": 15, "fight": 15}
+COOLDOWN_FAILED_SHORT_S = {"flee": 15}
+FLEE_COMMIT_S = 8    # once running, don't turn to fight for this long (it flipped every few seconds)
+PLAN_BLOCKED_S = 60  # a plan target with zombies round it this long: that step fails, the planner re-plans
 COOLDOWN_DONE_S = {"secure_building": 90, "hide": 60, "sleep": 300, "drop_weight": 120}
 NEVER_COOL = {"fight", "flee", "wait", "explore"}
 MIND_HTML = (Path(__file__).resolve().parent / "mind.html").read_bytes()
@@ -190,6 +192,21 @@ class Bridge:
         if not h or self.cooldown.get(h[0], 0) > now:
             return None
         goal, args = h
+        step = self.agenda.current()
+        if goal == "loot_building":
+            from brain.percept import CROWDED, crowd_at
+            if crowd_at(raw, args[0], args[1]) >= CROWDED:
+                # zombies round the target: hold off; if it stays like that, the step fails and a new plan comes
+                step.blocked = getattr(step, "blocked", None) or now
+                if now - step.blocked > PLAN_BLOCKED_S:
+                    step.status = "failed"
+                    self.mem.note(raw, f"plan step failed: {step.text()} (zombies all round it)")
+                    place = self.world.places.get(step.place)
+                    if place is not None:
+                        place["zombies"] = (raw.get("time") or {}).get("day")
+                    self._save_agenda()
+                return None
+            step.blocked = None
         if goal in ("loot_building", "explore") and goal not in situ.legal:
             situ.legal.append(goal)
         if goal not in situ.legal:
@@ -319,6 +336,10 @@ class Bridge:
             plan = strategy.plan(situ.percept, situ.legal, cur["goal"] if cur else None, running,
                                  cur["source"] if cur else None, plan_goal=plan_goal)
             self.plan = plan
+            if (running and cur["goal"] == "flee" and plan.goal == "fight" and "flee" in situ.legal
+                    and now - cur.get("t0", now) < FLEE_COMMIT_S):
+                cur["at"] = now   # committed to running
+                return
             if plan.source == "keep" or (running and plan.goal == cur["goal"]):
                 cur["at"] = now
                 return
@@ -341,7 +362,9 @@ class Bridge:
         if goal == "explore":
             self.mem.explore_dir = situ.threat["explore_heading"]
         keep_why = cur["why"] if cur and cur["goal"] == goal and not why else why
-        self.current = {"goal": goal, "args": list(args), "seq": self.seq, "source": source, "why": keep_why, "at": time.time()}
+        started = cur["t0"] if cur and cur["goal"] == goal and "t0" in cur else time.time()
+        self.current = {"goal": goal, "args": list(args), "seq": self.seq, "source": source, "why": keep_why,
+                        "at": time.time(), "t0": started}
         scores = plan.scores if plan else {}
         top = sorted(scores.items(), key=lambda kv: -kv[1])[:5]
         entry = {"seq": self.seq, "time": situ.percept["time"], "goal": goal, "source": source, "why": why,
