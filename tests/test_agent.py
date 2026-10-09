@@ -204,6 +204,9 @@ class ProbeTests(unittest.TestCase):
                 pol.tally[verb]["done"] = 1
         i, _, _ = pol.choose({"options": options, "obs": OBS})
         self.assertEqual(options[i]["name"], "Kitchen Knife")
+        pol = ProbePolicy(random.Random(1), tries=1)
+        i, _, _ = pol.choose({"options": options + [{"verb": "drink", "name": "Water Bottle"}], "obs": OBS})
+        self.assertEqual(i, len(options))   # use the bottle already in the bag before taking another
 
 
 class AgentLoopTests(unittest.TestCase):

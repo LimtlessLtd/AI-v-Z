@@ -110,6 +110,20 @@ class ProbePolicy:
 
     def _pick(self, options):
         idx = [i for i, o in enumerate(options) if o.get("verb") != "continue"]
+        # Finish the few executors that ordinary natural play rarely reaches. Use only items the game
+        # has actually offered; this probe never places items or gives the character equipment.
+        for verb, predicate in (("drink", lambda o: o.get("water", 0) > 0),
+                                ("equip", lambda o: o.get("cat") == "weapon"),
+                                ("unequip", None)):
+            if self.tried(verb) >= self.tries:
+                continue
+            cands = [i for i in idx if options[i].get("verb") == verb]
+            if cands:
+                return self.rng.choice(cands)
+            if predicate:
+                cands = [i for i in idx if options[i].get("verb") == "take" and predicate(options[i])]
+                if cands:
+                    return min(cands, key=lambda i: options[i].get("d", 99))
         order = self.TEST + (self.LATE if self.rng.random() < 0.25 else ())
         for verb in order:
             if self.tried(verb) >= self.tries:
@@ -124,14 +138,6 @@ class ProbePolicy:
                 cands.sort(key=lambda i: not options[i].get("bed"))
             if cands:
                 return cands[0] if verb in ("search", "enter", "sleep") else self.rng.choice(cands)
-        # A drink or weapon has to reach the bag before its executor can be tested. Take one from a
-        # container found in natural play even after the ordinary three take checks are complete.
-        for needed, predicate in (("drink", lambda o: o.get("water", 0) > 0),
-                                  ("equip", lambda o: o.get("cat") == "weapon")):
-            if self.tried(needed) < self.tries and needed not in (o.get("verb") for o in options):
-                cands = [i for i in idx if options[i].get("verb") == "take" and predicate(options[i])]
-                if cands:
-                    return min(cands, key=lambda i: options[i].get("d", 99))
         for verb in self.EXPLORE:   # everything on offer has been tried enough: go and find more
             cands = [i for i in idx if options[i].get("verb") == verb and (verb != "search" or options[i].get("here", True))]
             if verb == "enter":
