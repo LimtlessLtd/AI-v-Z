@@ -36,6 +36,7 @@ from brain.percept import Memory, summarize  # noqa: E402
 DEFAULT_LUA_DIR = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Zomboid" / "Lua" / "aivz"
 RECHECK_S = 6      # re-plan at least this often while a goal runs
 STALE_S = 15       # no new percept for this long: the game isn't running the mod
+SLOW_MS = 8000     # an LLM call this slow (or a timeout) is a strike; 2 in a row reload the model
 # After a task ends, don't pick the same goal again for a while (seconds). A failed task gets a pause
 # before it's retried. Securing or hiding can "finish" without having changed anything, so those rest
 # too even when done. Survival goals are never held back.
@@ -81,7 +82,8 @@ class Bridge:
         self.situ, self.plan, self.signature = None, None, None
         self.jobs = queue.Queue(maxsize=1)
         self.llm_state = {"model": args.model if self.llm else None, "busy": False, "last_ms": None, "calls": 0,
-                          "errors": 0, "last_error": "", "ready": False}
+                          "errors": 0, "last_error": "", "ready": False, "reloads": 0}
+        self.strikes = 0
         self.decisions = deque(maxlen=40)
         self.status = "waiting for the game"
         self.dead_logged = False
@@ -232,6 +234,7 @@ class Bridge:
                 legal = [job["goal"]] if job["kind"] == "narrate" else job["candidates"]
                 goal, why, ms = self.llm.choose(situ.percept, legal)
                 self.llm_state.update(last_ms=round(ms), calls=self.llm_state["calls"] + 1, ready=True)
+                self.strikes = self.strikes + 1 if ms > SLOW_MS else 0
                 with self.lock:
                     cur = self.current
                     if cur is None or cur["seq"] != job["seq"]:
@@ -243,8 +246,22 @@ class Bridge:
                         self._issue(goal, situ.args[goal], situ, self.plan, "AI", why=why, say=why)
             except (OSError, ValueError, KeyError) as e:
                 self.llm_state.update(errors=self.llm_state["errors"] + 1, last_error=str(e)[:200])
+                if isinstance(e, OSError):   # timeouts and refused connections, not bad answers
+                    self.strikes += 1
             finally:
                 self.llm_state["busy"] = False
+            if self.strikes >= 2:
+                self._reload_llm()
+
+    def _reload_llm(self):
+        """The rules keep playing meanwhile; only the speech bubbles and close calls wait."""
+        self.strikes = 0
+        self.llm_state.update(ready=False, reloads=self.llm_state["reloads"] + 1)
+        try:
+            self.llm.reload()
+            self.llm_state["ready"] = True
+        except OSError as e:
+            self.llm_state.update(errors=self.llm_state["errors"] + 1, last_error=f"reload: {e}"[:200])
 
     # ------------------------------------------------------------------ dashboard
     def snapshot(self):
