@@ -19,7 +19,7 @@ a player could do, and learns from what happens. No cloud services, no language 
 | 0. Specs and benchmark | Hardware, model benchmarks | Done ([docs/SPECS.md](docs/SPECS.md); the Qwen benchmark is kept for the record in [docs/BENCHMARK.md](docs/BENCHMARK.md)) |
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
-| **3. The game as a gym** | The mod lists what a player could do right now (like the right-click menus), describes what a player would see (container contents once opened), carries out the chosen option with the existing motor skills, and starts a new character after a death. Game speed 1×/2×/3×. | In progress: works with a random agent; option executors still being checked |
+| **3. The game as a gym** | The mod lists what a player could do right now (like the right-click menus), describes what a player would see (container contents once opened), carries out the chosen option with the existing motor skills, and starts a new character after a death. Keeps the game speed you pick. | In progress: works with a random agent; option executors still being checked |
 | 4. Learning | A small network scores every option; rewards come from the body (hunger, thirst, pain, panic, bleeding), progress (places, items, kills, time alive) and death. It trains on the CPU while the game runs. A Learning page on the dashboard. | |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
@@ -68,8 +68,8 @@ PZ Lua mods can't open sockets:
 |---|---|---|
 | `percept.json` | mod, ~2×/s (baseline) | What the character perceives: needs, wounds, inventory, zombies, nearby water and buildings, task status |
 | `intent.txt` | bridge | `seq\|goal\|a1\|a2\|a3\|say\|why\|source` |
-| `gym.txt` | agent, every second | Heartbeat `on\|n\|speed\|ask`. While it keeps changing, the agent plays instead of the baseline. `speed` is 1, 2 or 3; the mod takes it once per new `ask` |
-| `obs.json` | mod, at each decision | `{id, reason, obs, options, last, speed}`: what the character perceives and every option a player has right now; `{dead: true}` after a death |
+| `gym.txt` | agent, every second | Heartbeat `on\|n`. While it keeps changing, the agent plays instead of the baseline |
+| `obs.json` | mod, at each decision | `{id, reason, obs, options, last, err, gym}`: what the character perceives and every option a player has right now; `{dead: true}` after a death |
 | `act.txt` | agent | `id\|option\|note`: the chosen option (0-based) |
 | `reload.txt` | you / `scripts\reload-mod.ps1` | Changing it hot-reloads the mod's Lua |
 | `loader.txt` | mod | Loader status and the last Lua error |
@@ -113,14 +113,7 @@ Start it instead of the bridge (both use port 8799):
 python -m agent.run
 ```
 
-It starts the game at 3× speed so it gets through more lives; to watch at normal speed, click **1×** at the
-top of the dashboard (<http://127.0.0.1:8799/>), press **G** in game, or start it with:
-
-```bash
-python -m agent.run --speed 1
-```
-
-Load your game. Within a few seconds the agent takes over from the baseline; when the character dies it
+Its dashboard is at <http://127.0.0.1:8799/>. Load your game. Within a few seconds the agent takes over from the baseline; when the character dies it
 starts a new one in a random town by itself. Stopping the agent (Ctrl+C) hands the character back to the
 baseline within ~6 s.
 
@@ -134,37 +127,31 @@ What it writes, all under `logs/`:
 
 ### Game speed
 
-Speed is set on the game clock, so 2× and 3× mean exactly that. (PZ's own buttons are 1×, 5×, 20× and
-40×.) Measured on this PC on 2026-10-09, over 1½ minutes at each speed, counting only time awake (PZ
-runs its own fast clock while the character sleeps):
+Use the game's own speed buttons (or F2 pause, F3 1×, F4 5×, F5 20×, F6 40×): fast to learn more per day,
+Play (1×) to watch. The game itself drops back to 1× whenever a zombie in sight is within 4 tiles (7 with
+more than 4 in sight) or the character swings. While the AI plays, the mod presses your button again once
+no zombie in sight is within 8 tiles, so fights happen at 1× and the quiet stretches at your speed. It does
+the same for a new character after a death. The agent gets the same rhythm of decisions per game minute
+at any speed.
 
-| Speed | Game minutes per real minute | Decisions per real minute |
-|---|---|---|
-| 1× | 18 | 84 |
-| 2× | 32 | 132 |
-| 3× | 48 | 202 |
-
-It's a little under 2× and 3× because the game drops back to 1× by itself whenever the character spots a
-zombie or swings; the mod puts the chosen speed back within a quarter of a second. The agent gets the
-same rhythm of decisions per game minute at every speed.
+Measured on this PC on 2026-10-09 (a one-minute sample, time awake only; PZ runs its own fast clock
+while the character sleeps): at 20× the character got through about 270 game minutes per real minute
+and 176 decisions, against roughly 20–30 game minutes and 80 decisions at 1×.
 
 ## Controls (in game)
 
 | Key | Effect |
 |---|---|
 | **F7** | Show/hide the AI's HUD. *(H, in the original plan, opens the Health panel in 42.21, so the HUD moved to F7.)* |
-| **G** | Cycle the speed the AI plays at: 1× → 2× → 3× → 1×. The HUD's bottom line shows it (e.g. `G speed 3x`), plus the real speed when that differs, e.g. `(now 1x)` while you drive. The agent's dashboard buttons set the same thing; the latest press wins. *(G is otherwise only the multiplayer safety toggle.)* |
-| W A S D, arrows, E, Space, F, R, Q | **Manual override:** the AI stops at once and you're driving, at 1×. It takes over again, at its speed, after ~10 s with no input and no movement. |
-| Pause (speed 0) | Respected: the AI never unpauses the game. |
-| PZ's own fast-forward buttons | Left alone while one is pressed (5×, 20×, 40×). Pressing PZ's Play button goes back to the AI's speed. |
+| PZ's speed buttons, F3–F6 | Game speed, as usual. While the AI plays it keeps the one you picked (see [Game speed](#game-speed)); the HUD's bottom line shows the speed, e.g. `speed 1x (20x when clear)` after the game has dropped to 1× for a close zombie. |
+| W A S D, arrows, E, Space, F, R, Q | **Manual override:** the AI stops at once and you're driving. It takes over again after ~10 s with no input and no movement. While you drive, the mod doesn't touch the speed. |
+| Pause (F2) | Respected: the AI never unpauses the game. |
 
 ## Security: local only
 
 The IPC files let **any program running as you drive your character**, which is the same trust level as
-your mods folder. Nothing in AI-v-Z executes code from those files. Both dashboards bind `127.0.0.1` and
-reject other `Host` headers. The baseline's changes nothing; the agent's can change one thing, the game
-speed, and only from its own page: requests carrying another site's `Origin`, or without a JSON body,
-are refused, so other web pages open in your browser can't use it. Don't expose port 8799. The review of the two repos
+your mods folder. Nothing in AI-v-Z executes code from those files. Both dashboards bind `127.0.0.1`,
+reject other `Host` headers, and change nothing. Don't expose port 8799. The review of the two repos
 this builds on, and what was left out for safety, is in [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Development
@@ -201,11 +188,13 @@ docs/               SPECS, REVIEW; BENCHMARK and DECISION_MODELS (Phase 0 record
 - **It doesn't learn yet.** The random policy dies within a few game hours most lives (15 lives in the
   first 40 minutes). That's expected until Phase 4.
 - **Many options fail.** About half of walk, run, search and go-to-room choices end "no way there" or
-  "couldn't reach it": the game's pathfinder gives up on targets behind walls or furniture. In the speed
-  test the rate rose from 49% at 1× to 68% at 3×, but the three runs were in different places, so it isn't
-  clear yet whether speed is the cause. A longer comparison is due.
-- **Speed dips.** The game itself drops to 1× when the character spots a zombie or swings, for up to a
-  quarter of a second each time, so 3× averages about 2.6×.
+  "couldn't reach it": the game's pathfinder gives up on targets behind walls or furniture. In short
+  tests the rate went up with speed (49% at 1×, 68% at 3×), but each test was in a different place, so
+  it isn't clear yet whether speed is the cause. A longer comparison is due.
+- **Fast forward only helps in quiet stretches.** With zombies close the game holds 1×, and the random
+  agent is near zombies a lot, so a fast setting gains less than its number suggests.
+- **Restarting the agent mid-life counts that character as a new life** (the life in progress isn't
+  saved across restarts).
 - **Screenshots of the game freeze in borderless mode.** Windows hands back a stale frame; windowed mode
   captures fine. (This only matters when testing.)
 

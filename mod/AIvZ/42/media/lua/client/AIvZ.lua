@@ -12,8 +12,9 @@
 --   HUD     on-screen panel with the goal, the reason, the action and vitals (F7 hides it)
 -- The home base is remembered in the save (player mod data): the first building with a bed the AI closes
 -- up or sleeps in, moved when the AI shelters for the night somewhere far from it.
--- G cycles the speed the AI plays at: 1x, 2x, 3x (the agent's dashboard can set it too). Pressing a
--- movement key hands control to you at 1x; the AI takes over again after ~10 s without input.
+-- Game speed is yours, with PZ's own buttons or keys; while the AI plays it keeps the one you picked (see
+-- A.holdSpeed). Pressing a movement key hands control to you; the AI takes over again after ~10 s without
+-- input.
 --
 -- Adapted from ClaudeSurvivor (c) 2026 Joel and ClaudeBot (c) 2026 whatcheers, both MIT licensed;
 -- see THIRD_PARTY_NOTICES.md. All logic lives in the AIvZ table so AIvZLoader.lua can hot-reload it.
@@ -33,12 +34,11 @@ local FOOD_CAP = 8         -- edible food items worth carrying
 local WATER_CAP = 2        -- drink containers worth carrying
 local MED_CAP = 6          -- medical items worth carrying
 local KEY_HUD = Keyboard.KEY_F7
-local KEY_SPEED = Keyboard.KEY_G
 
 A.s = A.s or { tick = 0, lastSeq = 0, task = nil, manual = false, lastHumanKey = -99999, lastMove = 0,
-	reflexTick = -99999, reflexAct = "", rearmUntil = 0, speedMode = 1, err = "", observing = false,
+	reflexTick = -99999, reflexAct = "", rearmUntil = 0, err = "", observing = false,
 	kills = 0, cache = {} }
-A.s.speedMode = A.s.speedMode or 1   -- 1x, 2x or 3x: the G key, or the agent's dashboard
+A.s.speed = A.s.speed or { held = 1, keyAt = -99999 }   -- the speed button you picked (A.holdSpeed)
 A.hud = A.hud or { visible = true, goal = "", why = "", source = "", action = "waiting for the bridge" }
 A.ev = A.ev or { n = 0, list = {} }
 local S, H = A.s, A.hud
@@ -80,23 +80,14 @@ local function dir8(dx, dy)
 	return ns .. ew
 end
 
--- Game speed. The game's own buttons are 1x, 5x, 20x and 40x, and SetCurrentGameSpeed only changes which
--- button is lit (it puts the clock back to 1x), so speed is set on the game clock's multiplier instead,
--- which takes any value. The game drops back to 1x by itself when the character spots a zombie or swings;
--- the speed upkeep puts it back.
-local SPEEDS = { 1, 2, 3 }
-local function getSpeed()   -- how fast the game runs now: 0 paused, 1 normal, 2 twice as fast...
+-- PZ's speed buttons by level: Play 1x, Fast Forward 5x and 20x, Wait 40x (keys F3-F6 by default, F2 pauses)
+local SPEED_BUTTONS = { "Play", "Fast Forward x 1", "Fast Forward x 2", "Wait" }
+local SPEED_X = { 1, 5, 20, 40 }
+local function getSpeed()   -- how fast the game runs now: 0 paused, 1 normal, 5, 20 or 40
 	local sc = UIManager.getSpeedControls()
 	if not sc then return nil end
 	if sc:getCurrentGameSpeed() == 0 then return 0 end
 	return r1(getGameTime():getTrueMultiplier())
-end
-local function setSpeed(v)
-	local sc = UIManager.getSpeedControls()
-	-- paused, or one of the game's own fast-forward buttons pressed: that's yours, leave it
-	if not sc or sc:getCurrentGameSpeed() ~= 1 then return end
-	local gt = getGameTime()
-	if math.abs(gt:getTrueMultiplier() - v) > 0.05 then gt:setMultiplier(v) end
 end
 
 function A.event(msg)
@@ -1643,7 +1634,7 @@ end
 -- The gym (the self-taught agent's side of the mod) reuses these helpers and motor skills.
 A.u = {
 	try = try, P = P, sqAt = sqAt, r1 = r1, r2 = r2, Q = Q, bkey = bkey, qlen = qlen, split = split, dir8 = dir8,
-	getSpeed = getSpeed, setSpeed = setSpeed, SPEEDS = SPEEDS, writeFile = writeFile, readFirstLine = readFirstLine, mem = mem,
+	getSpeed = getSpeed, writeFile = writeFile, readFirstLine = readFirstLine, mem = mem,
 	objList = objList, isDoor = isDoor, isWindow = isWindow, isBed = isBed, winIs = winIs, containersOn = containersOn,
 	waterAmount = waterAmount, eachItem = eachItem, foodValue = foodValue, waterIn = waterIn, medKind = medKind,
 	isMelee = isMelee, weaponScore = weaponScore, craftable = craftable, sealedCan = sealedCan, isBackBag = isBackBag,
@@ -1670,17 +1661,41 @@ function A.pollIntent(p)
 end
 
 ---------------------------------------------------------------- body upkeep
--- the speed you chose with G (1x, 2x, 3x) while the AI plays; 1x while you drive
-function A.manageSpeed(p)
-	setSpeed(S.manual and 1 or S.speedMode)
+-- Keep the speed you picked with PZ's buttons or keys. The game drops back to Play by itself when a
+-- zombie in sight comes within 4 tiles (7 with more than 4 in sight) or the character swings; while the AI
+-- plays, the button you picked is pressed again once no zombie in sight is within 8 tiles (any sooner and
+-- the game would drop it straight back). The game never speeds itself up, so a faster level is always
+-- your pick; Play is yours when the mouse is on the speed buttons or a speed key was just pressed.
+-- Called every tick; it only presses buttons while the AI is in control.
+function A.holdSpeed(p, inControl)
+	local sc = UIManager.getSpeedControls()
+	if not sc then return end
+	local sp, lvl = S.speed, sc:getCurrentGameSpeed()
+	if lvl ~= sp.seen then
+		if lvl >= 2 or (lvl == 1 and (sc:isMouseOver() or S.tick - sp.keyAt < 30)) then sp.held = lvl end
+		sp.seen = lvl
+	end
+	if not inControl or lvl ~= 1 or sp.held <= 1 or S.tick % 15 ~= 0 then return end
+	for _, e in ipairs(A.zombies(p, 8)) do if e.seen then return end end
+	if try(function() return p:isAsleep() end) then return end
+	sc:ButtonClicked(SPEED_BUTTONS[sp.held])
+	sp.seen = sc:getCurrentGameSpeed()
 end
 
-function A.cycleSpeed()
-	local i = 1
-	for k, v in ipairs(SPEEDS) do if v == S.speedMode then i = k end end
-	S.speedMode = SPEEDS[i % #SPEEDS + 1]
-	if not S.manual then setSpeed(S.speedMode) end
-	A.event("speed " .. S.speedMode .. "x")
+-- the keys bound to PZ's speed controls (F2-F6 unless you changed them)
+local speedKeys
+local function isSpeedKey(key)
+	if not speedKeys then
+		speedKeys = { [Keyboard.KEY_F2] = true, [Keyboard.KEY_F3] = true, [Keyboard.KEY_F4] = true,
+			[Keyboard.KEY_F5] = true, [Keyboard.KEY_F6] = true }
+		pcall(function()
+			for _, id in ipairs({ KeybindId.PAUSE, KeybindId.NORMAL_SPEED, KeybindId.FAST_FORWARD_X1,
+				KeybindId.FAST_FORWARD_X2, KeybindId.FAST_FORWARD_X3 }) do
+				speedKeys[getCore():getKey(id:getId())] = true
+			end
+		end)
+	end
+	return speedKeys[key] == true
 end
 
 -- sneak at mid range to avoid drawing attention; never while fleeing or in melee
@@ -1714,6 +1729,7 @@ function A.onTick()
 		if S.who then S.cache, S.task, S.zc = {}, nil, nil end
 		S.who = who
 	end
+	if not p:isDead() then safe("speed", A.holdSpeed, p, not S.manual) end
 	-- the self-taught agent is connected: it plays (AIvZGym.lua); you can still take over with the keys
 	if A.gym and A.gym.active() and (p:isDead() or not S.manual) then
 		safe("gym", A.gym.tick, p)
@@ -1750,7 +1766,6 @@ function A.onTick()
 	local took = false
 	if S.tick % REFLEX_EVERY == 0 then took = safe("reflex", A.reflex, p) end
 	if not took and S.tick % TASK_EVERY == 0 then safe("task", A.taskTick, p) end
-	if S.tick % 15 == 0 then safe("speed", A.manageSpeed, p) end
 	if S.tick % 30 == 0 then safe("sneak", A.manageSneak, p) end
 	-- watching: outdoors, a look round every ~7 s; indoors, stand still. (It used to turn to a new
 	-- direction every half second, which looked like spinning on the spot.)
@@ -1770,12 +1785,11 @@ local MOVE_KEYS = {
 
 function A.onKeyPressed(key)
 	if key == KEY_HUD then H.visible = not H.visible; return end
-	if key == KEY_SPEED then A.cycleSpeed(); return end
+	if isSpeedKey(key) then S.speed.keyAt = S.tick; return end
 	if MOVE_KEYS[key] then
 		S.lastHumanKey = S.tick
 		if not S.manual then
 			S.manual = true
-			setSpeed(1)
 			local p = P()
 			if p then ISTimedActionQueue.clear(p) end
 		end
@@ -1857,10 +1871,12 @@ function AIvZHUD:render()
 	end
 	self:drawText(string.format("%s  |  %.1f/%.0f kg", ht, p:getInventory():getCapacityWeight(), p:getMaxWeight()), 12, by + 56, 0.55, 0.6, 0.66, 1, UIFont.Small)
 	local gt = getGameTime()
+	-- the speed, and the one it goes back to when the game has dropped to 1x for a close zombie
 	local sp = getSpeed()
-	local now = sp == 0 and " (paused)" or ((sp and math.abs(sp - S.speedMode) > 0.05) and (" (now " .. sp .. "x)") or "")
-	self:drawTextRight(string.format("day %d  %02d:%02d   F7 hide  G speed %dx%s", gt:getNightsSurvived() + 1, gt:getHour(),
-		gt:getMinutes(), S.speedMode, now), w - 12, by + 74, 0.55, 0.6, 0.66, 1, UIFont.Small)
+	local st = sp == 0 and "paused" or (sp and ("speed " .. sp .. "x") or "")
+	if sp and sp > 0 and S.speed.held > 1 and S.speed.seen == 1 then st = st .. " (" .. SPEED_X[S.speed.held] .. "x when clear)" end
+	self:drawTextRight(string.format("day %d  %02d:%02d   %s   F7 hide", gt:getNightsSurvived() + 1, gt:getHour(),
+		gt:getMinutes(), st), w - 12, by + 74, 0.55, 0.6, 0.66, 1, UIFont.Small)
 end
 
 function A.startHUD()
@@ -1889,5 +1905,10 @@ function A.afterReload()
 			reloadLuaFile(path)
 		end)
 	end
+	-- an unreleased build sped the clock up without pressing a speed button; put it back to Play's 1x
+	pcall(function()
+		local sc = UIManager.getSpeedControls()
+		if sc and sc:getCurrentGameSpeed() == 1 and getGameTime():getTrueMultiplier() > 1.05 then getGameTime():setMultiplier(1) end
+	end)
 	if P() then A.startHUD() end
 end

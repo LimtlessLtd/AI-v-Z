@@ -6,14 +6,11 @@ Run from the repo root:  python -m unittest discover -s tests
 import argparse
 import copy
 import gzip
-import http.client
 import json
 import random
 import sys
 import tempfile
-import threading
 import unittest
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -117,25 +114,10 @@ class LinkTests(unittest.TestCase):
             self.assertIsNone(link.poll())   # the same request isn't handed out twice
             link.act(7, 2, "walk | north\nnow")
             self.assertEqual((Path(tmp) / "act.txt").read_text(encoding="utf-8"), "7|2|walk / north now\n")
+            link.beat()
+            self.assertEqual((Path(tmp) / "gym.txt").read_text(encoding="utf-8"), "on|1\n")
             (Path(tmp) / "obs.json").write_text('{"id": 8, "obs": {', encoding="utf-8")   # caught mid-write
             self.assertIsNone(link.poll())
-
-    def test_the_heartbeat_carries_the_speed_asked_for(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            link = GameLink(tmp, speed=3)
-            beat = lambda: (Path(tmp) / "gym.txt").read_text(encoding="utf-8").strip().split("|")
-            link.beat()
-            on, n, speed, ask = beat()
-            self.assertEqual((on, n, speed), ("on", "1", "3"))
-            link.ask_speed(1)    # beats straight away, with a new ask number
-            self.assertEqual(beat(), ["on", "2", "1", str(int(ask) + 1)])
-            link.ask_speed(1)    # the same speed again is a new ask: it undoes a G press in between
-            self.assertEqual(beat()[2:], ["1", str(int(ask) + 2)])
-            with self.assertRaises(ValueError):
-                link.ask_speed(10)
-            self.assertEqual(GameLink(tmp, speed=9).speed, 1)
-            link.stop()
-            self.assertEqual(beat(), ["off"])
 
 
 class PolicyTests(unittest.TestCase):
@@ -172,52 +154,6 @@ class AgentLoopTests(unittest.TestCase):
             snap = a.snapshot()
             self.assertEqual(len(snap["lives"]), 1)
             self.assertIsNone(snap["life"])
-
-
-class DashboardTests(unittest.TestCase):
-    """The dashboard's one write: the game speed, from its own page only."""
-
-    def setUp(self):
-        from agent.run import Agent
-        self.tmp = tempfile.TemporaryDirectory()
-        self.agent = Agent(argparse.Namespace(lua_dir=self.tmp.name, log_dir=self.tmp.name, port=0, speed=3))
-        self.server = self.agent.make_server()
-        self.port = self.server.server_address[1]
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-
-    def tearDown(self):
-        self.server.shutdown()
-        self.server.server_close()
-        self.tmp.cleanup()
-
-    def post(self, body, ctype="application/json", host=None, origin=None, path="/api/speed"):
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-        headers = {"Content-Type": ctype, "Host": host or f"127.0.0.1:{self.port}"}
-        if origin:
-            headers["Origin"] = origin
-        c.request("POST", path, body=json.dumps(body), headers=headers)
-        status = c.getresponse().status
-        c.close()
-        return status
-
-    def test_its_own_page_can_change_the_speed(self):
-        self.assertEqual(self.agent.link.speed, 3)
-        self.assertEqual(self.post({"speed": 1}, origin=f"http://127.0.0.1:{self.port}"), 200)
-        self.assertEqual(self.agent.link.speed, 1)
-        self.assertEqual((Path(self.tmp.name) / "gym.txt").read_text(encoding="utf-8").split("|")[2], "1")
-        self.assertEqual(self.post({"speed": 2}), 200)   # no Origin: curl or a script on this machine
-        snap = json.load(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/agent", timeout=5))
-        self.assertEqual(snap["speed"]["asked"], 2)
-        self.assertTrue(snap["speed"]["pending"])   # the game hasn't reported since
-
-    def test_other_pages_and_bad_asks_are_refused(self):
-        self.assertEqual(self.post({"speed": 1}, origin="http://evil.example"), 403)
-        self.assertEqual(self.post({"speed": 1}, host="evil.example"), 403)   # DNS rebinding
-        self.assertEqual(self.post({"speed": 1}, ctype="text/plain"), 415)     # a form or no-preflight fetch
-        self.assertEqual(self.post({"speed": 10}), 400)
-        self.assertEqual(self.post(["x"]), 400)
-        self.assertEqual(self.post({"speed": 1}, path="/api/other"), 404)
-        self.assertEqual(self.agent.link.speed, 3)
 
 
 if __name__ == "__main__":

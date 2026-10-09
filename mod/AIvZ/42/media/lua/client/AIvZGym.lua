@@ -3,10 +3,8 @@
 --   obs.json OUT  when a decision is needed: what the character perceives, and every option a player
 --                 would have right now. Written again with "dead" when the character dies.
 --   act.txt  IN   "id|option|note" from the agent (option is 0-based; note shows on the HUD)
---   gym.txt  IN   heartbeat "on|n|speed|ask" from the agent. While it keeps changing, the agent plays instead
---                 of the rules baseline (the keys still hand control to you, as before). speed (1, 2 or 3)
---                 is the game speed picked on the agent's dashboard and ask counts the picks; a speed is
---                 taken once per pick, so the G key can still change it in game in between
+--   gym.txt  IN   heartbeat "on|n" from the agent. While it keeps changing, the agent plays instead of the
+--                 rules baseline (the keys still hand control to you, as before)
 --
 -- The options are what a player could do now, like the right-click menus: wait, rest, walk or run in a
 -- direction, go into a building or another room, attack or shove a zombie, open or close a door, window or
@@ -28,8 +26,8 @@ if GS.lastReq > GS.gt then GS.lastReq = -99999 end   -- reloaded over a version 
 local try, P, sqAt, Q, qlen, r1, r2 = U.try, U.P, U.sqAt, U.Q, U.qlen, U.r1, U.r2
 local H = A.hud
 
--- DECIDE_GAP and RECHECK are in game-time ticks (GS.gt: a tick at 2x counts twice), so the agent gets
--- the same rhythm of decisions per game minute at any speed
+-- DECIDE_GAP and RECHECK are in game-time ticks (GS.gt: a tick at 5x speed counts five times), so the agent
+-- gets the same rhythm of decisions per game minute at any speed you pick
 local DECIDE_GAP = 45      -- at most this often while something is running (interrupts)
 local RECHECK = 600        -- a long-running option gets a "continue?" decision this often
 local ANSWER_WAIT = 600    -- real ticks: give up waiting for the agent and ask again
@@ -51,27 +49,9 @@ function G.active()
 	if now - GS.beatCheck > 1000 then
 		GS.beatCheck = now
 		local line = U.readFirstLine("gym.txt")
-		if line and line:sub(1, 2) == "on" and line ~= GS.beat then
-			GS.beat, GS.beatAt = line, now
-			local f = U.split(line, "|")
-			G.askedSpeed(tonumber(f[3]), f[4])
-		end
+		if line and line:sub(1, 2) == "on" and line ~= GS.beat then GS.beat, GS.beatAt = line, now end
 	end
 	return GS.beat ~= nil and now - GS.beatAt < 6000
-end
-
--- the speed asked for on the dashboard, taken only when it's asked again (the G key may have changed it
--- since): the request number goes up with every click
-function G.askedSpeed(v, n)
-	local key = tostring(v) .. "#" .. tostring(n)
-	if not v or key == GS.asked then return end
-	GS.asked = key
-	for _, s in ipairs(U.SPEEDS) do
-		if s == v and A.s.speedMode ~= v then
-			A.s.speedMode = v
-			A.event("speed " .. v .. "x (dashboard)")
-		end
-	end
 end
 
 ---------------------------------------------------------------- what an item is, for the agent
@@ -645,8 +625,7 @@ function G.request(p, reason)
 	for i, o in ipairs(opts) do out[i] = o.info end
 	local cur = GS.cur
 	local msg = { id = GS.id, reason = reason, err = A.s.err, gym = G.VERSION, obs = G.observe(p), options = out,
-		last = cur and { verb = cur.verb, status = cur.status, msg = cur.msg, age = tick() - cur.t0 } or nil,
-		speed = { mode = A.s.speedMode, asked = GS.asked } }
+		last = cur and { verb = cur.verb, status = cur.status, msg = cur.msg, age = tick() - cur.t0 } or nil }
 	U.writeFile("obs.json", A.json(msg))
 	GS.waiting, GS.reqTick, GS.lastReq = true, tick(), GS.gt
 	GS.lastHp = p:getBodyDamage():getOverallBodyHealth()
@@ -731,10 +710,7 @@ function G.tick(p)
 		if tick() % 10 == 0 then G.step(p) end
 		return
 	end
-	local sp = U.getSpeed() or 1
-	GS.gt = GS.gt + sp
-	-- the speed picked with G or on the dashboard (the game drops to 1x by itself when a zombie is spotted)
-	if tick() % 15 == 0 then U.setSpeed(A.s.speedMode) end
+	GS.gt = GS.gt + (U.getSpeed() or 1)
 	if tick() % 4 == 0 then G.step(p) end
 	if GS.waiting then
 		if tick() % 2 == 0 then G.poll(p) end
