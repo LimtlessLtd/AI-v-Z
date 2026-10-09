@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "bridge"))
 
+import bridge as bridge_mod  # noqa: E402
 from brain import strategy  # noqa: E402
 from brain.percept import Memory, dir8, summarize, time_text  # noqa: E402
 from brain.prompt import build_messages  # noqa: E402
@@ -59,6 +60,12 @@ class PerceptTests(unittest.TestCase):
         self.assertIn("dusk", time_text({"day": 1, "hour": 21, "min": 30, "dawn": 6, "dusk": 21}))
         self.assertIn("night (dark)", time_text({"day": 1, "hour": 23, "min": 0, "dawn": 6, "dusk": 21}))
         self.assertIn("night (dark)", time_text({"day": 1, "hour": 4, "min": 0, "dawn": 6, "dusk": 21}))
+        # B42's season gives fractional hours
+        self.assertIn("sunset in 36 min", time_text({"day": 1, "hour": 21, "min": 0, "dawn": 7.1, "dusk": 21.6}))
+
+    def test_impossible_dawn_and_dusk_are_ignored(self):
+        # GameTime:getDawn()/getDusk() read 12 and 3 in 42.21; 10:05 is still morning
+        self.assertIn("morning", time_text({"day": 1, "hour": 10, "min": 5, "dawn": 12, "dusk": 3}))
 
     def test_summary_has_snapshot_shape_and_legal_goals(self):
         mem = Memory()
@@ -123,6 +130,20 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(plan.goal, "flee")
         self.assertTrue(plan.clear)
 
+    def test_fights_a_lone_zombie_bare_handed_despite_a_distant_horde(self):
+        # the first in-game run: unarmed, one zombie on top of us, 40 heard 30 tiles away. It kept fleeing.
+        raw = copy.deepcopy(RAW)
+        raw["bld"], raw["outside"], raw["weapon"] = None, True, None
+        raw["zombies"] = ([{"dx": -0.5, "dy": -0.5, "d": 0.7, "seen": True, "chasing": True}]
+                          + [{"dx": 20, "dy": -22, "d": 30, "seen": False, "chasing": False}] * 40)
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "fight")
+
+    def test_chasing_zombie_out_of_sight_can_be_fought(self):
+        raw = copy.deepcopy(RAW)
+        raw["zombies"] = [{"dx": 0, "dy": 3, "d": 3, "seen": False, "chasing": True}]
+        self.assertIn("fight", summarize(raw, Memory(), random.Random(1)).legal)
+
     def test_keeps_running_goal_unless_something_is_much_better(self):
         s = summarize(RAW, Memory(), random.Random(1))
         plan = strategy.plan(s.percept, s.legal, current_goal="loot_here", current_running=True)
@@ -130,10 +151,75 @@ class StrategyTests(unittest.TestCase):
         if plan.goal == "loot_here":
             self.assertEqual(plan.source, "keep")
 
+    def test_llm_pick_sticks_while_it_runs(self):
+        # in game, rules and LLM overruled each other every few seconds; now the LLM's pick is kept
+        raw = copy.deepcopy(RAW)
+        raw["bld"]["doorsOpen"] = 0   # an open door with a zombie around is urgent; that's tested below
+        s = summarize(raw, Memory(), random.Random(1))
+        plan = strategy.plan(s.percept, s.legal, current_goal="wait", current_running=True, current_source="AI")
+        self.assertEqual((plan.goal, plan.source), ("wait", "keep"))
+
+    def test_llm_pick_gives_way_to_an_emergency(self):
+        raw = copy.deepcopy(RAW)
+        raw["bld"] = None
+        raw["zombies"] = [{"dx": 0, "dy": 6, "d": 6, "seen": True, "chasing": True}] * 5
+        s = summarize(raw, Memory(), random.Random(1))
+        plan = strategy.plan(s.percept, s.legal, current_goal="wait", current_running=True, current_source="AI")
+        self.assertEqual(plan.goal, "flee")
+
+    def test_llm_only_chooses_among_close_options(self):
+        s = summarize(RAW, Memory(), random.Random(1))
+        plan = strategy.plan(s.percept, s.legal)
+        if not plan.clear:
+            top = plan.scores[plan.ranked[0]]
+            self.assertLessEqual(len(plan.candidates), strategy.MAX_CANDIDATES)
+            self.assertTrue(all(plan.scores[g] >= top - strategy.CLEAR_MARGIN for g in plan.candidates))
+            self.assertEqual(plan.candidates[0], plan.goal)
+        else:
+            self.assertEqual(plan.candidates, [])
+
+
+class BridgeTests(unittest.TestCase):
+    def make_bridge(self, tmp):
+        import argparse
+        args = argparse.Namespace(lua_dir=tmp, log_dir=tmp, no_llm=True, model="none", ollama=None, port=0)
+        return bridge_mod.Bridge(args)
+
+    def intent(self, b):
+        return (b.intent_path.read_text(encoding="utf-8").split("|")[:2])
+
+    def test_finished_task_is_restarted_or_replaced(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            b = self.make_bridge(tmp)
+            raw = copy.deepcopy(RAW)
+            raw["zombies"], raw["bld"]["doorsOpen"] = [], 0
+            b.on_percept(raw)
+            seq, goal = self.intent(b)
+            raw = copy.deepcopy(raw)
+            raw["task"] = {"seq": int(seq), "goal": goal, "status": "done", "msg": "", "phase": "start", "age": 900}
+            b.on_percept(raw)
+            seq2, _ = self.intent(b)
+            self.assertEqual(int(seq2), int(seq) + 1)   # a new order went out, even if it's the same goal
+
+    def test_secure_building_rests_after_finishing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            b = self.make_bridge(tmp)
+            raw = copy.deepcopy(RAW)
+            b.on_percept(raw)
+            seq, _ = self.intent(b)
+            raw = copy.deepcopy(raw)
+            raw["task"] = {"seq": int(seq), "goal": "secure_building", "status": "done", "msg": "", "phase": "start",
+                           "age": 900}
+            b.current["goal"] = "secure_building"
+            b.on_percept(raw)
+            self.assertNotIn("secure_building", b.situ.legal)
+            self.assertNotEqual(self.intent(b)[1], "secure_building")
+
 
 class IntentLineTests(unittest.TestCase):
     def test_separators_and_newlines_are_removed(self):
-        import bridge as bridge_mod
         line = bridge_mod.intent_line(5, "explore", (40, -12, 0), say="I'll go | north\nnow", why="a|b", source="rules")
         self.assertEqual(line, "5|explore|40|-12|0|I'll go / north now|a/b|rules")
         self.assertEqual(line.count("|"), 7)

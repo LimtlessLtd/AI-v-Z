@@ -36,6 +36,13 @@ from brain.percept import Memory, summarize  # noqa: E402
 DEFAULT_LUA_DIR = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Zomboid" / "Lua" / "aivz"
 RECHECK_S = 6      # re-plan at least this often while a goal runs
 STALE_S = 15       # no new percept for this long: the game isn't running the mod
+SLOW_MS = 8000     # an LLM call this slow (or a timeout) is a strike; 2 in a row reload the model
+# After a task ends, don't pick the same goal again for a while (seconds). A failed task gets a pause
+# before it's retried. Securing or hiding can "finish" without having changed anything, so those rest
+# too even when done. Survival goals are never held back.
+COOLDOWN_FAILED_S = 60
+COOLDOWN_DONE_S = {"secure_building": 90, "hide": 60}
+NEVER_COOL = {"fight", "flee", "wait", "explore"}
 MIND_HTML = (Path(__file__).resolve().parent / "mind.html").read_bytes()
 
 
@@ -62,7 +69,7 @@ class Bridge:
         self.lua_dir.mkdir(parents=True, exist_ok=True)
         self.percept_path = self.lua_dir / "percept.json"
         self.intent_path = self.lua_dir / "intent.txt"
-        self.log_dir = ROOT / "logs"
+        self.log_dir = Path(getattr(args, "log_dir", None) or ROOT / "logs")
         self.log_dir.mkdir(exist_ok=True)
         self.state_path = self.log_dir / "bridge-state.json"
         self.llm = None if args.no_llm else OllamaBrain(args.model, args.ollama)
@@ -75,10 +82,13 @@ class Bridge:
         self.situ, self.plan, self.signature = None, None, None
         self.jobs = queue.Queue(maxsize=1)
         self.llm_state = {"model": args.model if self.llm else None, "busy": False, "last_ms": None, "calls": 0,
-                          "errors": 0, "last_error": "", "ready": False}
+                          "errors": 0, "last_error": "", "ready": False, "reloads": 0}
+        self.strikes = 0
         self.decisions = deque(maxlen=40)
         self.status = "waiting for the game"
         self.dead_logged = False
+        self.cooldown = {}   # goal -> time.time() until which it isn't offered
+        self.ended_seq = 0   # last task seq whose end was handled
 
     # ------------------------------------------------------------------ files
     def _load_seq(self):
@@ -141,34 +151,46 @@ class Bridge:
                 return
             self.dead_logged = False
             self.mem.update(raw)
-            situ = summarize(raw, self.mem)
-            self.situ = situ
-            if raw.get("manual"):
-                self.status = "you're driving"
-                return
-            self.status = "playing"
             task = raw.get("task") or {}
             cur = self.current
             ours = cur is not None and task.get("seq") == cur["seq"]
             running = ours and task.get("status") == "running"
             finished = ours and task.get("status") in ("done", "failed")
+            if finished and task["seq"] != self.ended_seq:
+                self.ended_seq = task["seq"]
+                hold = COOLDOWN_FAILED_S if task["status"] == "failed" else COOLDOWN_DONE_S.get(task.get("goal"), 0)
+                if hold and task.get("goal") not in NEVER_COOL:
+                    self.cooldown[task["goal"]] = time.time() + hold
+            situ = summarize(raw, self.mem)
+            now = time.time()
+            cooled = [g for g in situ.legal if self.cooldown.get(g, 0) > now]
+            if cooled and len(cooled) < len(situ.legal):
+                situ.legal = [g for g in situ.legal if g not in cooled]
+            self.situ = situ
+            if raw.get("manual"):
+                self.status = "you're driving"
+                return
+            self.status = "playing"
             sig = self._signature(situ)
-            due = cur is None or finished or sig != self.signature or time.time() - cur["at"] > RECHECK_S
+            due = cur is None or finished or sig != self.signature or now - cur["at"] > RECHECK_S
             self.signature = sig
             if not due:
                 return
-            plan = strategy.plan(situ.percept, situ.legal, cur["goal"] if cur else None, running)
+            plan = strategy.plan(situ.percept, situ.legal, cur["goal"] if cur else None, running,
+                                 cur["source"] if cur else None)
             self.plan = plan
             if plan.source == "keep" or (running and plan.goal == cur["goal"]):
-                cur["at"] = time.time()
+                cur["at"] = now
                 return
-            changed = self._issue(plan.goal, situ.args[plan.goal], situ, plan, "rules")
+            changed = self._issue(plan.goal, situ.args[plan.goal], situ, plan, "rules", force=finished)
             if self.llm and changed:
-                self._ask("narrate" if plan.clear else "choose", situ, plan.goal)
+                self._ask("narrate" if plan.clear else "choose", situ, plan.goal, plan.candidates)
 
-    def _issue(self, goal, args, situ, plan, source, why="", say=""):
+    def _issue(self, goal, args, situ, plan, source, why="", say="", force=False):
+        """Send a goal to the game. Returns False when it's the goal already running (unless forced:
+        a finished task's goal picked again has to be re-sent to start again)."""
         cur = self.current
-        if cur and cur["goal"] == goal and list(cur["args"]) == list(args) and not say and not why:
+        if cur and cur["goal"] == goal and list(cur["args"]) == list(args) and not say and not why and not force:
             cur["at"] = time.time()
             return False
         self.seq += 1
@@ -187,8 +209,8 @@ class Bridge:
         return True
 
     # ------------------------------------------------------------------ LLM worker
-    def _ask(self, kind, situ, goal):
-        job = {"kind": kind, "situ": situ, "goal": goal, "seq": self.seq}
+    def _ask(self, kind, situ, goal, candidates=None):
+        job = {"kind": kind, "situ": situ, "goal": goal, "seq": self.seq, "candidates": candidates or situ.legal}
         try:
             self.jobs.put_nowait(job)
         except queue.Full:
@@ -209,9 +231,10 @@ class Bridge:
             self.llm_state["busy"] = True
             try:
                 situ = job["situ"]
-                legal = [job["goal"]] if job["kind"] == "narrate" else situ.legal
+                legal = [job["goal"]] if job["kind"] == "narrate" else job["candidates"]
                 goal, why, ms = self.llm.choose(situ.percept, legal)
                 self.llm_state.update(last_ms=round(ms), calls=self.llm_state["calls"] + 1, ready=True)
+                self.strikes = self.strikes + 1 if ms > SLOW_MS else 0
                 with self.lock:
                     cur = self.current
                     if cur is None or cur["seq"] != job["seq"]:
@@ -223,8 +246,22 @@ class Bridge:
                         self._issue(goal, situ.args[goal], situ, self.plan, "AI", why=why, say=why)
             except (OSError, ValueError, KeyError) as e:
                 self.llm_state.update(errors=self.llm_state["errors"] + 1, last_error=str(e)[:200])
+                if isinstance(e, OSError):   # timeouts and refused connections, not bad answers
+                    self.strikes += 1
             finally:
                 self.llm_state["busy"] = False
+            if self.strikes >= 2:
+                self._reload_llm()
+
+    def _reload_llm(self):
+        """The rules keep playing meanwhile; only the speech bubbles and close calls wait."""
+        self.strikes = 0
+        self.llm_state.update(ready=False, reloads=self.llm_state["reloads"] + 1)
+        try:
+            self.llm.reload()
+            self.llm_state["ready"] = True
+        except OSError as e:
+            self.llm_state.update(errors=self.llm_state["errors"] + 1, last_error=f"reload: {e}"[:200])
 
     # ------------------------------------------------------------------ dashboard
     def snapshot(self):

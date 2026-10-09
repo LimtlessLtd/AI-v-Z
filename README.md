@@ -4,9 +4,10 @@ An AI running entirely on your own PC plays **Project Zomboid singleplayer (Buil
 you watch. You see the game, an in-game HUD and speech bubbles with the AI's reasoning, and a local web
 dashboard of its "mind". It uses no cloud APIs and no multiplayer.
 
-> **Status:** Phase 1 (first watchable run) is built but **not yet verified in game**. The bridge and
-> the Python side pass their tests and an offline run; the Lua mod still needs its first in-game load.
-> Benchmarks: [docs/BENCHMARK.md](docs/BENCHMARK.md). Design research: [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md).
+> **Status:** Phase 1 (first watchable run) **runs in game** since 2026-10-09: hands off, the AI loots
+> houses, explores, flees, fights (first kill 12:35 on day 1), and says why in speech bubbles. Rough edges
+> are listed under [Known issues](#known-issues). Benchmarks: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+> Design research: [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md).
 
 ## Tested against
 
@@ -54,8 +55,10 @@ Needs Python 3.10+ (stdlib only), Ollama with `qwen3.5:4b`, and Project Zomboid 
    ```
 
 2. In Project Zomboid: **Mods** → enable **AI-v-Z** → back to the main menu, then start a new
-   singleplayer game, or **Load** a save. For an existing save, make sure AI-v-Z is ticked in that save's
-   mod list.
+   singleplayer game, or **Load** a save. An existing save keeps its own mod list: tick AI-v-Z for it
+   too. (With the game closed, adding the line `mod = \AIvZ,` inside `mods { }` in the save's
+   `mods.txt` does the same.) The game log says `loading AIvZ` and `Lua\aivz\loader.txt` says `OK`
+   when it's on.
 
 ## Run
 
@@ -116,8 +119,15 @@ docs/               SPECS, BENCHMARK, DECISION_MODELS, REVIEW
 
 ## Known issues
 
-- **Not yet run in game.** Expect the first in-game load to surface Lua API mismatches; they show up in
-  `console.txt` and on the dashboard.
+- **Locked houses are skipped.** The AI can't open locked doors or climb in through windows yet; a
+  house it can't path into is marked unreachable ("no route") and it moves on.
+- **Weapons are scarce early.** It fights bare-handed only against a single zombie and flees from more.
+  It picks up melee weapons it finds while looting, but doesn't go looking for them.
+- **It hoards.** Looting takes every better weapon it finds (two canoe paddles in the first run) and
+  fills the bag to the limit. Dropping junk and managing weight are Phase 2.
+- **Ollama can bog down after ~30 min.** In the first run every Qwen call started timing out until
+  Ollama was restarted. The bridge now reloads the model after two slow calls; the dashboard's LLM
+  panel shows `reloads`. If speech bubbles stop for long, restart Ollama.
 - Only the floor you're on is looted. Unopened cans aren't opened, so they don't count as food yet.
   Curtains aren't closed.
 - There's no home base yet, so `retreat_home` and `sleep` aren't offered (Phase 2).

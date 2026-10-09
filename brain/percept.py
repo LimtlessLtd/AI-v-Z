@@ -81,7 +81,9 @@ class Situation:
 def time_text(t):
     h, m = t.get("hour", 12), t.get("min", 0)
     dawn, dusk = t.get("dawn") or 6, t.get("dusk") or 20
-    mins, dusk_m = h * 60 + m, dusk * 60
+    if not (3 <= dawn <= 10 and 15 <= dusk <= 23):   # older mod versions sent GameTime's stale 12 and 3
+        dawn, dusk = 6, 21
+    mins, dusk_m = h * 60 + m, round(dusk * 60)
     if mins >= dusk_m + 60 or mins < dawn * 60:
         period = "night (dark)"
     elif mins >= dusk_m:
@@ -240,9 +242,10 @@ def summarize(raw, mem, rng=random):
     }
 
     # which goals the mod can carry out right now, with their arguments
-    seen = [z for z in zombies if z.get("seen")]
+    # a zombie that's chasing you is a target even when it's behind you or round a corner
+    targets = [z for z in zombies if z.get("seen") or z.get("chasing")]
     args = {}
-    if any(z["d"] <= 15 for z in seen):
+    if any(z["d"] <= 15 for z in targets):
         args["fight"] = ()
     if any(z["d"] <= 25 for z in zombies):
         args["flee"] = ()

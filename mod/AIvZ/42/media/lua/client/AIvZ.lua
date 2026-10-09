@@ -41,6 +41,9 @@ local function r1(v) return math.floor((tonumber(v) or 0) * 10 + 0.5) / 10 end
 local function r2(v) return math.floor((tonumber(v) or 0) * 100 + 0.5) / 100 end
 local function Q(a) ISTimedActionQueue.add(a) end
 
+-- a building's key: its corner. BuildingDef:getID() is a Java long and loses precision as a Lua number.
+local function bkey(def) return def:getX() .. "," .. def:getY() end
+
 local function qlen(p)
 	local n = 0
 	pcall(function() local q = ISTimedActionQueue.getTimedActionQueue(p); if q and q.queue then n = #q.queue end end)
@@ -249,6 +252,19 @@ local MOODLES = { "HUNGRY", "THIRST", "TIRED", "ENDURANCE", "PANIC", "PAIN", "SI
 local function stat(p, k) return try(function() return p:getStats():get(CharacterStat[k]) end) or 0 end
 local function moodle(p, k) return try(function() return p:getMoodles():getMoodleLevel(MoodleType[k]) end) or 0 end
 
+-- Is a wall, door or window between you and a zombie within ~3 tiles? Checks the first step from your
+-- square towards it. Without this, a zombie banging on the other side of a shop door got shoved at
+-- forever and the AI never ran.
+local function blockedTowards(p, dx, dy)
+	local psq = p:getCurrentSquare()
+	if not psq then return false end
+	local sx = (dx > 0.5 and 1) or (dx < -0.5 and -1) or 0
+	local sy = (dy > 0.5 and 1) or (dy < -0.5 and -1) or 0
+	if sx == 0 and sy == 0 then return false end
+	local nsq = sqAt(psq:getX() + sx, psq:getY() + sy, psq:getZ())
+	return nsq ~= nil and try(function() return psq:isBlockedTo(nsq) end) == true
+end
+
 -- every zombie on this floor within 45 tiles, nearest first, scanned at most once per tick
 local function allZombies(p)
 	if S.zc and S.zc.tick == S.tick then return S.zc.list end
@@ -264,7 +280,8 @@ local function allZombies(p)
 				local sq = z:getCurrentSquare()
 				local seen = (sq and try(function() return sq:isCanSee(0) end)) and true or false
 				local chasing = try(function() return z:getTarget() == p end) and true or false
-				out[#out + 1] = { z = z, d = d, dx = dx, dy = dy, seen = seen, chasing = chasing }
+				local blocked = d < 3 and blockedTowards(p, dx, dy) or false
+				out[#out + 1] = { z = z, d = d, dx = dx, dy = dy, seen = seen, chasing = chasing, blocked = blocked }
 			end
 		end
 	end
@@ -273,7 +290,7 @@ local function allZombies(p)
 	return out
 end
 
--- zombies within R tiles (R <= 45), nearest first: {z, d, dx, dy, seen, chasing}
+-- zombies within R tiles (R <= 45), nearest first: {z, d, dx, dy, seen, chasing, blocked}
 function A.zombies(p, R)
 	local out = {}
 	for _, e in ipairs(allZombies(p)) do
@@ -330,8 +347,8 @@ end
 function A.scanBuilding(p, b, z)
 	local def = b:getDef()
 	local m = mem(p)
-	local info = { id = tostring(def:getID()), containers = 0, searched = 0, unsearched = {}, doorsOpen = {}, windowsOpen = {} }
-	local function inside(sq) return sq and sq:getBuilding() == b end
+	local info = { id = bkey(def), containers = 0, searched = 0, unsearched = {}, doorsOpen = {}, windowsOpen = {} }
+	local function inside(sq) return sq ~= nil and sq:getBuilding() == b end
 	for x = def:getX() - 1, def:getX2() do
 		for y = def:getY() - 1, def:getY2() do
 			local sq = sqAt(x, y, z)
@@ -348,10 +365,11 @@ function A.scanBuilding(p, b, z)
 				end
 				for _, o in ipairs(objList(sq)) do
 					if isDoor(o) or isWindow(o) then
-						-- a door or window sits on the north or west edge of its square: it's this
-						-- building's if either side of that edge is inside
+						-- a door or window sits on the north or west edge of its square. It's on this
+						-- building's outside wall if exactly one side of that edge is inside; interior
+						-- doors (inside on both sides) don't keep zombies out, so they're ignored
 						local other = o:getNorth() and sqAt(x, y - 1, z) or sqAt(x - 1, y, z)
-						if inside(sq) or inside(other) then
+						if inside(sq) ~= inside(other) then
 							local open = try(function() return o:IsOpen() end)
 							if isDoor(o) and open then info.doorsOpen[#info.doorsOpen + 1] = { o = o, sq = sq }
 							elseif isWindow(o) and open and not try(function() return o:isSmashed() end) then
@@ -371,7 +389,7 @@ function A.buildingInfo(p, fresh)
 	local b = sq and sq:getBuilding()
 	if not b then return nil end
 	local z = math.floor(p:getZ())
-	local id = tostring(b:getDef():getID())
+	local id = bkey(b:getDef())
 	local c = S.cache.bld
 	if not fresh and c and c.id == id and c.z == z and S.tick - c.at < 60 then return c end
 	c = A.scanBuilding(p, b, z)
@@ -401,7 +419,7 @@ function A.scanBuildings(p, R)
 			local b = sq and sq:getBuilding()
 			if b then
 				local def = b:getDef()
-				local id = tostring(def:getID())
+				local id = bkey(def)
 				if not seen[id] then
 					seen[id] = true
 					local cx, cy = def:getX() + def:getW() / 2, def:getY() + def:getH() / 2
@@ -456,7 +474,9 @@ function A.percept(p)
 	local gt = getGameTime()
 	local cm = getClimateManager()
 	s.time = { day = gt:getNightsSurvived() + 1, hour = gt:getHour(), min = gt:getMinutes(),
-		dawn = try(function() return gt:getDawn() end), dusk = try(function() return gt:getDusk() end),
+		-- GameTime:getDawn()/getDusk() are stale in B42 (they read 12 and 3); the season has the real hours
+		dawn = r1(try(function() return cm:getSeason():getDawn() end) or 6),
+		dusk = r1(try(function() return cm:getSeason():getDusk() end) or 21),
 		dark = r2(try(function() return cm:getNightStrength() end) or 0) }
 	s.weather = { rain = r2(try(function() return cm:getRainIntensity() end) or 0),
 		temp = r1(try(function() return cm:getTemperature() end) or 20), fog = r2(try(function() return cm:getFogIntensity() end) or 0) }
@@ -466,8 +486,11 @@ function A.percept(p)
 	s.room = room and try(function() return room:getName() end) or nil
 	local info = A.buildingInfo(p, false)
 	if info then
+		local openings = {}
+		for _, e in ipairs(info.doorsOpen) do openings[#openings + 1] = { x = e.sq:getX(), y = e.sq:getY(), kind = "door" } end
+		for _, e in ipairs(info.windowsOpen) do openings[#openings + 1] = { x = e.sq:getX(), y = e.sq:getY(), kind = "window" } end
 		s.bld = { id = info.id, doorsOpen = #info.doorsOpen, windowsOpen = #info.windowsOpen, containers = info.containers,
-			searched = info.searched, looted = mem(p).looted[info.id] and true or false }
+			searched = info.searched, looted = mem(p).looted[info.id] and true or false, openings = openings }
 	end
 	s.health = r1(p:getBodyDamage():getOverallBodyHealth())
 	s.stats = {}
@@ -489,7 +512,7 @@ function A.percept(p)
 	local zs = {}
 	for i, e in ipairs(A.zombies(p, 40)) do
 		if i > 60 then break end
-		zs[#zs + 1] = { dx = r1(e.dx), dy = r1(e.dy), d = r1(e.d), seen = e.seen, chasing = e.chasing }
+		zs[#zs + 1] = { dx = r1(e.dx), dy = r1(e.dy), d = r1(e.d), seen = e.seen, chasing = e.chasing, blocked = e.blocked }
 	end
 	s.zombies = zs
 	if not S.cache.water or S.tick - S.cache.water.at > 120 then S.cache.water = { at = S.tick, list = A.scanWater(p, 12) } end
@@ -526,8 +549,9 @@ function A.swing(p, e, w)
 	if p:isAttackStarted() or try(function() return p:isPerformingAttackAnimation() end) then return end
 	local down = try(function() return z:isOnFloor() end) and true or false
 	pcall(function() p:setAimAtFloor(down) end)
-	-- inside a weapon's reach a swing whiffs, and fists only shove: push it back instead
-	if not isMelee(w) or (e.d < 0.75 and not down) then pcall(function() p:setDoShove(true) end) end
+	-- a zombie on the floor gets stomped (bare hands) or hit low (weapon). Standing: fists shove it
+	-- down, and inside a weapon's reach a swing whiffs, so push it back instead
+	if not down and (not isMelee(w) or e.d < 0.75) then pcall(function() p:setDoShove(true) end) end
 	p:setIsAiming(true)
 	p:DoAttack(0)
 end
@@ -567,7 +591,7 @@ end
 function A.reflex(p)
 	if p:getVehicle() then return false end
 	local zs = {}
-	for _, e in ipairs(A.zombies(p, 3.5)) do if e.seen then zs[#zs + 1] = e end end
+	for _, e in ipairs(A.zombies(p, 3.5)) do if (e.seen or e.chasing) and not e.blocked then zs[#zs + 1] = e end end
 	if #zs == 0 then
 		if S.aiming then pcall(function() p:setIsAiming(false) end); S.aiming = false end
 		return false
@@ -793,6 +817,7 @@ function A.lootStep(p, t)
 		local _, curBest = bestMelee(p)
 		local budget = p:getMaxWeight() - p:getInventory():getCapacityWeight()
 		local names, list = {}, {}
+		t.taking = {}
 		local items = c.c:getItems()
 		for i = 0, items:size() - 1 do list[#list + 1] = items:get(i) end
 		for _, it in ipairs(list) do
@@ -803,20 +828,29 @@ function A.lootStep(p, t)
 				Q(ISInventoryTransferAction:new(p, it, c.c, p:getInventory()))
 				budget = budget - wgt
 				names[#names + 1] = it:getDisplayName()
+				t.taking[#t.taking + 1] = it
 				if kind == "weapon" then curBest = weaponScore(it) end
 			end
 		end
 		if #names > 0 then
-			local found = table.concat(names, ", ")
-			t.found = t.found and (t.found .. ", " .. found) or found
-			A.event("found " .. found)
-			H.action = "taking " .. found
-			t.phase, t.t1 = "take", S.tick
+			H.action = "taking " .. table.concat(names, ", ")
+			t.phase, t.t1, t.resume = "take", S.tick, "next"
 		else
 			t.phase = "next"
 		end
 	elseif t.phase == "take" then
-		if qlen(p) == 0 or S.tick - t.t1 > 900 then t.phase = "next" end
+		if qlen(p) > 0 and S.tick - t.t1 <= 900 then return end
+		-- report only what actually reached the bag: a transfer can be cut short (a zombie, manual control)
+		local inv, took = p:getInventory(), {}
+		for _, it in ipairs(t.taking or {}) do
+			if try(function() return inv:contains(it) end) then took[#took + 1] = it:getDisplayName() end
+		end
+		if #took > 0 then
+			local found = table.concat(took, ", ")
+			t.found = t.found and (t.found .. ", " .. found) or found
+			A.event("took " .. found)
+		end
+		t.taking, t.phase = nil, "next"
 	end
 end
 
@@ -827,7 +861,7 @@ end
 
 local function buildingId(sq)
 	local b = sq and sq:getBuilding()
-	return b and tostring(b:getDef():getID()) or nil
+	return b and bkey(b:getDef()) or nil
 end
 
 A.tasks.loot_building = function(p, t)
@@ -872,7 +906,7 @@ end
 
 A.tasks.fight = function(p, t)
 	local vis = {}
-	for _, e in ipairs(A.zombies(p, 15)) do if e.seen then vis[#vis + 1] = e end end
+	for _, e in ipairs(A.zombies(p, 15)) do if (e.seen or e.chasing) and not e.blocked then vis[#vis + 1] = e end end
 	if #vis == 0 then
 		pcall(function() p:setIsAiming(false) end)
 		return done(t, "no zombies in sight")
@@ -905,8 +939,14 @@ A.tasks.flee = function(p, t)
 		return done(t, "got away")
 	end
 	if t.phase == "start" or qlen(p) == 0 then
-		t.legs = (t.legs or 0) + 1
-		if t.legs > 6 then pcall(function() p:setRunning(false) end); return done(t, "ran a long way") end
+		-- a leg only counts if it got us somewhere; legs that went nowhere (no path, interrupted) mean stuck
+		if t.legX then
+			local moved = math.abs(p:getX() - t.legX) + math.abs(p:getY() - t.legY)
+			if moved >= 3 then t.legs, t.stuck = (t.legs or 0) + 1, 0 else t.stuck = (t.stuck or 0) + 1 end
+		end
+		if (t.legs or 0) >= 6 then pcall(function() p:setRunning(false) end); return done(t, "ran a long way") end
+		if (t.stuck or 0) >= 4 then pcall(function() p:setRunning(false) end); return fail(t, "stuck, can't get away") end
+		t.legX, t.legY = p:getX(), p:getY()
 		local sq = A.fleeSquare(p, zs, 14)
 		if not sq then return fail(t, "nowhere to run") end
 		ISTimedActionQueue.clear(p)
@@ -974,8 +1014,9 @@ function A.pollIntent(p)
 	local goal = parts[2] or "wait"
 	local say, why, src = parts[6] or "", parts[7] or "", parts[8] or ""
 	if say ~= "" then pcall(function() p:Say(say) end) end
+	-- a new goal clears the old reason (Qwen's line for it follows a second later)
+	if why ~= "" or goal ~= H.goal then H.why = why end
 	H.goal, H.source, H.lastIntent = goal, src, S.tick
-	if why ~= "" then H.why = why end
 	if not S.manual then A.startTask(p, seq, goal, { parts[3], parts[4], parts[5] }) end
 end
 
