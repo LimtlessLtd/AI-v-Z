@@ -81,7 +81,9 @@ class Situation:
 def time_text(t):
     h, m = t.get("hour", 12), t.get("min", 0)
     dawn, dusk = t.get("dawn") or 6, t.get("dusk") or 20
-    mins, dusk_m = h * 60 + m, dusk * 60
+    if not (3 <= dawn <= 10 and 15 <= dusk <= 23):   # older mod versions sent GameTime's stale 12 and 3
+        dawn, dusk = 6, 21
+    mins, dusk_m = h * 60 + m, round(dusk * 60)
     if mins >= dusk_m + 60 or mins < dawn * 60:
         period = "night (dark)"
     elif mins >= dusk_m:
