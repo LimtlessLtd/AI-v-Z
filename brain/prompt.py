@@ -55,6 +55,8 @@ def render_percept(p, extra_memory=()):
     lines.append(f"UNLOOTED: {_join(p['unlooted'])}. LOOTED: {_join(p['looted'])}.")
     if p.get("plan"):
         lines.append(f"YOUR PLAN: {p['plan']}.")
+    if p.get("knowhow"):
+        lines.append("KNOW-HOW (Project Zomboid):" + "".join(f"\n- {k}" for k in p["knowhow"]))
     memory = list(extra_memory) + list(p["recent"])
     lines.append("MEMORY:\n" + "\n".join(f"- {m}" for m in memory))
     lines.append(f"LAST GOAL: {p['last_goal'] or 'none'}.")

@@ -44,6 +44,15 @@ the lessons, and answers with an aim and steps. Steps that can't apply when thei
 emergencies interrupt and the plan resumes after. The HUD shows `AIM` and `NEXT`; the dashboard shows the
 whole plan, the diary and the lessons.
 
+**Know-how.** A 4B model doesn't know Project Zomboid's rules (it once said "I need to find bandages" while
+wearing a T-shirt it could tear into some). [brain/knowledge.py](brain/knowledge.py) is a short Build 42
+handbook, checked against the game's own recipe and item files, and the facts that match the situation
+(bleeding with no bandages, sealed cans, nightfall, a crowd, no weapon...) go into the planner's and the
+decision prompts. The inventory line also says what the AI can make right now ("you can tear your T-shirt
+into bandages (take it off first)"). It doesn't browse the PZ wiki live: that needs the internet, wiki
+pages are far too long for a 4k-token prompt, much of the wiki still describes Build 41, and its text is
+CC BY-SA.
+
 Memory lives in `logs/memory/`: one file per character (the map, today's events, the diary Qwen writes
 when the AI goes to sleep, the current plan) and one per save with a lesson Qwen writes after each death,
 which the next character's planner reads. Every plan request and answer is logged to

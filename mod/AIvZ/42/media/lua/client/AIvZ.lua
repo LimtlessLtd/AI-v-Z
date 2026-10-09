@@ -226,7 +226,7 @@ end
 
 local function medKind(it)
 	local t = it:getType() or ""
-	if t:find("Dirty") then return nil end
+	if t:find("Dirty") or t:find("^Bandage_") then return nil end -- Bandage_Abdomen etc. is one already on you
 	if t:find("Bandage") or t:find("RippedSheets") then return "bandage" end
 	if t:find("Disinfectant") or t:find("AlcoholWipes") then return "disinfectant" end
 	if t:find("^Pills") then return "pills" end
@@ -301,7 +301,7 @@ local function ragSource(p)
 	return best
 end
 
--- a worn cotton top (T-shirt, shirt, vest): bleeding with nothing else, it comes off and becomes bandages
+-- a worn cotton top (T-shirt, shirt, vest): a wound and nothing else to use, it comes off and becomes bandages
 local function wornTop(p)
 	local best = nil
 	eachItem(p:getInventory(), function(it)
@@ -312,15 +312,6 @@ local function wornTop(p)
 		end
 	end, 1)
 	return best
-end
-
-local function bleeding(p)
-	local parts = p:getBodyDamage():getBodyParts()
-	for i = 0, parts:size() - 1 do
-		local bp = parts:get(i)
-		if bp:bleeding() and not bp:bandaged() then return true end
-	end
-	return false
 end
 
 -- backpacks: B42 reports where a bag is worn in canBeEquipped() ("" for anything that isn't worn)
@@ -748,8 +739,13 @@ function A.percept(p)
 			score = r2(weaponScore(w) or 0) }
 	end
 	s.inv = A.inventory(p)
-	if not S.cache.rags or S.tick - S.cache.rags.at > 300 then S.cache.rags = { at = S.tick, ok = ragSource(p) ~= nil } end
-	s.rags = S.cache.rags.ok or (bleeding(p) and wornTop(p) ~= nil)
+	-- what it could tear into bandages, so the language model knows it doesn't have to go looking for some
+	if not S.cache.rags or S.tick - S.cache.rags.at > 300 then
+		local it = ragSource(p)
+		S.cache.rags = { at = S.tick, v = it and { name = it:getDisplayName(), worn = false } or false }
+	end
+	local top = not S.cache.rags.v and wornTop(p)
+	s.rags = S.cache.rags.v or (top and { name = top:getDisplayName(), worn = true }) or false
 	local cans = 0
 	eachItem(p:getInventory(), function(it) if instanceof(it, "Food") and canRecipe(p, it) then cans = cans + 1 end end)
 	s.cans = cans
@@ -1060,7 +1056,7 @@ A.tasks.bandage = function(p, t)
 		eachItem(p:getInventory(), function(it) if not band and medKind(it) == "bandage" then band = it end end)
 		if not band then
 			local cloth = not t.ripped and ragSource(p)
-			if not cloth and not t.stripped and bleeding(p) then
+			if not cloth and not t.stripped then -- (only reached for a wound that needs a bandage)
 				-- nothing spare to tear: take off the shirt on your back, then tear that
 				local top = wornTop(p)
 				if top then

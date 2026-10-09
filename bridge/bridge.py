@@ -31,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from brain import planner, strategy  # noqa: E402
+from brain import knowledge, planner, strategy  # noqa: E402
 from brain.llm import OllamaBrain  # noqa: E402
 from brain.memory import WorldMemory  # noqa: E402
 from brain.percept import Memory, summarize  # noqa: E402
@@ -327,6 +327,7 @@ class Bridge:
             if cooled and len(cooled) < len(situ.legal):
                 situ.legal = [g for g in situ.legal if g not in cooled]
             plan_goal = self._follow_plan(raw, situ, now)
+            situ.percept["knowhow"] = knowledge.relevant(situ.percept, 3)
             self.situ = situ
             self._maybe_plan(raw, situ, now)
             if raw.get("manual"):

@@ -536,6 +536,28 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(sum(1 for line in lines if line), 1)
 
 
+class KnowledgeTests(unittest.TestCase):
+    def test_bleeding_without_bandages_brings_up_tearing_clothes(self):
+        # in game it said "I need to find bandages" while wearing a T-shirt
+        from brain import knowledge
+        raw = copy.deepcopy(RAW)
+        raw["wounds"] = [{"part": "Torso_Lower", "flags": ["bleeding", "laceration"]}]
+        raw["rags"] = {"name": "T-shirt", "worn": True}
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertIn("you can tear your T-shirt into bandages (take it off first)", s.percept["inventory"]["medical"])
+        facts = knowledge.relevant(s.percept, 3)
+        self.assertTrue(facts[0].startswith("Bleeding kills fast"))
+        s.percept["knowhow"] = facts
+        self.assertIn("Tear any cotton clothing", build_messages(s.percept, s.legal)[1]["content"])
+
+    def test_planner_gets_shop_advice_and_only_relevant_facts(self):
+        from brain import knowledge
+        s = summarize(RAW, Memory(), random.Random(1))
+        facts = knowledge.relevant(s.percept, 6, planning=True)
+        self.assertTrue(any(f.startswith("Shops beat houses") for f in facts))
+        self.assertFalse(any(f.startswith("Bleeding") for f in facts))
+
+
 class IntentLineTests(unittest.TestCase):
     def test_separators_and_newlines_are_removed(self):
         line = bridge_mod.intent_line(5, "explore", (40, -12, 0), say="I'll go | north\nnow", why="a|b", source="rules")

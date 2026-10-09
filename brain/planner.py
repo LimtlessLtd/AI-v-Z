@@ -27,6 +27,7 @@ ACTIONS = {
     "search_here": "loot_here",
     "close_up": "secure_building",
     "store_loot": "drop_weight",
+    "treat_wounds": "bandage",      # bandages, or rags torn from clothes
     "sleep": "sleep",
     "rest": "rest",
     "wait": "wait",
@@ -52,6 +53,7 @@ Steps use these actions:
 - search_here: search the rest of the building you're in.
 - close_up: close the doors, windows and curtains of the building you're in.
 - store_loot: at home, put spare food and junk away.
+- treat_wounds: bandage your wounds (with bandages, or rags torn from your clothes).
 - sleep, rest, wait.
 
 Answer with JSON only: {"aim": your aim in 4-12 words, "why": one sentence, "steps": [{"do": action, "where":
@@ -138,7 +140,7 @@ def build_messages(percept, raw, world, reason, old_plan=None):
     """The planning prompt: situation (as the strategy prompt shows it), places, diary, lessons."""
     from .prompt import render_percept
     places = world.labelled_places(raw)
-    lines = [render_percept(percept), ""]
+    lines = [render_percept({**percept, "knowhow": None}), ""]
     lines.append("KNOWN PLACES:")
     lines += [f"- {label}: {text}" for label, _, text in places] or ["- none yet: explore to find some"]
     diary = world.data.get("diary") or []
@@ -154,6 +156,8 @@ def build_messages(percept, raw, world, reason, old_plan=None):
             lines.append(f"- {s.status}: {s.do} {s.where} ({s.note})")
     lines.append(f"\nWHY YOU'RE PLANNING NOW: {reason}.")
     lines.append("Make your plan.")
+    from .knowledge import relevant
+    lines.insert(-2, "KNOW-HOW (Project Zomboid):" + "".join(f"\n- {k}" for k in relevant(percept, 6, planning=True)))
     labels = {label: pid for label, pid, _ in places}
     return [{"role": "system", "content": PLANNER_BRIEF}, {"role": "user", "content": "\n".join(lines)}], labels
 

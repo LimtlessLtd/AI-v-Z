@@ -155,7 +155,10 @@ def _inventory(inv, raw_rags=False, cans=0):
             food.append(f"{f['name']} (needs cooking or opening)")
     drink = [f"{w['name']} {round(w['amount'] * 10)}/{round(w['cap'] * 10)}" for w in inv.get("water") or []]
     medical = [m["name"] for m in inv.get("medical") or []]
-    if raw_rags:
+    if isinstance(raw_rags, dict):
+        medical.append(f"you can tear your {raw_rags.get('name', 'shirt')} into bandages"
+                       + (" (take it off first)" if raw_rags.get("worn") else ""))
+    elif raw_rags:
         medical.append("a spare shirt to tear into bandages")
     weapons = [f"{w['name']} ({round(100 * w['cond'] / w['max']) if w.get('max') else 0}%)" for w in inv.get("weapons") or []]
     if cans:
