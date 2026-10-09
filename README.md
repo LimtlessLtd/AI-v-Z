@@ -26,20 +26,35 @@ again, and update this table.
 
 | Layer | Where | Speed | Job |
 |---|---|---|---|
+| Planner | Python bridge + Qwen | every few game hours, ~3 s | The AI sets its own aim in its own words ("find medical supplies at the pharmacy") and up to 5 steps (loot a place it knows, explore a direction, go home, close up, store loot, sleep). It sees a map of every building it has seen, its diary, and lessons from earlier characters |
 | Reflex | Lua mod, every 4 ticks | <1 ms | Zombies within ~3 tiles: swing, shove, grab a weapon from the bag, break away from 3+ |
 | Tactics | Lua mod, every 10 ticks | per tick | Carries out the current goal: pathfind (through a window if the doors are locked), loot containers, eat, drink at sinks, bandage, fight, flee, close doors, go home, sleep, drop junk |
-| Strategy | Python bridge | on events, at least every 6 s | Rules score the legal goals. Clear winners act immediately; close calls also go to Qwen, which may overrule the rules. Qwen writes the one-line reason shown in the speech bubble |
+| Strategy | Python bridge | on events, at least every 6 s | Rules score the legal goals; the plan's current step scores 70, which beats routine looting and moderate needs but not danger, bleeding, nightfall or severe thirst. Clear winners act immediately; close calls also go to Qwen. Qwen writes the speech bubble, once per change of goal |
 
 Goals the AI can pick: `fight`, `flee`, `hide`, `secure_building`, `loot_here`, `loot_building`,
 `explore`, `eat`, `drink`, `bandage`, `equip_weapon`, `rest`, `wait`, and since Phase 2 `retreat_home`,
 `sleep` and `drop_weight`. Only the goals that are possible right now are offered.
+
+### The AI's own plans
+
+The rules keep the character alive from second to second; what to do with the day is Qwen's call. When it
+has no plan, wakes up, finishes or fails a plan, or the plan is 6 game hours old, Qwen gets the situation,
+the places it knows (labelled P1, P2... with what they are and whether they've been searched), its diary and
+the lessons, and answers with an aim and steps. Steps that can't apply when their turn comes are skipped;
+emergencies interrupt and the plan resumes after. The HUD shows `AIM` and `NEXT`; the dashboard shows the
+whole plan, the diary and the lessons.
+
+Memory lives in `logs/memory/`: one file per character (the map, today's events, the diary Qwen writes
+when the AI goes to sleep, the current plan) and one per save with a lesson Qwen writes after each death,
+which the next character's planner reads. Every plan request and answer is logged to
+`logs/plans-YYYYMMDD.jsonl`.
 
 ### Survival (Phase 2)
 
 | | What the AI does |
 |---|---|
 | Home base | The first house with a bed it searches, closes up or sleeps in becomes home (kept in the save). If it shelters for the night more than 120 tiles from home, that shelter becomes the new home. |
-| Nights | From an hour before sunset it heads home, or into the nearest building if home is far, closes it up and stays in. It sleeps in the nearest bed when tired; the game won't allow sleep with zombies in sight, panic or bad pain, and the dashboard says why. |
+| Nights | From an hour before sunset it heads home, or into the nearest building if home is far, closes the doors, windows and curtains, and stays in. It sleeps in the nearest bed when tired; the game won't allow sleep with zombies in sight, panic or bad pain, and the dashboard says why. Quiet nights at home run at fast-forward speed 3. |
 | Locked houses | No route in: it walks round to the cheapest ground-floor window, opens it, or smashes it and clears the glass if it's locked, climbs in and shuts it behind. Smashing is loud and the last resort. |
 | Loads | It carries up to 8 foods it can eat as is (none over 1 kg), 2 drinks, 6 medical items and two weapons, and swaps to a bigger backpack. With the bag 85% full it drops junk (spare weapons and clothes, rotten food); at home it stores spare food in a cupboard and eats from there later. |
 | Wounds | Bleeding with no bandage: it tears a spare shirt into rags. |
@@ -92,7 +107,7 @@ go to `logs/deaths-YYYYMMDD.jsonl`.
 | Key | Effect |
 |---|---|
 | **F7** | Show/hide the AI's HUD. *(H, in the original plan, opens the Health panel in 42.21, so the HUD moved to F7.)* |
-| **G** | Toggle auto fast-forward: 2× speed when no zombie is within 45 tiles. *(G is otherwise only the multiplayer safety toggle.)* |
+| **G** | Toggle auto fast-forward: speed 2 when no zombie is within 45 tiles, speed 3 while it waits or rests in its closed-up home with nothing within 20 tiles. *(G is otherwise only the multiplayer safety toggle.)* |
 | W A S D, arrows, E, Space, F, R, Q | **Manual override:** the AI stops at once and you're driving. It takes over again after ~10 s with no input and no movement. |
 | Pause (speed 0) | Respected: the AI never unpauses the game. |
 
@@ -141,8 +156,8 @@ docs/               SPECS, BENCHMARK, DECISION_MODELS, REVIEW
   It picks up melee weapons it finds while looting, but doesn't go looking for them.
 - **Smashed windows stay open.** A house it smashed its way into can't be closed up (no barricading yet),
   so it isn't made home.
-- **Nights are quiet.** If it isn't tired it waits indoors until dawn. With zombies within 45 tiles the
-  game runs at normal speed, so a night can take most of an hour to watch.
+- **Plans are only as good as a 4B model.** Some plans include steps that don't apply (closing up a
+  closed house, sleeping at 7 am); those are skipped. It only knows buildings it has seen within 60 tiles.
 - **Ollama can bog down after ~30 min.** In the first run every Qwen call started timing out until
   Ollama was restarted. The bridge now reloads the model after two slow calls; the dashboard's LLM
   panel shows `reloads`. If speech bubbles stop for long, restart Ollama.

@@ -125,7 +125,11 @@ def output_schema():
 
 
 def _game_hours(raw):
+    """Game hours since the world began. The day number ticks over at dawn, not midnight, so
+    day * 24 + hour jumps by a day at 7 am; the mod sends the world's own clock."""
     t = raw.get("time") or {}
+    if t.get("age") is not None:
+        return float(t["age"])
     return (t.get("day", 1) - 1) * 24 + t.get("hour", 0) + t.get("min", 0) / 60
 
 

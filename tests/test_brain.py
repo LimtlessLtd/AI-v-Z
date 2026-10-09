@@ -431,6 +431,15 @@ class PlannerTests(unittest.TestCase):
         self.assertTrue(plan.finished())
         self.assertIn("finished", planner.needs_new_plan(plan, self.raw))
 
+    def test_plan_age_uses_the_world_clock(self):
+        # the day number ticks over at dawn: day 1 06:38 -> day 2 07:00 is 22 minutes, not a day
+        from brain import planner
+        plan = planner.Plan("x", "", [planner.Step("wait", "wait")], made_hour=30.6)
+        raw = {"time": {"day": 2, "hour": 7, "min": 0, "age": 31.0}}
+        self.assertIsNone(planner.needs_new_plan(plan, raw))
+        raw["time"]["age"] = 37.0
+        self.assertIn("hours old", planner.needs_new_plan(plan, raw))
+
     def test_plan_step_beats_routine_but_not_danger(self):
         self.raw["bld"]["doorsOpen"] = 0   # an open door with a zombie about rightly comes first
         s = summarize(self.raw, Memory(), random.Random(1))

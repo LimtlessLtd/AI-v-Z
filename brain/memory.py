@@ -24,6 +24,7 @@ KINDS = [
     ("diner", "restaurant"), ("cafe", "cafe"), ("bar", "bar"), ("cloth", "clothes store"), ("book", "bookstore"),
     ("warehouse", "warehouse"), ("classroom", "school"), ("school", "school"), ("church", "church"),
     ("motel", "motel"), ("hotel", "hotel"), ("mechanic", "garage"), ("office", "office"),
+    ("farm", "farm building"), ("barn", "barn"), ("shed", "shed"),
 ]
 
 
@@ -34,6 +35,8 @@ def building_kind(rooms):
             return kind
     if set(rooms) & HOUSE_ROOMS:
         return "house"
+    if any("storage" in r for r in rooms):
+        return "storage building"
     return rooms[0] if rooms else "building"
 
 

@@ -679,6 +679,7 @@ function A.percept(p)
 	local gt = getGameTime()
 	local cm = getClimateManager()
 	s.time = { day = gt:getNightsSurvived() + 1, hour = gt:getHour(), min = gt:getMinutes(),
+		age = r2(gt:getWorldAgeHours()), -- a clock that only goes forward (the day number ticks over at dawn)
 		-- GameTime:getDawn()/getDusk() are stale in B42 (they read 12 and 3); the season has the real hours
 		dawn = r1(try(function() return cm:getSeason():getDawn() end) or 6),
 		dusk = r1(try(function() return cm:getSeason():getDusk() end) or 21),
