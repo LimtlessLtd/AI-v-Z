@@ -38,6 +38,15 @@ def _l(v):
     return v if isinstance(v, list) else []
 
 
+def _item_key(it):
+    """What counts as a kind of item, or None. B42 keeps each wound as a hidden 'Wound_...' item in the
+    inventory; before gym 0.3.0 those reached the observation and a bite paid the new-item bonus."""
+    key = it.get("type") or it.get("name")
+    if not key or str(key).startswith(("Wound_", "Base.Wound_")) or str(it.get("name", "")).startswith("Base.Wound_"):
+        return None
+    return key
+
+
 class LifeProgress:
     """What this life has already been rewarded for (the 'first time' bonuses)."""
 
@@ -75,7 +84,7 @@ def step(prev, cur, progress, searched=0):
         parts["kills"] = KILL * kills
     new_items = 0
     for it in _l(cur.get("inv")) + ([cur["held"]] if isinstance(cur.get("held"), dict) else []):
-        key = it.get("type") or it.get("name")
+        key = _item_key(it)
         if key and key not in progress.items:
             progress.items.add(key)
             new_items += 1
@@ -95,7 +104,7 @@ def step(prev, cur, progress, searched=0):
 def start_life(first_obs, progress):
     """Count what a new character starts with, so its own clothes don't earn 'new item' bonuses."""
     for it in _l(first_obs.get("inv")) + ([first_obs["held"]] if isinstance(first_obs.get("held"), dict) else []):
-        key = it.get("type") or it.get("name")
+        key = _item_key(it)
         if key:
             progress.items.add(key)
     b = _d(first_obs.get("where")).get("building")

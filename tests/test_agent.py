@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 from agent import reward  # noqa: E402
 from agent.link import GameLink  # noqa: E402
 from agent.lives import Lives  # noqa: E402
-from agent.policies import RandomPolicy  # noqa: E402
+from agent.policies import ProbePolicy, RandomPolicy  # noqa: E402
 
 OBS = {
     "who": {"name": "Chris Hooks", "save": "test"}, "born": 26.0,
@@ -77,6 +77,12 @@ class RewardTests(unittest.TestCase):
         reward.start_life(OBS, fresh)
         self.assertNotIn("new_items", reward.step(OBS, later(OBS, 1), fresh)[1])   # the shirt it started in
 
+    def test_wounds_are_not_new_items(self):
+        bitten = later(OBS, 1, inv=OBS["inv"] + [{"name": "Base.Wound_RHand_Bite_Female", "type": "Wound_RHand_Bite_Female",
+                                                  "cat": "clothing", "w": 0, "worn": True}])
+        _, parts = reward.step(OBS, bitten, self.progress)
+        self.assertNotIn("new_items", parts)
+
     def test_kills_and_death(self):
         _, parts = reward.step(OBS, later(OBS, 1, kills=2), self.progress)
         self.assertEqual(parts["kills"], 2 * reward.KILL)
@@ -101,6 +107,42 @@ class LivesTests(unittest.TestCase):
             other["who"] = {"name": "Kate Smith", "save": "test"}
             life, *_ = again.observe({"id": 4, "obs": other, "options": OPTIONS})
             self.assertEqual((life.number, life.name), (2, "Kate Smith"))
+
+    def test_restarting_the_agent_carries_on_with_the_same_character(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lives = Lives(tmp)
+            lives.observe({"id": 1, "obs": OBS, "options": OPTIONS})
+            lives.observe({"id": 2, "obs": later(OBS, 30, kills=1), "options": OPTIONS})
+            lives.current.decisions = 2
+            lives.save()
+            total = lives.current.reward
+            again = Lives(tmp)   # the agent restarted
+            # an hour later the same character, carrying what the baseline picked up meanwhile
+            bat = later(OBS, 90, kills=1, inv=OBS["inv"] + [{"name": "Baseball Bat", "type": "BaseballBat", "cat": "weapon"}])
+            life, r, parts, new, finished = again.observe({"id": 3, "obs": bat, "options": OPTIONS})
+            self.assertEqual((life.number, new, finished, again.count), (1, False, None, 1))
+            self.assertTrue(again.resumed)
+            self.assertEqual((r, parts), (0.0, {}))   # the time away isn't the last decision's doing
+            self.assertEqual((life.decisions, life.kills), (2, 1))
+            self.assertAlmostEqual(life.reward, total)
+            life, r, parts, *_ = again.observe({"id": 4, "obs": later(bat, 10), "options": OPTIONS})
+            self.assertFalse(again.resumed)
+            self.assertAlmostEqual(parts["alive"], 1.0, places=2)
+            self.assertNotIn("new_items", parts)   # the bat came while the agent was off
+            _, _, _, _, rec = again.observe({"id": 5, "dead": True, "obs": {"dead": True, "kills": 1, "t": {"age": 29.0}}})
+            self.assertEqual((rec["life"], rec["ended"], rec["hours"]), (1, "died", 3.0))
+
+    def test_a_different_character_after_a_restart_ends_the_old_life(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lives = Lives(tmp)
+            lives.observe({"id": 1, "obs": OBS, "options": OPTIONS})
+            again = Lives(tmp)
+            other = later(OBS, 1)
+            other["who"] = {"name": "Kate Smith", "save": "test"}
+            life, _, _, new, finished = again.observe({"id": 2, "obs": other, "options": OPTIONS})
+            self.assertEqual((life.number, new, finished["life"], finished["ended"]), (2, True, 1, "left"))
+            self.assertFalse(again.resumed)
+            self.assertEqual(Lives(tmp).current.name, "Kate Smith")
 
 
 class LinkTests(unittest.TestCase):
@@ -129,6 +171,39 @@ class PolicyTests(unittest.TestCase):
         i, probs, _ = pol.choose(msg)
         self.assertAlmostEqual(sum(probs), 1.0)
         self.assertEqual(pol.choose({"options": []})[0], None)
+
+
+class ProbeTests(unittest.TestCase):
+    def test_probe_tries_each_verb_lets_it_finish_and_reports(self):
+        pol = ProbePolicy(random.Random(1), tries=1)
+        eat = {"verb": "eat", "name": "Apple", "type": "Apple", "cat": "food"}
+        opts = OPTIONS + [eat]
+        obs = later(OBS, 0, inv=OBS["inv"] + [{"name": "Apple", "type": "Apple", "cat": "food"}])
+        i, _, _ = pol.choose({"options": opts, "obs": obs})
+        self.assertEqual(opts[i]["verb"], "eat")   # eating comes before walking about
+        i, _, _ = pol.choose({"options": [{"verb": "continue"}] + opts, "obs": obs, "last": {"verb": "eat", "status": "running"}})
+        self.assertEqual(i, 0)
+        i, _, _ = pol.choose({"options": opts, "obs": OBS, "last": {"verb": "eat", "status": "done", "age": 90}})
+        self.assertNotEqual(opts[i]["verb"], "eat")   # tried once: enough
+        self.assertEqual(pol.results[0]["lost"], {"Apple": 1})
+        self.assertIn("eat          done 1", pol.report())
+
+    def test_probe_takes_prerequisites_after_take_checks_are_complete(self):
+        weapon = {"verb": "take", "name": "Kitchen Knife", "cat": "weapon", "d": 2}
+        water = {"verb": "take", "name": "Water Bottle", "water": 0.8, "d": 3}
+        options = [weapon, water, {"verb": "go_room", "name": "kitchen"}]
+        pol = ProbePolicy(random.Random(1), tries=1)
+        for verb in pol.TEST + pol.LATE:
+            if verb not in ("drink", "equip"):
+                pol.tally[verb]["done"] = 1
+        i, _, _ = pol.choose({"options": options, "obs": OBS})
+        self.assertEqual(options[i]["name"], "Water Bottle")
+        pol = ProbePolicy(random.Random(1), tries=1)
+        for verb in pol.TEST + pol.LATE:
+            if verb != "equip":
+                pol.tally[verb]["done"] = 1
+        i, _, _ = pol.choose({"options": options, "obs": OBS})
+        self.assertEqual(options[i]["name"], "Kitchen Knife")
 
 
 class AgentLoopTests(unittest.TestCase):

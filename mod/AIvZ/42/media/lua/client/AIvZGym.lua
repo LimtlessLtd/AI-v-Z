@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.2.0"
+G.VERSION = "0.3.0"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -127,7 +127,7 @@ function G.observe(p, dead)
 	o.held = held and G.itemInfo(p, held) or nil
 	o.inv = {}
 	U.eachItem(p:getInventory(), function(it)
-		if #o.inv < 40 and it ~= held then o.inv[#o.inv + 1] = G.itemInfo(p, it) end
+		if #o.inv < 40 and it ~= held and not it:isHidden() then o.inv[#o.inv + 1] = G.itemInfo(p, it) end
 	end)
 	o.zombies = {}
 	for i, e in ipairs(A.zombies(p, 30)) do
@@ -313,17 +313,19 @@ function G.options(p)
 		local e = ar.curtains[i]
 		add(list, "curtain", { d = r1(e.d), open = e.open }, e)
 	end
-	-- containers: search the ones not looked into yet; take from the ones it has, when standing by them
+	-- containers: search the ones not looked into yet; take from the ones it has, when standing by them.
+	-- "here": in the building the character is in (or both outside); the rest are usually out of reach.
 	local nt = 0
 	for _, c in ipairs(ar.containers) do
+		local here = c.sq:getBuilding() == ar.building
 		if not c.known and count(list, "search") < 6 then
-			add(list, "search", { d = r1(c.d), type = c.type, indoors = c.indoors }, c)
+			add(list, "search", { d = r1(c.d), type = c.type, indoors = c.indoors, here = here }, c)
 		elseif c.known and c.d < 2.5 and nt < 12 then
 			U.eachItem(c.c, function(it)
-				if nt < 12 then
+				if nt < 12 and not it:isHidden() then
 					nt = nt + 1
 					local i = G.itemInfo(p, it)
-					i.from, i.d = c.type, r1(c.d)
+					i.from, i.d, i.here = c.type, r1(c.d), here
 					add(list, "take", i, { it = it, c = c.c })
 				end
 			end, 1)
@@ -333,11 +335,19 @@ function G.options(p)
 	local held = p:getPrimaryHandItem()
 	if held then add(list, "unequip", G.itemInfo(p, held), { it = held }) end
 	local crafts = 0
+	local stuffed = U.moodle(p, "FOOD_EATEN") >= 3
 	U.eachItem(p:getInventory(), function(it)
-		if it == held then return end
+		if it == held or it:isHidden() then return end
 		local info = G.itemInfo(p, it)
 		local worn = info.worn
-		if instanceof(it, "Food") and count(list, "eat") < 6 then add(list, "eat", info, { it = it }) end
+		if not stuffed and count(list, "eat") < 6 then
+			local ok, opening = G.eatable(p, it)
+			if ok then
+				info.open = opening ~= nil
+				add(list, "eat", info, { it = it, opening = opening })
+				info.open = nil
+			end
+		end
 		if info.water and count(list, "drink") < 2 then add(list, "drink", info, { it = it }) end
 		if instanceof(it, "HandWeapon") and count(list, "equip") < 3 then add(list, "equip", info, { it = it }) end
 		if (instanceof(it, "Clothing") or U.isBackBag(it)) and not worn and count(list, "wear") < 3 then add(list, "wear", info, { it = it }) end
@@ -379,8 +389,29 @@ function G.options(p)
 		local bed = A.beds(p, b)[1]
 		if bed then add(list, "sleep", { bed = true, d = bed.d }, { bed = bed.o }) end
 	end
-	add(list, "sleep", { bed = false }, {})
+	-- the game's floor-sleep check reads the square (an error once, with none, mid-climb)
+	if p:getSquare() then add(list, "sleep", { bed = false }, {}) end
 	return list
+end
+
+-- the right-click menu's Eat: food with a hunger value, or one it can open first ("Open and Eat", a sealed
+-- can with an opener or a knife). Returns ok and, for the latter, the opening recipe.
+function G.eatable(p, it)
+	if not instanceof(it, "Food") then return false end
+	local script = it:getScriptItem()
+	local name = try(function() return it:getOpeningRecipe() end)
+	local opening = name and try(function() return getScriptManager():getCraftRecipe(name) end) or nil
+	if opening and not try(function()
+		local logic = HandcraftLogic.new(p, nil, nil)
+		logic:setContainers(ISInventoryPaneContextMenu.getContainers(p))
+		logic:setRecipeFromContextClick(opening, it)
+		return logic:canPerformCurrentRecipe()
+	end) then opening = nil end
+	if opening then return true, opening end
+	if try(function() return script:isCantEat() end) then return false end
+	if (try(function() return it:getHungChange() end) or 0) < 0 then return true, nil end
+	-- a drink or the like ("Drink" in the menu), unless it needs something else to hand (a lighter)
+	return it:getCustomMenuOption() ~= nil and not it:getRequireInHandOrInventory(), nil
 end
 
 -- an item's own recipes, the ones the game lets it do right now (the right-click menu's craft options)
@@ -398,7 +429,7 @@ function G.recipes(p, it)
 				local logic = HandcraftLogic.new(p, nil, nil)
 				logic:setContainers(containers)
 				logic:setRecipeFromContextClick(r, it)
-				return logic:canPerformCurrentRecipe()
+				return logic:canPerformCurrentRecipe() and logic:getRecipeData():getAllInputItems():contains(it)
 			end)
 			if ok then out[#out + 1] = { recipe = r, name = r:getName() } end
 		end
@@ -424,15 +455,31 @@ local function stopMoving(p)
 	pcall(function() p:setIsAiming(false) end)
 end
 
--- generic end: the queued actions finished (or it has been too long)
-local function queueStep(maxTicks)
-	return function(p, t)
+-- generic end: the queued actions finished (or it has been too long). `check` looks at what happened and
+-- returns why the option didn't do what it says, or nil. Without it, an action the game dropped at once (a
+-- locked door, a window out of reach) came back "done" after 20 ticks with nothing changed.
+local function queueStep(maxTicks, check)
+	return function(p, t, o)
 		local age = tick() - t.t0
 		if t.pathFailed then return U.fail(t, "no way there") end
-		if qlen(p) == 0 and age > 20 then return U.done(t) end
-		if age > (maxTicks or 900) then U.done(t, "took too long") end
+		local over = age > (maxTicks or 900)
+		if (qlen(p) == 0 and age > 20) or over then
+			local why = check and check(p, t, o)
+			-- some effects land after the action leaves the queue (a smash breaks the glass partway through
+			-- its animation): give it a second and a half before calling it a failure
+			if why and not over then
+				t.emptyAt = t.emptyAt or tick()
+				if tick() - t.emptyAt < 90 then return end
+			end
+			if why then return U.fail(t, over and "took too long" or why) end
+			U.done(t, over and "took too long" or nil)
+		end
 	end
 end
+
+local function isOpen(o) return try(function() return o:IsOpen() end) == true end
+local function has(p, it) return try(function() return p:getInventory():containsRecursive(it) end) == true end
+local function worn(p, it) return try(function() return p:isEquipped(it) end) == true end
 
 G.X = {}
 G.X.wait = { start = function() end, step = function(p, t) if tick() - t.t0 > 120 then U.done(t) end end }
@@ -440,16 +487,18 @@ G.X.rest = {
 	start = function(p) pcall(function() p:reportEvent("EventSitOnGround") end) end,
 	step = function(p, t) if tick() - t.t0 > 600 then U.done(t) end end,
 }
+local function arrived(p, t) if t.to and dist(p, t.to[1] + 0.5, t.to[2] + 0.5) > 1.5 then return "stopped short" end end
 local function walkStart(n, running)
 	return function(p, t, o)
 		local sq = U.farthestFree(p, o.data.dx * n, o.data.dy * n)
 		if not sq then return U.fail(t, "blocked") end
 		pcall(function() p:setRunning(running) end)
+		t.to = { sq:getX(), sq:getY() }
 		U.pathTo(p, t, sq:getX(), sq:getY(), sq:getZ())
 	end
 end
-G.X.walk = { start = walkStart(12, false), step = queueStep(600) }
-G.X.run = { start = walkStart(15, true), step = queueStep(600) }
+G.X.walk = { start = walkStart(12, false), step = queueStep(600, arrived) }
+G.X.run = { start = walkStart(15, true), step = queueStep(600, arrived) }
 G.X.enter = {
 	start = function(p, t, o) t.args = { o.data.tx, o.data.ty, o.data.tz } end,
 	step = function(p, t, o)
@@ -458,16 +507,17 @@ G.X.enter = {
 			U.mem(p).visited[o.data.id] = true
 			U.done(t)
 		end
-		if tick() - t.t0 > 3600 and t.status == "running" then U.done(t, "took too long") end
+		if tick() - t.t0 > 3600 and t.status == "running" then U.fail(t, "took too long") end
 	end,
 }
 G.X.go_room = {
 	start = function(p, t, o)
 		local sq = try(function() return o.data.r:getFreeSquare() end)
 		if not sq then return U.fail(t, "no free square") end
+		t.to = { sq:getX(), sq:getY() }
 		U.pathTo(p, t, sq:getX(), sq:getY(), sq:getZ())
 	end,
-	step = queueStep(600),
+	step = queueStep(600, arrived),
 }
 G.X.attack = {
 	start = function() end,
@@ -499,24 +549,54 @@ G.X.shove = {
 	end,
 	step = function(p, t) if tick() - t.t0 > 30 then pcall(function() p:setIsAiming(false) end); U.done(t) end end,
 }
-G.X.door = { start = function(p, t, o) if not U.closeOpening(p, o.data) then U.fail(t, "can't reach it") end end, step = queueStep(600) }
+-- doors, windows and curtains toggle: the check is that it moved
+local function toggled(p, t, o)
+	if isOpen(o.data.o) == t.wasOpen then return o.data.locked and "it's locked" or "it didn't move" end
+end
+G.X.door = {
+	start = function(p, t, o)
+		t.wasOpen = isOpen(o.data.o)
+		if not U.closeOpening(p, o.data, t) then U.fail(t, "can't reach it") end
+	end,
+	step = queueStep(600, toggled),
+}
 G.X.window = G.X.door
-G.X.curtain = { start = function(p, t, o) if not U.closeCurtain(p, o.data) then U.fail(t, "can't reach it") end end, step = queueStep(600) }
-local function atWindow(make)
+G.X.curtain = {
+	start = function(p, t, o)
+		t.wasOpen = isOpen(o.data.o)
+		if not U.closeCurtain(p, o.data, t) then U.fail(t, "can't reach it") end
+	end,
+	step = queueStep(600, toggled),
+}
+local function atWindow(make, check)
 	return {
 		start = function(p, t, o)
-			if not luautils.walkAdjWindowOrDoor(p, o.data.sq, o.data.o, true) then return U.fail(t, "can't reach it") end
+			local ok, adj = U.walkAdjOpening(p, o.data.sq, o.data.o, t)
+			if not ok then return U.fail(t, "can't reach it") end
+			t.from = adj
 			Q(make(p, o.data.o))
 		end,
-		step = queueStep(600),
+		step = queueStep(600, check),
 	}
 end
-G.X.climb = atWindow(function(p, w) return ISClimbThroughWindow:new(p, w, 0) end)
-G.X.smash = atWindow(function(p, w) return ISSmashWindow:new(p, w) end)
-G.X.clear_glass = atWindow(function(p, w) return ISRemoveBrokenGlass:new(p, w) end)
+-- through a window: it ends up on the other side of the wall from the square it climbed from
+G.X.climb = atWindow(function(p, w) return ISClimbThroughWindow:new(p, w, 0) end, function(p, t, o)
+	local sq, from = p:getCurrentSquare(), t.from
+	if not sq or sq == from then return "didn't get through" end
+	if o.data.exterior and (sq:getBuilding() ~= nil) == (from:getBuilding() ~= nil) then return "didn't get through" end
+end)
+G.X.smash = atWindow(function(p, w) return ISSmashWindow:new(p, w) end, function(p, t, o)
+	if not U.winIs(o.data.o, "isSmashed") then return "it didn't break" end
+end)
+G.X.clear_glass = atWindow(function(p, w) return ISRemoveBrokenGlass:new(p, w) end, function(p, t, o)
+	if not U.winIs(o.data.o, "isGlassRemoved") then return "the glass is still there" end
+end)
 G.X.search = {
-	start = function(p, t, o) luautils.walkToContainer(o.data.c, p:getPlayerNum()) end,
+	start = function(p, t, o)
+		if not U.walkToContainer(p, o.data.c, t) then U.fail(t, "can't reach it") end
+	end,
 	step = function(p, t, o)
+		if t.pathFailed then return U.fail(t, "no way there") end
 		if qlen(p) > 0 and tick() - t.t0 < 900 then return end
 		if dist(p, o.data.sq:getX() + 0.5, o.data.sq:getY() + 0.5) > 2.5 then return U.fail(t, "couldn't reach it") end
 		seen(p)[o.data.key] = true
@@ -527,12 +607,13 @@ G.X.search = {
 }
 G.X.take = {
 	start = function(p, t, o)
-		luautils.walkToContainer(o.data.c, p:getPlayerNum())
+		if not U.walkToContainer(p, o.data.c, t) then return U.fail(t, "can't reach it") end
 		Q(ISInventoryTransferAction:new(p, o.data.it, o.data.c, U.carryInv(p, o.data.it)))
 	end,
 	step = function(p, t, o)
+		if t.pathFailed then return U.fail(t, "no way there") end
 		if qlen(p) > 0 and tick() - t.t0 < 900 then return end
-		if try(function() return p:getInventory():containsRecursive(o.data.it) end) then
+		if has(p, o.data.it) then
 			A.event("took " .. o.data.it:getDisplayName())
 			U.done(t)
 		else
@@ -540,28 +621,68 @@ G.X.take = {
 		end
 	end,
 }
-G.X.drop = { start = function(p, t, o) ISInventoryPaneContextMenu.dropItem(o.data.it, p:getPlayerNum()) end, step = queueStep(300) }
-G.X.eat = { start = function(p, t, o) ISInventoryPaneContextMenu.eatItem(o.data.it, 1, p:getPlayerNum()) end, step = queueStep(1200) }
-G.X.drink = { start = function(p, t, o) ISInventoryPaneContextMenu.onDrinkFluid(o.data.it, 1, p) end, step = queueStep(1200) }
+G.X.drop = {
+	start = function(p, t, o) ISInventoryPaneContextMenu.dropItem(o.data.it, p:getPlayerNum()) end,
+	step = queueStep(300, function(p, t, o) if has(p, o.data.it) then return "still has it" end end),
+}
+local function hungerLeft(it) return try(function() return it:getHungChange() end) end
+G.X.eat = {
+	start = function(p, t, o)
+		t.left = hungerLeft(o.data.it)
+		if o.data.opening then ISInventoryPaneContextMenu.eatItem(o.data.it, 1, p:getPlayerNum(), o.data.opening, 100)
+		else ISInventoryPaneContextMenu.eatItem(o.data.it, 1, p:getPlayerNum()) end
+	end,
+	step = queueStep(1200, function(p, t, o)
+		-- eaten: gone, or less of it left (an opened can becomes a new item, so the sealed one is gone too)
+		if has(p, o.data.it) and hungerLeft(o.data.it) == t.left then return "didn't eat it" end
+	end),
+}
+G.X.drink = {
+	start = function(p, t, o)
+		t.water = U.waterIn(o.data.it) or 0
+		ISInventoryPaneContextMenu.onDrinkFluid(o.data.it, 1, p)
+	end,
+	step = queueStep(1200, function(p, t, o)
+		if (U.waterIn(o.data.it) or 0) > t.water - 0.01 then return "didn't drink" end
+	end),
+}
 G.X.drink_tap = {
 	start = function(p, t, o)
 		local obj = nil
 		for _, x in ipairs(U.objList(sqAt(o.data.x, o.data.y, o.data.z))) do if U.waterAmount(x) > 0 then obj = x; break end end
 		if not obj or not luautils.walkAdjObject(p, obj, true, true) then return U.fail(t, "can't reach it") end
+		t.thirst = U.stat(p, "THIRST")
 		Q(ISTakeWaterAction:new(p, nil, obj, obj:isTaintedWater()))
 	end,
-	step = queueStep(1200),
+	step = queueStep(1200, function(p, t)
+		if t.thirst > 0.05 and U.stat(p, "THIRST") > t.thirst - 0.01 then return "didn't drink" end
+	end),
 }
 G.X.equip = {
 	start = function(p, t, o) ISInventoryPaneContextMenu.equipWeapon(o.data.it, true, o.data.it:isTwoHandWeapon(), p:getPlayerNum()) end,
-	step = queueStep(300),
+	step = queueStep(300, function(p, t, o) if p:getPrimaryHandItem() ~= o.data.it then return "not in hand" end end),
 }
-G.X.unequip = { start = function(p, t, o) Q(ISUnequipAction:new(p, o.data.it, 50)) end, step = queueStep(300) }
-G.X.wear = { start = function(p, t, o) ISInventoryPaneContextMenu.wearItem(o.data.it, p:getPlayerNum()) end, step = queueStep(600) }
-G.X.take_off = { start = function(p, t, o) Q(ISUnequipAction:new(p, o.data.it, 50)) end, step = queueStep(600) }
+G.X.unequip = {
+	start = function(p, t, o) Q(ISUnequipAction:new(p, o.data.it, 50)) end,
+	step = queueStep(300, function(p, t, o) if p:getPrimaryHandItem() == o.data.it then return "still in hand" end end),
+}
+G.X.wear = {
+	start = function(p, t, o) ISInventoryPaneContextMenu.wearItem(o.data.it, p:getPlayerNum()) end,
+	step = queueStep(600, function(p, t, o) if not worn(p, o.data.it) then return "not wearing it" end end),
+}
+G.X.take_off = {
+	start = function(p, t, o) Q(ISUnequipAction:new(p, o.data.it, 50)) end,
+	step = queueStep(600, function(p, t, o) if worn(p, o.data.it) then return "still wearing it" end end),
+}
+local function itemCount(p) local n = 0; U.eachItem(p:getInventory(), function() n = n + 1 end); return n end
 G.X.craft = {
-	start = function(p, t, o) ISInventoryPaneContextMenu.OnNewCraft(o.data.it, o.data.recipe, p:getPlayerNum(), false) end,
-	step = queueStep(1800),
+	start = function(p, t, o)
+		t.n0 = itemCount(p)
+		ISInventoryPaneContextMenu.OnNewCraft(o.data.it, o.data.recipe, p:getPlayerNum(), false)
+	end,
+	step = queueStep(1800, function(p, t, o)
+		if has(p, o.data.it) and itemCount(p) == t.n0 then return "nothing made" end
+	end),
 }
 G.X.bandage = {
 	start = function(p, t, o)
@@ -569,18 +690,27 @@ G.X.bandage = {
 		if band:getContainer() ~= p:getInventory() then Q(ISInventoryTransferAction:new(p, band, band:getContainer(), p:getInventory())) end
 		Q(ISApplyBandage:new(p, p, band, o.data.part, true))
 	end,
-	step = queueStep(900),
+	step = queueStep(900, function(p, t, o) if not o.data.part:bandaged() then return "not bandaged" end end),
 }
 G.X.sleep = {
-	start = function(p, t, o)
-		ISWorldObjectContextMenu.onConfirmSleep(nil, { internal = "YES" }, p:getPlayerNum(), o.data.bed)
-	end,
-	step = function(p, t)
+	start = function(p, t, o) pcall(function() p:setSneaking(false) end) end,
+	step = function(p, t, o)
 		local asleep = try(function() return p:isAsleep() end) == true
 		if asleep then t.slept = true; return end
 		if t.slept then return U.done(t, "woke up") end
-		if qlen(p) == 0 and tick() - t.t0 > 90 then U.fail(t, "couldn't fall asleep") end
-		if tick() - t.t0 > 2400 then U.fail(t, "couldn't reach the bed") end
+		if not t.t1 then
+			if U.bedStep(p, t, o.data.bed) then t.t1 = tick() end
+			if tick() - t.t0 > 2400 then U.fail(t, "couldn't reach the bed") end
+			return
+		end
+		if qlen(p) == 0 and tick() - t.t1 > 90 then
+			-- the game's own reasons, as it shows them over the character's head
+			local why = "couldn't fall asleep"
+			if (try(function() return p:getStats():getNumVisibleZombies() end) or 0) > 0 then why = "not safe, zombies in sight"
+			elseif U.moodle(p, "PANIC") >= 1 then why = "too panicked"
+			elseif U.moodle(p, "PAIN") >= 2 then why = "too much pain" end
+			U.fail(t, why)
+		end
 	end,
 }
 
@@ -701,6 +831,23 @@ function G.newLife()
 	A.event("a new life begins")
 end
 
+-- A new character (or a game just loaded): the world round it loads over the first seconds, and the first
+-- decisions used to come before that and fail at once ("blocked": no squares there yet). Wait 3 s and a game
+-- minute, 15 s at most.
+function G.settled(p)
+	local d = p:getDescriptor()
+	local who = d:getForename() .. " " .. d:getSurname()
+	if GS.who ~= who then
+		GS.who, GS.settle = who, { at = getTimestampMs(), age = getGameTime():getWorldAgeHours() }
+		H.action = "getting my bearings"
+	end
+	local s = GS.settle
+	if not s then return true end
+	local real = getTimestampMs() - s.at
+	if real > 15000 or (real > 3000 and getGameTime():getWorldAgeHours() - s.age > 1 / 60) then GS.settle = nil end
+	return GS.settle == nil
+end
+
 ---------------------------------------------------------------- every tick while the agent is connected
 function G.tick(p)
 	if p:isDead() then return G.dead(p) end
@@ -711,7 +858,16 @@ function G.tick(p)
 		return
 	end
 	GS.gt = GS.gt + (U.getSpeed() or 1)
+	-- standing in furniture: off it first (the body's doing, like walking off with the keys), and no new
+	-- decisions until then. What was running carries on to its end, unless the step itself cuts it short.
+	local stepping = A.stepOff(p)
+	local cur = GS.cur
+	if stepping and A.s.stepOff and cur and cur.status == "running" and cur.verb ~= "sleep" then
+		U.fail(cur, "standing in furniture (" .. tostring(A.s.stepOff.what) .. ")")
+	end
+	if not G.settled(p) then return end
 	if tick() % 4 == 0 then G.step(p) end
+	if stepping then H.action = "stepping off the furniture"; return end
 	if GS.waiting then
 		if tick() % 2 == 0 then G.poll(p) end
 		if tick() - GS.reqTick > ANSWER_WAIT then GS.waiting = false end

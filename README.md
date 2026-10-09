@@ -6,6 +6,8 @@ a player could do, and learns from what happens. No cloud services, no language 
 
 > **Status (2026-10-09):** Phase 3 (the game as a gym) works end to end: the mod lists what the character
 > could do, the agent (`agent/`) picks, the mod does it, and every decision is logged with its reward.
+> Live probes check each option against what actually happened in the game and keep their logs separate
+> from the agent's experience.
 > **Nothing is learning yet**: the agent picks at random, which collects experience for Phase 4. With
 > the agent off, a hand-written **rules baseline** plays instead: it loots, fights, flees, gets into
 > locked houses through windows, keeps a home base, sleeps, bandages wounds with torn clothes and opens
@@ -31,7 +33,7 @@ experience (it never watches a human play).
 
 | | |
 |---|---|
-| Project Zomboid | **42.21** (Steam build `25485521`, git rev `4a0e9546ec`), singleplayer |
+| Project Zomboid | **42.21.0** (Steam build `25485521`, git rev `4a0e9546ec`), singleplayer; rechecked against the running game and Steam manifest on 2026-10-09 |
 | Baseline brain | Rules ([brain/rules.py](brain/rules.py)), Python 3.14 standard library |
 | Learning (Phase 4) | PyTorch 2.13 (CPU), already installed |
 | OS / hardware | Windows 11, i9-10900K, 32 GB RAM, RTX 2060 6 GB (see [docs/SPECS.md](docs/SPECS.md)) |
@@ -123,7 +125,12 @@ What it writes, all under `logs/`:
 |---|---|
 | `experience/YYYYMMDD-HH.jsonl.gz` | Every decision: what it saw, the options, its choice and the reward since the last one. This is what Phase 4 learns from. |
 | `lives.jsonl` | One line per life: game hours survived, kills, total reward and its parts, cause of the end |
-| `agent-state.json` | The life count, so it carries on across restarts |
+| `agent-state.json` | The life count and current life, saved after each decision so the same character carries on across agent restarts |
+
+If you stop and restart the agent during a life, it resumes that character's number, reward and progress.
+The first observation after the restart earns no reward for the time the agent was off; later decisions
+continue from there. A controlled restart in the running game kept life 16 and logged `resumed: true`
+with zero reward for that first observation.
 
 ### Game speed
 
@@ -160,6 +167,18 @@ this builds on, and what was left out for safety, is in [docs/REVIEW.md](docs/RE
 python -m unittest discover -s tests
 ```
 
+To check option executors in a running singleplayer game, start the probe instead of the random agent:
+
+```bash
+python -m agent.run --policy probe
+```
+
+It deliberately tries the offered actions and writes its results under `logs/probe/` (including
+`report.txt`). These scripted choices are for verification and **do not** enter the random agent's
+training experience in `logs/experience/`. It uses the same port as the agent and bridge, so run one at
+a time. The probe does not create practice scenarios; it uses whatever the current game offers.
+The results and remaining gaps are in [Phase 3 verification](docs/PHASE3_VERIFICATION.md).
+
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/reload-mod.ps1
 ```
@@ -187,14 +206,17 @@ docs/               SPECS, REVIEW; BENCHMARK and DECISION_MODELS (Phase 0 record
 
 - **It doesn't learn yet.** The random policy dies within a few game hours most lives (15 lives in the
   first 40 minutes). That's expected until Phase 4.
-- **Many options fail.** About half of walk, run, search and go-to-room choices end "no way there" or
-  "couldn't reach it": the game's pathfinder gives up on targets behind walls or furniture. In short
-  tests the rate went up with speed (49% at 1×, 68% at 3×), but each test was in a different place, so
-  it isn't clear yet whether speed is the cause. A longer comparison is due.
+- **Some targets remain unreachable.** The live probe after the 0.4.2 mod / 0.3.0 gym reload on 2026-10-09
+  completed 122 of 128 searches and 831 of 842 room walks; the rest failed with a path or arrival reason.
+  Long directional walks and runs can stop short or have no path. These failures are reported as failures
+  to the agent. The probe repeatedly crossed the same rooms, so these counts are not a map-wide success
+  rate.
+- **Speed and path failures are confounded by location and danger.** In that natural-play sample, 87 of 87
+  searches at 20× completed, versus 35 of 41 at 1×; room walks completed 817 of 817 at 20× and 14 of 25
+  at 1×. The game often forced 1× near zombies, and the locations differed. This does not establish that
+  either speed improves pathfinding. The earlier 1×/3× comparison was also in different places.
 - **Fast forward only helps in quiet stretches.** With zombies close the game holds 1×, and the random
   agent is near zombies a lot, so a fast setting gains less than its number suggests.
-- **Restarting the agent mid-life counts that character as a new life** (the life in progress isn't
-  saved across restarts).
 - **Screenshots of the game freeze in borderless mode.** Windows hands back a stale frame; windowed mode
   captures fine. (This only matters when testing.)
 

@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.4.1"
+A.VERSION = "0.4.2"
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -265,11 +265,13 @@ end
 local function craftable(p, name, it)
 	local recipe = try(function() return getScriptManager():getCraftRecipe(name) end)
 	if not recipe then return nil end
+	-- the recipe must use this item: RipClothing passed for any item while some other shirt was in the bag,
+	-- and the agent was offered (and did) "craft RipClothing (Key)"
 	local ok = try(function()
 		local logic = HandcraftLogic.new(p, nil, nil)
 		logic:setContainers(ISInventoryPaneContextMenu.getContainers(p))
 		logic:setRecipeFromContextClick(recipe, it)
-		return logic:canPerformCurrentRecipe()
+		return logic:canPerformCurrentRecipe() and logic:getRecipeData():getAllInputItems():contains(it)
 	end)
 	return ok and recipe or nil
 end
@@ -911,6 +913,35 @@ local function pathTo(p, t, x, y, z)
 	Q(act)
 end
 
+-- The game's walk-to action (ISWalkToTimedAction, behind luautils.walkToContainer and walkAdjWindowOrDoor) is
+-- only valid at game speed 2 (5x) or slower: at 20x and 40x the game drops it at once, and searching, taking,
+-- doors, windows, curtains and climbing all failed at those speeds. ISPathFindAction, the same pathfinder
+-- without that check, works at any speed, so these do what the luautils ones do with it. Queue only; the
+-- callers clear the queue first. `t` (optional) gets t.pathFailed = true when there's no way.
+local function walkTo(p, sq, t)
+	if sq == p:getCurrentSquare() then return true end
+	if t then pathTo(p, t, sq:getX(), sq:getY(), sq:getZ())
+	else Q(ISPathFindAction:pathToLocationF(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())) end
+	return true
+end
+
+local function walkToContainer(p, c, t)
+	local obj = c:getParent()
+	if c:getType() == "floor" or not obj or not obj:getSquare() or c:isInCharacterInventory(p) then return true end
+	if instanceof(obj, "BaseVehicle") or instanceof(obj, "IsoDeadBody") then return luautils.walkToContainer(c, p:getPlayerNum()) end
+	if obj:getSquare():DistToProper(p:getCurrentSquare()) < 2 then return true end
+	local adj = AdjacentFreeTileFinder.Find(obj:getSquare(), p)
+	if not adj then return false end
+	return walkTo(p, adj, t)
+end
+
+-- also returns the square it will stand on, next to the opening
+local function walkAdjOpening(p, sq, o, t)
+	local adj = AdjacentFreeTileFinder.FindWindowOrDoor(sq, o, p)
+	if not adj then return false end
+	return walkTo(p, adj, t), adj
+end
+
 local function farthestFree(p, dx, dy)
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
 	for i = 10, 1, -1 do
@@ -918,6 +949,62 @@ local function farthestFree(p, dx, dy)
 		if sq and sq:getFloor() and try(function() return sq:isFree(false) end) then return sq end
 	end
 	return nil
+end
+
+-- Standing inside furniture: one town's spawn point puts new characters in a sofa (11735,6691), and the
+-- pathfinder can't start on a blocked square, so every walk from there failed at once (four lives spent their
+-- whole time on that sofa). A player walks off with the keys; this does the same with the game's auto-walk,
+-- toward the nearest free square next to it. Called every tick by both players; true while stepping off.
+local function inFurniture(sq)
+	return sq ~= nil and try(function() return sq:isSolid() or sq:isSolidTrans() end) == true
+end
+
+-- what makes the square solid, for the logs
+local function furnitureName(sq)
+	for _, o in ipairs(objList(sq)) do
+		local props = try(function() return o:getProperties() end)
+		if props and (props:has(IsoFlagType.solid) or props:has(IsoFlagType.solidtrans)) then
+			return try(function() return o:getSprite():getName() end) or tostring(o:getObjectName())
+		end
+	end
+	return "?"
+end
+
+local NEIGHBOURS = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 }, { 1, -1 }, { 1, 1 }, { -1, 1 }, { -1, -1 } }
+function A.stepOff(p)
+	local so, sq = S.stepOff, p:getCurrentSquare()
+	if so then
+		if inFurniture(sq) and S.tick - so.t0 < 90 then return true end
+		pcall(function() p:setAutoWalk(false) end)
+		S.stepOff = nil
+		if inFurniture(sq) then S.stepOffNext = S.tick + 600; A.event("couldn't step off the furniture") end
+		return false
+	end
+	-- only when idle there, and after half a second in it: passing through (a climb through a window, a smash)
+	-- counted once, and failed the climb. While it waits, true too: no new orders until it's off (a climb in
+	-- through a window can land on a table, and the next walk from there fails at once).
+	if not inFurniture(sq) then S.inFurnSince = nil; return false end
+	S.inFurnSince = S.inFurnSince or S.tick
+	if qlen(p) > 0 or S.tick < (S.stepOffNext or 0) then return false end
+	if try(function() return p:isAsleep() or p:isClimbing() or p:isSittingOnFurniture() or p:isSitOnGround() end) then return false end
+	if S.tick - S.inFurnSince < 30 then return true end
+	local best, bd = nil, 99
+	for _, d in ipairs(NEIGHBOURS) do
+		local n = sqAt(sq:getX() + d[1], sq:getY() + d[2], sq:getZ())
+		if n and n:getFloor() and try(function() return n:isFree(false) end) and not try(function() return sq:isBlockedTo(n) end) then
+			local dd = math.sqrt((n:getX() + 0.5 - p:getX()) ^ 2 + (n:getY() + 0.5 - p:getY()) ^ 2)
+			if dd < bd then best, bd = n, dd end
+		end
+	end
+	if not best then S.stepOffNext = S.tick + 600; return false end
+	ISTimedActionQueue.clear(p)
+	local v = Vector2.new(best:getX() + 0.5 - p:getX(), best:getY() + 0.5 - p:getY())
+	v:normalize()
+	p:setAutoWalkDirection(v)
+	p:setAutoWalk(true)
+	S.stepOff = { t0 = S.tick, what = furnitureName(sq) }
+	A.event("standing in furniture (" .. S.stepOff.what .. "): stepping off")
+	return true
 end
 
 function A.startTask(p, seq, goal, args)
@@ -993,7 +1080,7 @@ A.tasks.eat = function(p, t)
 			if not f or (t.fetches or 0) >= 2 then return fail(t, "no food I can eat as is") end
 			t.fetches = (t.fetches or 0) + 1
 			ISTimedActionQueue.clear(p)
-			luautils.walkToContainer(f.c, p:getPlayerNum())
+			walkToContainer(p, f.c)
 			Q(ISInventoryTransferAction:new(p, f.it, f.c, p:getInventory()))
 			t.msg = "fetching " .. f.it:getDisplayName()
 			H.action = t.msg
@@ -1147,7 +1234,7 @@ function A.lootStep(p, t)
 		end
 		t.cur = best
 		ISTimedActionQueue.clear(p)
-		luautils.walkToContainer(best.c, p:getPlayerNum())
+		walkToContainer(p, best.c)
 		t.phase, t.t1, t.resume = "walk", S.tick, "next"
 		H.action = "searching a " .. tostring(best.c:getType())
 	elseif t.phase == "walk" then
@@ -1467,18 +1554,18 @@ A.tasks.flee = function(p, t)
 	H.action = "fleeing"
 end
 
-local function closeOpening(p, e)
-	if not luautils.walkAdjWindowOrDoor(p, e.sq, e.o, true) then return false end
+local function closeOpening(p, e, t)
+	if not walkAdjOpening(p, e.sq, e.o, t) then return false end
 	if isDoor(e.o) then Q(ISOpenCloseDoor:new(p, e.o)) else Q(ISOpenCloseWindow:new(p, e.o)) end
 	return true
 end
 
 -- a window's curtain hangs on its inside square; stand there (or next to it) and pull it, like the game's menu
-local function closeCurtain(p, e)
+local function closeCurtain(p, e, t)
 	local sq = e.sq
 	if sq and sq:isFree(false) then
-		if sq ~= p:getCurrentSquare() then Q(ISWalkToTimedAction:new(p, sq)) end
-	elseif not luautils.walkAdjWindowOrDoor(p, sq, e.o, true) then
+		walkTo(p, sq, t)
+	elseif not walkAdjOpening(p, sq, e.o, t) then
 		return false
 	end
 	Q(ISOpenCloseCurtain:new(p, e.o))
@@ -1553,6 +1640,22 @@ end
 
 -- Sleep in the nearest bed in this building (on the floor if there's none), through the game's own sleep
 -- flow. The game refuses with zombies in sight, panic or bad pain; the reason is reported back.
+-- Walk next to the bed with the pathfinder, then lie down the way the game's menu does (bed nil: the floor).
+-- The menu's own walk to a one-square bed is the speed-limited kind (see walkTo). Call it every few ticks
+-- until it returns true: asked to sleep (the game may still refuse).
+local function bedStep(p, t, bed)
+	if not t.bedT then
+		t.bedT = S.tick
+		if bed and not AdjacentFreeTileFinder.isTileOrAdjacent(p:getCurrentSquare(), bed:getSquare()) then
+			luautils.walkAdjObject(p, bed, true, true)
+		end
+		return false
+	end
+	if qlen(p) > 0 and S.tick - t.bedT < 1800 then return false end
+	ISWorldObjectContextMenu.onConfirmSleep(nil, { internal = "YES" }, p:getPlayerNum(), bed)
+	return true
+end
+
 A.tasks.sleep = function(p, t)
 	local asleep = try(function() return p:isAsleep() end) == true
 	if t.phase == "start" then
@@ -1562,10 +1665,11 @@ A.tasks.sleep = function(p, t)
 		local bed = b and A.beds(p, b)[1] or nil
 		ISTimedActionQueue.clear(p)
 		pcall(function() p:setSneaking(false) end)
-		ISWorldObjectContextMenu.onConfirmSleep(nil, { internal = "YES" }, p:getPlayerNum(), bed and bed.o or nil)
-		t.b, t.bed = b, bed ~= nil
-		t.phase, t.t1, t.resume = "lie", S.tick, "start"
+		t.b, t.bed, t.bedo, t.bedT = b, bed ~= nil, bed and bed.o or nil, nil
+		t.phase, t.resume = "tobed", "start"
 		H.action = bed and "going to bed" or "lying down on the floor"
+	elseif t.phase == "tobed" then
+		if bedStep(p, t, t.bedo) then t.phase, t.t1 = "lie", S.tick end
 	elseif t.phase == "lie" then
 		if asleep then
 			t.phase = "asleep"
@@ -1607,7 +1711,7 @@ A.tasks.drop_weight = function(p, t)
 		end
 		ISTimedActionQueue.clear(p)
 		local stored, dropped = {}, {}
-		if stash then luautils.walkToContainer(stash.c, p:getPlayerNum()) end
+		if stash then walkToContainer(p, stash.c) end
 		for _, j in ipairs(list) do
 			local it = j.it
 			if stash and j.rank > 1 and j.kg <= room then
@@ -1639,8 +1743,9 @@ A.u = {
 	waterAmount = waterAmount, eachItem = eachItem, foodValue = foodValue, waterIn = waterIn, medKind = medKind,
 	isMelee = isMelee, weaponScore = weaponScore, craftable = craftable, sealedCan = sealedCan, isBackBag = isBackBag,
 	backBag = backBag, bagCapacity = bagCapacity, carryInv = carryInv, stat = stat, moodle = moodle, STATS = STATS,
-	MOODLES = MOODLES, done = done, fail = fail, pathTo = pathTo, farthestFree = farthestFree,
-	closeOpening = closeOpening, closeCurtain = closeCurtain, roomNames = roomNames,
+	MOODLES = MOODLES, done = done, fail = fail, pathTo = pathTo, farthestFree = farthestFree, inFurniture = inFurniture,
+	closeOpening = closeOpening, closeCurtain = closeCurtain, roomNames = roomNames, walkTo = walkTo,
+	walkToContainer = walkToContainer, walkAdjOpening = walkAdjOpening, bedStep = bedStep,
 }
 
 ---------------------------------------------------------------- intent from the bridge
@@ -1726,7 +1831,7 @@ function A.onTick()
 	-- (the first new map once listed two buildings from the other end of the county)
 	local who = try(function() local d = p:getDescriptor(); return d:getForename() .. " " .. d:getSurname() end)
 	if who and who ~= S.who then
-		if S.who then S.cache, S.task, S.zc = {}, nil, nil end
+		if S.who then S.cache, S.task, S.zc, S.stepOff, S.stepOffNext = {}, nil, nil, nil, nil end
 		S.who = who
 	end
 	if not p:isDead() then safe("speed", A.holdSpeed, p, not S.manual) end
@@ -1763,6 +1868,11 @@ function A.onTick()
 		end
 	end
 
+	if safe("step off", A.stepOff, p) then
+		H.action = "stepping off the furniture"
+		if S.tick % PERCEPT_EVERY == 0 then safe("percept", A.writePercept, p) end
+		return
+	end
 	local took = false
 	if S.tick % REFLEX_EVERY == 0 then took = safe("reflex", A.reflex, p) end
 	if not took and S.tick % TASK_EVERY == 0 then safe("task", A.taskTick, p) end

@@ -1,15 +1,18 @@
 """Run the self-taught agent: it plays through the mod's gym, logs every decision, and serves a dashboard.
 
     python -m agent.run                  # from the repo root; dashboard http://127.0.0.1:8799/
+    python -m agent.run --policy probe   # test tool: tries every kind of option in game (logs/probe/report.txt)
 
 While it runs, the agent plays instead of the rules baseline (start one or the other, not both: they share
 the dashboard port). Stopping it hands the character back to the baseline within ~6 s. Set the game speed
 with the game's own buttons (or F3-F6); the mod keeps your pick while the agent plays.
 
 Experience goes to logs/experience/YYYYMMDD-HH.jsonl.gz, one line per decision:
-    {ts, life, id, reason, obs, options, choice, probs, policy, reward, parts, dead}
-where reward/parts are for what happened since the previous decision of the same life. That's everything
-the learner (Phase 4) needs, and the reward can be recomputed later from the raw observations.
+    {ts, life, id, reason, obs, options, last, choice, probs, policy, reward, parts, dead, new_life, resumed}
+where reward/parts are for what happened since the previous decision of the same life ("resumed": the agent
+was restarted in between, so that stretch earns nothing). That's everything the learner (Phase 4) needs,
+and the reward can be recomputed later from the raw observations. Restarting carries on with the same
+character (logs/agent-state.json).
 """
 
 import argparse
@@ -29,18 +32,19 @@ if str(ROOT) not in sys.path:
 
 from agent.link import DEFAULT_LUA_DIR, GameLink  # noqa: E402
 from agent.lives import Lives  # noqa: E402
-from agent.policies import RandomPolicy  # noqa: E402
+from agent.policies import ProbePolicy, RandomPolicy  # noqa: E402
 
 PAGE = (Path(__file__).resolve().parent / "agent.html").read_bytes()
 
 
 class ExperienceLog:
-    """Hourly gzip files of decisions; a new gzip member per flush, which gzip readers handle."""
+    """Hourly gzip files of decisions; a new gzip member per flush, which gzip readers handle. Flushed every
+    20 decisions or 30 s, so a killed agent (Windows gives no chance to clean up) loses half a minute at most."""
 
     def __init__(self, root):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
-        self.lines, self.hour = [], None
+        self.lines, self.hour, self.flushed = [], None, time.time()
 
     def add(self, record):
         hour = datetime.now().strftime("%Y%m%d-%H")
@@ -48,10 +52,11 @@ class ExperienceLog:
             self.flush()
         self.hour = hour
         self.lines.append(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
-        if len(self.lines) >= 20 or record.get("dead"):
+        if len(self.lines) >= 20 or record.get("dead") or time.time() - self.flushed > 30:
             self.flush()
 
     def flush(self):
+        self.flushed = time.time()
         if not self.lines:
             return
         with gzip.open(self.root / f"{self.hour}.jsonl.gz", "at", encoding="utf-8") as f:
@@ -62,11 +67,13 @@ class ExperienceLog:
 class Agent:
     def __init__(self, args):
         self.link = GameLink(args.lua_dir)
-        self.log_dir = Path(args.log_dir or ROOT / "logs")
-        self.log_dir.mkdir(exist_ok=True)
+        probe = getattr(args, "policy", "random") == "probe"
+        # the probe's choices are scripted, so its experience stays apart from what the agent learns from
+        self.log_dir = Path(args.log_dir or ROOT / "logs" / ("probe" if probe else ""))
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         self.lives = Lives(self.log_dir)
         self.exp = ExperienceLog(self.log_dir / "experience")
-        self.policy = RandomPolicy()
+        self.policy = ProbePolicy() if probe else RandomPolicy()
         self.port = args.port
         self.lock = threading.Lock()
         self.last = None            # the latest request and choice, for the dashboard
@@ -78,12 +85,15 @@ class Agent:
         life, r, parts, new, finished = self.lives.observe(msg)
         rec = {"ts": datetime.now().isoformat(timespec="seconds"), "life": life.number if life else None,
                "id": msg.get("id"), "reason": msg.get("reason"), "obs": msg.get("obs"), "options": msg.get("options"),
-               "last": msg.get("last"), "reward": r, "parts": parts, "dead": bool(msg.get("dead")), "new_life": new}
+               "last": msg.get("last"), "reward": r, "parts": parts, "dead": bool(msg.get("dead")), "new_life": new,
+               "resumed": self.lives.resumed}
         if finished:
             self.recent.appendleft(f"life {finished['life']} ({finished['who']}) {finished['ended']} after "
                                    f"{finished['hours']} game hours, {finished['kills']} kills, reward {finished['reward']}")
         if new:
             self.recent.appendleft(f"life {life.number} begins: {life.name}")
+        if self.lives.resumed:
+            self.recent.appendleft(f"life {life.number} ({life.name}) carries on after a restart")
         if not msg.get("dead") and life:
             i, probs, note = self.policy.choose(msg)
             if i is not None:
@@ -96,6 +106,10 @@ class Agent:
                     self.recent.appendleft(f"#{msg['id']} {msg.get('reason')}: {opt.get('verb')} "
                                            f"{opt.get('name') or opt.get('dir') or opt.get('recipe') or ''}".rstrip())
         self.exp.add(rec)
+        self.lives.save()
+        if hasattr(self.policy, "report") and (msg.get("dead") or self.decisions % 10 == 0):
+            tries = "\n".join(json.dumps(x, ensure_ascii=False) for x in self.policy.results[-80:])
+            (self.log_dir / "report.txt").write_text(f"{self.policy.report()}\n\n{tries}\n", encoding="utf-8")
         with self.lock:
             self.decisions += 1
             self.last_at = time.time()
@@ -171,11 +185,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int, default=8799)
     ap.add_argument("--lua-dir", default=str(DEFAULT_LUA_DIR))
-    ap.add_argument("--log-dir", default=None)
+    ap.add_argument("--log-dir", default=None, help="default logs/ (logs/probe/ for the probe)")
+    ap.add_argument("--policy", choices=("random", "probe"), default="random")
     args = ap.parse_args()
     agent = Agent(args)
     threading.Thread(target=agent.serve, daemon=True).start()
-    print(f"AI-v-Z agent ({agent.policy.name} policy); life {agent.lives.count} so far; "
+    cur = agent.lives.current
+    print(f"AI-v-Z agent ({agent.policy.name} policy); {agent.lives.count} lives so far"
+          f"{f', carrying on with life {cur.number} ({cur.name})' if cur else ''}; "
           f"dashboard http://127.0.0.1:{args.port}/", flush=True)
     try:
         agent.run()
