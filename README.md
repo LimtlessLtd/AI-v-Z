@@ -1,11 +1,14 @@
 # AI-v-Z — an AI that teaches itself to play Project Zomboid
 
 A neural network running entirely on your own PC learns to play **Project Zomboid singleplayer (Build 42)**
-in real time while you watch. It isn't told how to survive. It sees what a player would see, can do what
-a player could do, and learns from what happens. No cloud services, no language model, no multiplayer.
+in real time while you watch. The intended environment gives it what a player can perceive and every
+normal gameplay action a player can take, so it learns from what happens. That coverage is not complete
+yet. No cloud services, no language model, no multiplayer.
 
-> **Status (2026-10-09):** Phase 3 (the game as a gym) works end to end: the mod lists what the character
-> could do, the agent (`agent/`) picks, the mod does it, and every decision is logged with its reward.
+> **Status (2026-10-09):** Phase 3 is **in progress**. Its decision/execution/logging loop works end to
+> end for 27 implemented action types, but this is only a subset of player actions. Exercise,
+> disassembly, vehicles, repairs, full crafting, inventory organisation and hearing remain unfinished.
+> The agent (`agent/`) picks from the implemented options and every decision is logged with its reward.
 > Live probes check each option against what actually happened in the game and keep their logs separate
 > from the agent's experience.
 > **Nothing is learning yet**: the agent picks at random, which collects experience for Phase 4. With
@@ -21,7 +24,7 @@ a player could do, and learns from what happens. No cloud services, no language 
 | 0. Specs and benchmark | Hardware, model benchmarks | Done ([docs/SPECS.md](docs/SPECS.md); the Qwen benchmark is kept for the record in [docs/BENCHMARK.md](docs/BENCHMARK.md)) |
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
-| **3. The game as a gym** | The mod lists what a player could do right now (like the right-click menus), describes what a player would see (container contents once opened), carries out the chosen option with the existing motor skills, and starts a new character after a death. Keeps the game speed you pick. | Done: all 27 option types exercised in natural play; see [verification](docs/PHASE3_VERIFICATION.md) |
+| **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | In progress: 27 implemented action types exercised; full action and hearing coverage missing. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
 | 4. Learning | A small network scores every option; rewards come from the body (hunger, thirst, pain, panic, bleeding), progress (places, items, kills, time alive) and death. It trains on the CPU while the game runs. A Learning page on the dashboard. | |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
@@ -71,7 +74,7 @@ PZ Lua mods can't open sockets:
 | `percept.json` | mod, ~2×/s (baseline) | What the character perceives: needs, wounds, inventory, zombies, nearby water and buildings, task status |
 | `intent.txt` | bridge | `seq\|goal\|a1\|a2\|a3\|say\|why\|source` |
 | `gym.txt` | agent, every second | Heartbeat `on\|n`. While it keeps changing, the agent plays instead of the baseline |
-| `obs.json` | mod, at each decision | `{id, reason, obs, options, last, err, gym}`: what the character perceives and every option a player has right now; `{dead: true}` after a death |
+| `obs.json` | mod, at each decision | `{id, reason, obs, options, last, err, gym}`: current observations and a capped subset of implemented actions; no hearing input yet; `{dead: true}` after a death |
 | `act.txt` | agent | `id\|option\|note`: the chosen option (0-based) |
 | `reload.txt` | you / `scripts\reload-mod.ps1` | Changing it hot-reloads the mod's Lua |
 | `loader.txt` | mod | Loader status and the last Lua error |
@@ -177,7 +180,9 @@ It deliberately tries the offered actions and writes its results under `logs/pro
 `report.txt`). These scripted choices are for verification and **do not** enter the random agent's
 training experience in `logs/experience/`. It uses the same port as the agent and bridge, so run one at
 a time. The probe does not create practice scenarios; it uses whatever the current game offers.
-The results and remaining gaps are in [Phase 3 verification](docs/PHASE3_VERIFICATION.md).
+The executor results are in [Phase 3 verification](docs/PHASE3_VERIFICATION.md). Broader action,
+perception and hearing requirements are in [Phase 3 coverage](docs/PHASE3_COVERAGE.md). Passing the
+executor probe does not establish full player action coverage. Check in before starting Phase 4.
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/reload-mod.ps1
@@ -204,6 +209,15 @@ docs/               SPECS, REVIEW; BENCHMARK and DECISION_MODELS (Phase 0 record
 
 ## Known issues (agent and gym)
 
+- **Player action coverage is incomplete.** Clothing wear/remove exists; crafting only covers some
+  item recipes. Exercise, disassembly, driving, vehicle maintenance, repairs, transfers between chosen
+  inventory containers and many other systems are missing. Existing per-verb caps also hide some legal
+  choices. See [coverage audit](docs/PHASE3_COVERAGE.md).
+- **There is no hearing input.** Helicopter audio, alarms, engines, horns, zombie banging and other
+  audible cues do not currently reach the agent. The proposed audio path is not implemented.
+- **Perception needs an information audit.** The gym currently includes coordinates and target flags
+  for unseen zombies. These must not substitute for hearing; the learner should get only visible or
+  otherwise player-perceivable evidence.
 - **It doesn't learn yet.** The random policy dies within a few game hours most lives (15 lives in the
   first 40 minutes). That's expected until Phase 4.
 - **Some targets remain unreachable.** The live probe after the 0.4.2 mod / 0.3.0 gym reload on 2026-10-09

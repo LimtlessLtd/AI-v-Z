@@ -1,5 +1,9 @@
 # Phase 3 verification — 2026-10-09
 
+**Scope correction:** These checks cover the 27 implemented option types, not all player actions.
+Phase 3 remains in progress: whole action families and hearing are missing. See
+[Phase 3 coverage audit](PHASE3_COVERAGE.md). The original completion claim was too broad.
+
 Tested in the running singleplayer game, Project Zomboid 42.21.0 (Steam build `25485521`,
 revision `4a0e9546ec`), with the agent and probe on the user's PC. The probe used naturally
 offered options in the current save. Its scripted choices are kept in `logs/probe/`, outside
@@ -49,8 +53,9 @@ gym 0.3.1 now includes those fluid containers. The probe found chocolate milk in
 searched container, took it and completed a carried-fluid drink at 20×. Its inventory entry
 disappeared and thirst fell from 0.13 to 0.09 in the next observation. No item was placed and
 no practice scenario was staged. Across the probe logs, all 27 defined option types have at
-least one `done` outcome. This establishes executor coverage, while the path and item variants
-described above can still fail in play.
+least one `done` outcome. This establishes coverage of the defined executors, while the path and item
+variants described above can still fail in play. It does not establish full menu, action or perception
+coverage.
 
 The hot reload cleanup no longer calls `GameTime:setMultiplier`. The live loader accepted mod
 0.4.3 / gym 0.3.1 with no Lua error; game speed remains under the game's own controls.

@@ -1,12 +1,12 @@
 -- AIvZGym.lua: Project Zomboid as a gym for the self-taught agent (agent/ in the repo).
 --
---   obs.json OUT  when a decision is needed: what the character perceives, and every option a player
---                 would have right now. Written again with "dead" when the character dies.
+--   obs.json OUT  when a decision is needed: observations and a capped subset of implemented player
+--                 options. No hearing input yet. Written again with "dead" when the character dies.
 --   act.txt  IN   "id|option|note" from the agent (option is 0-based; note shows on the HUD)
 --   gym.txt  IN   heartbeat "on|n" from the agent. While it keeps changing, the agent plays instead of the
 --                 rules baseline (the keys still hand control to you, as before)
 --
--- The options are what a player could do now, like the right-click menus: wait, rest, walk or run in a
+-- The implemented options approximate a subset of the right-click menus: wait, rest, walk or run in a
 -- direction, go into a building or another room, attack or shove a zombie, open or close a door, window or
 -- curtain, climb through a window, smash one, clear its glass, search a container, take an item out of one
 -- it has searched, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
