@@ -245,8 +245,13 @@ class Bridge:
         if not self.world:
             return
         t = raw.get("time") or {}
-        plain = (f"Day {t.get('day', 1)} {t.get('hour', 0):02d}:{t.get('min', 0):02d}, {self.world.name} died after: "
-                 + "; ".join(list(self.mem.recent)[-4:]))
+        p = self.situ.percept if self.situ else {}
+        cur = self.current or {}
+        zombies = "; ".join(f"{z['count']} at {z['dist']} tiles {z['dir']} ({z['state']})" for z in p.get("zombies", [])[:4])
+        plain = (f"Day {t.get('day', 1)} {t.get('hour', 0):02d}:{t.get('min', 0):02d}: {self.world.name} died "
+                 f"{p.get('where', 'somewhere')}, while doing '{cur.get('goal', '?')}'. Weapon: {p.get('weapon', '?')}. "
+                 f"Zombies: {zombies or 'none seen'}. Plan: {p.get('plan') or 'none'}. Last events: "
+                 + "; ".join(list(self.mem.recent)[-8:]))
         if self.llm:
             self._ask_slow({"kind": "lesson", "raw": raw, "plain": plain})
         else:
