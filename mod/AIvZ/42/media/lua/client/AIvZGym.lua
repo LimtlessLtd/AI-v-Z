@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.3.0"
+G.VERSION = "0.3.1"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -80,6 +80,12 @@ function G.itemInfo(p, it)
 	end
 	local water = U.waterIn(it)
 	if water then i.water = r2(water) end
+	local fc = try(function() return it:getFluidContainer() end)
+	local amount = fc and try(function() return fc:getAmount() end)
+	if amount and amount >= 0.05 then
+		i.fluid = r2(amount)
+		i.fluidType = try(function() return fc:getPrimaryFluid():getFluidTypeString() end)
+	end
 	local med = U.medKind(it)
 	if med then i.med = med end
 	if instanceof(it, "HandWeapon") then
@@ -348,7 +354,14 @@ function G.options(p)
 				info.open = nil
 			end
 		end
-		if info.water and count(list, "drink") < 2 then add(list, "drink", info, { it = it }) end
+		if count(list, "drink") < 2 then
+			local amount, opening = G.drinkable(p, it)
+			if amount then
+				info.open = opening ~= nil
+				add(list, "drink", info, { it = it, opening = opening })
+				info.open = nil
+			end
+		end
 		if instanceof(it, "HandWeapon") and count(list, "equip") < 3 then add(list, "equip", info, { it = it }) end
 		if (instanceof(it, "Clothing") or U.isBackBag(it)) and not worn and count(list, "wear") < 3 then add(list, "wear", info, { it = it }) end
 		if worn and count(list, "take_off") < 4 then add(list, "take_off", info, { it = it }) end
@@ -412,6 +425,29 @@ function G.eatable(p, it)
 	if (try(function() return it:getHungChange() end) or 0) < 0 then return true, nil end
 	-- a drink or the like ("Drink" in the menu), unless it needs something else to hand (a lighter)
 	return it:getCustomMenuOption() ~= nil and not it:getRequireInHandOrInventory(), nil
+end
+
+-- Match the game's Drink fluid menu: filled, player-usable containers up to three litres, with an opening
+-- recipe when a sealed container needs one. This includes soda and other drinks, not only clean water.
+function G.drinkable(p, it)
+	local fc = try(function() return it:getFluidContainer() end)
+	if not fc then return nil end
+	local amount = try(function() return fc:getAmount() end) or 0
+	if amount < 0.05 or (try(function() return fc:getCapacity() end) or 99) > 3 then return nil end
+	local opening = nil
+	if try(function() return it:isSealed() end) then
+		local name = try(function() return it:getOpeningRecipe() end)
+		opening = name and try(function() return getScriptManager():getCraftRecipe(name) end) or nil
+		if opening and not try(function()
+			local logic = HandcraftLogic.new(p, nil, nil)
+			logic:setContainers(ISInventoryPaneContextMenu.getContainers(p))
+			logic:setRecipeFromContextClick(opening, it)
+			return logic:canPerformCurrentRecipe()
+		end) then opening = nil end
+	end
+	if not opening and not try(function() return fc:canPlayerEmpty() end) then return nil end
+	if U.moodle(p, "FOOD_EATEN") >= 3 and (try(function() return fc:getProperties():getHungerChange() end) or 0) ~= 0 then return nil end
+	return amount, opening
 end
 
 -- an item's own recipes, the ones the game lets it do right now (the right-click menu's craft options)
@@ -639,11 +675,11 @@ G.X.eat = {
 }
 G.X.drink = {
 	start = function(p, t, o)
-		t.water = U.waterIn(o.data.it) or 0
-		ISInventoryPaneContextMenu.onDrinkFluid(o.data.it, 1, p)
+		t.fluid = try(function() return o.data.it:getFluidContainer():getAmount() end) or 0
+		ISInventoryPaneContextMenu.onDrinkFluid(o.data.it, 1, p, o.data.opening, o.data.it)
 	end,
 	step = queueStep(1200, function(p, t, o)
-		if (U.waterIn(o.data.it) or 0) > t.water - 0.01 then return "didn't drink" end
+		if has(p, o.data.it) and (try(function() return o.data.it:getFluidContainer():getAmount() end) or 0) > t.fluid - 0.01 then return "didn't drink" end
 	end),
 }
 G.X.drink_tap = {

@@ -190,7 +190,7 @@ class ProbeTests(unittest.TestCase):
 
     def test_probe_takes_prerequisites_after_take_checks_are_complete(self):
         weapon = {"verb": "take", "name": "Kitchen Knife", "cat": "weapon", "d": 2}
-        water = {"verb": "take", "name": "Water Bottle", "water": 0.8, "d": 3}
+        water = {"verb": "take", "name": "Water Bottle", "fluid": 0.8, "d": 3}
         options = [weapon, water, {"verb": "go_room", "name": "kitchen"}]
         pol = ProbePolicy(random.Random(1), tries=1)
         for verb in pol.TEST + pol.LATE:

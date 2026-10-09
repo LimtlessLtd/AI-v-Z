@@ -112,7 +112,7 @@ class ProbePolicy:
         idx = [i for i, o in enumerate(options) if o.get("verb") != "continue"]
         # Finish the few executors that ordinary natural play rarely reaches. Use only items the game
         # has actually offered; this probe never places items or gives the character equipment.
-        for verb, predicate in (("drink", lambda o: o.get("water", 0) > 0),
+        for verb, predicate in (("drink", lambda o: o.get("fluid", 0) > 0),
                                 ("equip", lambda o: o.get("cat") == "weapon"),
                                 ("unequip", None)):
             if self.tried(verb) >= self.tries:

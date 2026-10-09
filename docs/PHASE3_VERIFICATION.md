@@ -43,6 +43,11 @@ and zero reward, excluding time when the agent was off. The save file
 `logs/probe/agent-state.json` contains the ongoing life, reward components and progress.
 The repository test suite passes with `python -m unittest discover -s tests`.
 
-The natural-play logs have not yet exercised drinking from a carried container, equipping a
-weapon, or unequipping it. The probe now seeks a bottle or weapon when it finds one, without
-placing items or changing the save. Those three executors still need live confirmation.
+The focused probe subsequently equipped and unequipped a pencil three times each, at both 1×
+and 20×. Drinking from a carried container remains unobserved. Review of the game's fluid
+menu showed that it offers beverages other than water; gym 0.3.1 now includes those fluid
+containers and the probe seeks one when naturally offered. No item was placed and the save
+was not changed for testing. This executor still needs live confirmation.
+
+The hot reload cleanup no longer calls `GameTime:setMultiplier`. The live loader accepted mod
+0.4.3 / gym 0.3.1 with no Lua error; game speed remains under the game's own controls.

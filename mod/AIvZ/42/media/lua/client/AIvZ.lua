@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.4.2"
+A.VERSION = "0.4.3"
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -2015,10 +2015,5 @@ function A.afterReload()
 			reloadLuaFile(path)
 		end)
 	end
-	-- an unreleased build sped the clock up without pressing a speed button; put it back to Play's 1x
-	pcall(function()
-		local sc = UIManager.getSpeedControls()
-		if sc and sc:getCurrentGameSpeed() == 1 and getGameTime():getTrueMultiplier() > 1.05 then getGameTime():setMultiplier(1) end
-	end)
 	if P() then A.startHUD() end
 end

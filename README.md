@@ -217,6 +217,9 @@ docs/               SPECS, REVIEW; BENCHMARK and DECISION_MODELS (Phase 0 record
   either speed improves pathfinding. The earlier 1×/3× comparison was also in different places.
 - **Fast forward only helps in quiet stretches.** With zombies close the game holds 1×, and the random
   agent is near zombies a lot, so a fast setting gains less than its number suggests.
+- **Carried-container drinking still needs a live check.** Gym 0.3.1 offers drinkable fluid containers,
+  including beverages, using the game's menu conditions; the natural-play probe has not yet found one
+  in the bag. Tap drinking has been observed.
 - **Screenshots of the game freeze in borderless mode.** Windows hands back a stale frame; windowed mode
   captures fine. (This only matters when testing.)
 
