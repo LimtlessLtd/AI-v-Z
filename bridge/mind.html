@@ -29,6 +29,11 @@
   td.n { color: var(--muted); white-space: nowrap; }
   .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; background: var(--line); font-size: 11px; margin: 0 4px 4px 0; }
   .err { color: var(--bad); }
+  .aim { font-size: 18px; font-weight: 600; color: var(--accent); }
+  ol { margin: 6px 0 0; padding-left: 20px; }
+  li.done, li.skipped { color: var(--muted); text-decoration: line-through; }
+  li.failed { color: var(--bad); text-decoration: line-through; }
+  li.now { font-weight: 600; }
   @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -41,6 +46,13 @@
     <div><span class="goal" id="goal">–</span><span class="src" id="source"></span></div>
     <div class="why" id="why"></div>
     <div class="muted" id="task"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Plan <span class="muted" id="who" style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class="aim" id="aim">–</div>
+    <div class="muted" id="aimwhy"></div>
+    <ol id="steps"></ol>
   </section>
 
   <section>
@@ -68,6 +80,11 @@
   </section>
 
   <section class="wide">
+    <h2>Diary &amp; lessons</h2>
+    <div id="diary" class="muted">–</div>
+  </section>
+
+  <section class="wide">
     <h2>Decisions</h2>
     <table id="decisions"></table>
   </section>
@@ -88,13 +105,14 @@ async function tick() {
   $("source").textContent = c.source ? "decided by " + c.source : "";
   $("why").textContent = c.why ? "“" + c.why + "”" : "";
   const t = s.task || {};
-  $("task").innerHTML = t.goal ? `task: ${esc(t.status)} · ${esc(t.msg || t.phase)}` + (s.err ? ` · <span class="err">${esc(s.err)}</span>` : "") : "";
+  $("task").innerHTML = t.goal ? `${s.action ? "now: " + esc(s.action) + " · " : ""}task: ${esc(t.status)} · ${esc(t.msg || t.phase)}` + (s.err ? ` · <span class="err">${esc(s.err)}</span>` : "") : "";
   const st = s.stats || {};
   $("body").innerHTML = s.health == null ? "" :
     bar("health", s.health / 100, s.health < 50, Math.round(s.health)) + bar("hunger", st.hunger || 0, (st.hunger || 0) > 0.5) +
     bar("thirst", st.thirst || 0, (st.thirst || 0) > 0.5) + bar("fatigue", st.fatigue || 0, (st.fatigue || 0) > 0.6) +
     bar("endurance", st.endurance ?? 1, (st.endurance ?? 1) < 0.4) + bar("panic", (st.panic || 0) / 100, (st.panic || 0) > 50, Math.round(st.panic || 0));
-  $("where").textContent = [s.time, s.where, s.weapon && "weapon: " + s.weapon, s.kills != null && "kills: " + s.kills].filter(Boolean).join(" · ");
+  $("where").textContent = [s.time, s.asleep && "ASLEEP", s.where, s.home || "no home yet", s.weight && "carrying " + s.weight + " kg",
+    s.weapon && "weapon: " + s.weapon, s.kills != null && "kills: " + s.kills].filter(Boolean).join(" · ");
   const z = s.zombies || {};
   $("threat").innerHTML = `<div class="row"><span class="label">within 10</span>${z.within10 ?? 0}</div>` +
     `<div class="row"><span class="label">within 40</span>${z.within40 ?? 0}</div>` +
@@ -107,8 +125,19 @@ async function tick() {
   $("scores").innerHTML = sc.slice(0, 8).map(([g, v]) => bar(g.replace(/_/g, " "), Math.max(0, v) / max, false, Math.round(v))).join("") || '<span class="muted">–</span>';
   const l = s.llm || {};
   $("llm").innerHTML = l.model ? `${esc(l.model)} · ${l.ready ? "loaded" : "loading…"}${l.busy ? " · thinking" : ""}<br>` +
-    `calls ${l.calls} · last ${l.last_ms ?? "–"} ms · errors ${l.errors} · reloads ${l.reloads ?? 0}` + (l.last_error ? `<br><span class="err">${esc(l.last_error)}</span>` : "")
+    `calls ${l.calls} · last ${l.last_ms ?? "–"} ms · plans ${l.plans ?? 0}${l.plan_ms ? " (" + l.plan_ms + " ms)" : ""} · errors ${l.errors} · reloads ${l.reloads ?? 0}` + (l.last_error ? `<br><span class="err">${esc(l.last_error)}</span>` : "")
     : "off (rules only)";
+  const a = s.agenda;
+  $("who").textContent = [s.who, s.places ? s.places + " places known" : ""].filter(Boolean).join(" · ");
+  $("aim").textContent = a ? a.aim : (s.planning ? "thinking up a plan…" : "no plan yet");
+  $("aimwhy").textContent = a ? `${a.why} (${a.made}: ${a.reason})` + (s.planning ? " · re-planning…" : "") : "";
+  let nowMarked = false;
+  $("steps").innerHTML = a ? a.steps.map(st => {
+    const now = st.status === "todo" && !nowMarked; if (now) nowMarked = true;
+    return `<li class="${now ? "now" : esc(st.status)}">${esc(st.do.replace(/_/g, " "))} ${esc(st.where)} <span class="muted">${esc(st.note)}</span></li>`;
+  }).join("") : "";
+  $("diary").innerHTML = (s.diary || []).map(d => `<b>Day ${d.day}.</b> ${esc(d.text)}`).join("<br>") +
+    ((s.lessons || []).length ? `<br><br><b>Lessons from earlier characters:</b><br>` + s.lessons.map(esc).join("<br>") : "") || "–";
   $("recent").innerHTML = (s.recent || []).slice().reverse().map(esc).join("<br>") || "–";
   $("decisions").innerHTML = (s.decisions || []).slice().reverse().map(d =>
     `<tr><td class="n">#${d.seq}</td><td class="n">${esc(d.time)}</td><td><b>${esc(d.goal)}</b> <span class="muted">(${esc(d.source)}${d.clear === false ? ", close call" : ""})</span>${d.why ? "<br>“" + esc(d.why) + "”" : ""}</td></tr>`).join("");

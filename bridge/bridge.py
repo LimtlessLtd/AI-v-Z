@@ -5,7 +5,9 @@
     you      --watch---> http://127.0.0.1:8799/                       live dashboard (this PC only)
 
 Rules (brain/rules.py) decide clear cases instantly. Close calls also go to the local LLM, which may
-overrule the rules; the LLM also writes the one-line reason shown in the speech bubble.
+overrule the rules; the LLM also writes the one-line reason shown in the speech bubble. Above both, the LLM
+sets its own aim and plan (brain/planner.py) from a long-term memory of the places it has seen, its diary
+and lessons from earlier characters (brain/memory.py); the plan's current step steers the rules.
 
 Run from the repo root:
     python bridge/bridge.py              # rules + Qwen3.5-4B via Ollama
@@ -29,19 +31,34 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from brain import strategy  # noqa: E402
+from brain import knowledge, planner, strategy  # noqa: E402
 from brain.llm import OllamaBrain  # noqa: E402
+from brain.memory import WorldMemory  # noqa: E402
 from brain.percept import Memory, summarize  # noqa: E402
 
 DEFAULT_LUA_DIR = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Zomboid" / "Lua" / "aivz"
 RECHECK_S = 6      # re-plan at least this often while a goal runs
+SPEAK_EVERY_S = 120  # the same goal again within this long gets no new speech line (and no LLM call)
+PLAN_GAP_S = 45      # at most one planning call this often (real seconds)
+
+DIARY_SYSTEM = """You are a survivor in Project Zomboid keeping a diary. Write today's entry: 2 or 3 short
+sentences, first person, plain words. What you did, what went well or badly, what you want tomorrow.
+Answer with JSON only: {"entry": "..."}."""
+LESSON_SYSTEM = """A survivor in Project Zomboid has just died. From their last events, write ONE sentence of
+practical advice for the next survivor, at most 25 words, starting with a verb. Answer with JSON only:
+{"lesson": "..."}."""
 STALE_S = 15       # no new percept for this long: the game isn't running the mod
 SLOW_MS = 8000     # an LLM call this slow (or a timeout) is a strike; 2 in a row reload the model
 # After a task ends, don't pick the same goal again for a while (seconds). A failed task gets a pause
 # before it's retried. Securing or hiding can "finish" without having changed anything, so those rest
 # too even when done. Survival goals are never held back.
 COOLDOWN_FAILED_S = 60
-COOLDOWN_DONE_S = {"secure_building": 90, "hide": 60}
+# A flee or fight that failed ("stuck", "surrounded") gets a short pause so the alternatives get a turn;
+# in game a flee that couldn't find a path was re-sent eight times in ten seconds.
+COOLDOWN_FAILED_SHORT_S = {"flee": 15}
+FLEE_COMMIT_S = 8    # once running, don't turn to fight for this long (it flipped every few seconds)
+PLAN_BLOCKED_S = 60  # a plan target with zombies round it this long: that step fails, the planner re-plans
+COOLDOWN_DONE_S = {"secure_building": 90, "hide": 60, "sleep": 300, "drop_weight": 120}
 NEVER_COOL = {"fight", "flee", "wait", "explore"}
 MIND_HTML = (Path(__file__).resolve().parent / "mind.html").read_bytes()
 
@@ -88,6 +105,15 @@ class Bridge:
         self.status = "waiting for the game"
         self.dead_logged = False
         self.cooldown = {}   # goal -> time.time() until which it isn't offered
+        self.said = {"goal": None, "at": 0.0, "text": ""}   # last speech bubble
+        # long-term: the map, diary and lessons (per character), the AI's own plan, slow LLM jobs
+        self.memory_dir = self.log_dir / "memory"
+        self.world, self.agenda = None, None
+        self.world_ev = 0           # last game event folded into the world memory
+        self.slow = deque()         # plans, diary entries, lessons: these wait behind decisions
+        self.wake = threading.Event()
+        self.plan_pending, self.plan_asked_at, self.woke_up = False, 0.0, False
+        self.plan_line = None       # what plan.txt says now
         self.ended_seq = 0   # last task seq whose end was handled
 
     # ------------------------------------------------------------------ files
@@ -134,7 +160,122 @@ class Bridge:
         return (bucket(th["nearest"]), th["chasing"] > 0, min(th["within10"], 4), th["bleeding"],
                 p["where"].startswith("inside"), "night" in p["time"] or "dusk" in p["time"],
                 max([moods.get(k, 0) for k in ("thirst", "hunger", "tired", "endurance", "panic")] or [0]),
-                tuple(sorted(situ.legal)))
+                tuple(sorted(situ.legal)), p.get("plan"))
+
+    # ------------------------------------------------------------------ long-term memory and the plan
+    def _remember(self, raw):
+        """Load this character's memory (a new character after a death gets a fresh one) and fold in the percept."""
+        who = raw.get("who") or {}
+        if who.get("name") and (self.world is None or self.world.name != who["name"] or self.world.save_id != who.get("save")):
+            if self.world:
+                self.world.save(force=True)
+            self.world = WorldMemory(self.memory_dir, who.get("save"), who["name"])
+            self.agenda = planner.Plan.from_dict(self.world.data.get("plan"))
+            self.world_ev = 0
+            self._write_plan_file()
+        if not self.world:
+            return
+        for ev in raw.get("events") or []:
+            if ev.get("id", 0) > self.world_ev:
+                self.world_ev = ev["id"]
+                self.world.note_event(raw, ev.get("msg", ""))
+        self.world.observe(raw, self.mem.unreachable)
+        self.world.save()
+
+    def _follow_plan(self, raw, situ, now):
+        """Point the current plan step at the game: its goal becomes legal with the plan's target."""
+        situ.percept["plan"] = planner.plan_text(self.agenda)
+        if not self.agenda or not self.world:
+            return None
+        h = planner.hint(self.agenda, situ.args, raw, self.world.places)
+        self._write_plan_file()
+        if not h or self.cooldown.get(h[0], 0) > now:
+            return None
+        goal, args = h
+        step = self.agenda.current()
+        if goal == "loot_building":
+            from brain.percept import CROWDED, crowd_at
+            if crowd_at(raw, args[0], args[1]) >= CROWDED:
+                # zombies round the target: hold off; if it stays like that, the step fails and a new plan comes
+                step.blocked = getattr(step, "blocked", None) or now
+                if now - step.blocked > PLAN_BLOCKED_S:
+                    step.status = "failed"
+                    self.mem.note(raw, f"plan step failed: {step.text()} (zombies all round it)")
+                    place = self.world.places.get(step.place)
+                    if place is not None:
+                        place["zombies"] = (raw.get("time") or {}).get("day")
+                    self._save_agenda()
+                return None
+            step.blocked = None
+        if goal in ("loot_building", "explore") and goal not in situ.legal:
+            situ.legal.append(goal)
+        if goal not in situ.legal:
+            return None
+        situ.args[goal] = tuple(args)
+        if goal == "explore":
+            step = self.agenda.current()
+            if step and step.where:
+                situ.threat["explore_heading"] = step.where
+        if goal == "loot_building":
+            self.mem.target_ids[f"{args[0]},{args[1]}"] = self.agenda.current().place
+        return goal
+
+    def _maybe_plan(self, raw, situ, now):
+        if not self.llm or not self.world or self.plan_pending or now - self.plan_asked_at < PLAN_GAP_S:
+            return
+        if situ.threat["chasing"] or not self.llm_state["ready"]:
+            return   # plan when things are calm
+        reason = planner.needs_new_plan(self.agenda, raw, self.woke_up)
+        if not reason:
+            return
+        self.plan_pending, self.plan_asked_at, self.woke_up = True, now, False
+        self._ask_slow({"kind": "plan", "raw": raw, "percept": dict(situ.percept), "reason": reason})
+
+    def _maybe_diary(self, raw):
+        """The night's diary entry, once per day, when the AI falls asleep."""
+        if not self.llm or not self.world:
+            return
+        day = (raw.get("time") or {}).get("day", 1)
+        if any(d.get("day") == day for d in self.world.data["diary"]):
+            return
+        self.world.data["diary"].append({"day": day, "text": "(writing...)"})
+        self._ask_slow({"kind": "diary", "raw": raw, "day": day})
+
+    def _on_death(self, raw):
+        if not self.world:
+            return
+        t = raw.get("time") or {}
+        p = self.situ.percept if self.situ else {}
+        cur = self.current or {}
+        zombies = "; ".join(f"{z['count']} at {z['dist']} tiles {z['dir']} ({z['state']})" for z in p.get("zombies", [])[:4])
+        plain = (f"Day {t.get('day', 1)} {t.get('hour', 0):02d}:{t.get('min', 0):02d}: {self.world.name} died "
+                 f"{p.get('where', 'somewhere')}, while doing '{cur.get('goal', '?')}'. Weapon: {p.get('weapon', '?')}. "
+                 f"Zombies: {zombies or 'none seen'}. Plan: {p.get('plan') or 'none'}. Last events: "
+                 + "; ".join(list(self.mem.recent)[-8:]))
+        if self.llm:
+            self._ask_slow({"kind": "lesson", "raw": raw, "plain": plain})
+        else:
+            self.world.add_lesson(plain)
+        self.world.save(force=True)
+
+    def _save_agenda(self):
+        if self.world:
+            self.world.data["plan"] = self.agenda.to_dict() if self.agenda else None
+            self.world.save(force=True)
+        self._write_plan_file()
+
+    def _write_plan_file(self):
+        """plan.txt for the mod's HUD: "aim|next step"."""
+        a = self.agenda
+        step = a.current() if a else None
+        line = f"{clean(a.aim, 90)}|{clean(f'({a.progress()}) ' + step.text(), 90) if step else ''}" if a else ""
+        if line == self.plan_line:
+            return
+        self.plan_line = line
+        try:
+            (self.lua_dir / "plan.txt").write_text(line + "\n", encoding="utf-8")
+        except OSError:
+            pass
 
     def on_percept(self, raw):
         with self.lock:
@@ -147,26 +288,48 @@ class Bridge:
                     self._log("deaths", {"ts": datetime.now().isoformat(timespec="seconds"), "time": raw.get("time"),
                                          "kills": raw.get("kills"), "recent": list(self.mem.recent),
                                          "last_decisions": list(self.decisions)[-20:]})
+                    self._on_death(raw)
                 self.status = "dead"
                 return
             self.dead_logged = False
+            self._remember(raw)
             self.mem.update(raw)
+            if raw.get("asleep"):
+                # the game runs the night; the sleep task reports when the AI wakes up
+                self.status = "asleep"
+                self._maybe_diary(raw)
+                return
             task = raw.get("task") or {}
             cur = self.current
             ours = cur is not None and task.get("seq") == cur["seq"]
             running = ours and task.get("status") == "running"
-            finished = ours and task.get("status") in ("done", "failed")
+            # a task that ended counts even if it wasn't our latest order (an order from before a bridge
+            # restart): otherwise the AI stands idle while the bridge thinks its own goal is running
+            finished = task.get("status") in ("done", "failed") and int(task.get("seq") or 0) >= (cur["seq"] if cur else 0)
             if finished and task["seq"] != self.ended_seq:
                 self.ended_seq = task["seq"]
-                hold = COOLDOWN_FAILED_S if task["status"] == "failed" else COOLDOWN_DONE_S.get(task.get("goal"), 0)
-                if hold and task.get("goal") not in NEVER_COOL:
-                    self.cooldown[task["goal"]] = time.time() + hold
+                goal = task.get("goal")
+                line = planner.on_task_end(self.agenda, goal, task["status"], task.get("msg", ""))
+                if line:
+                    self.mem.note(raw, line)
+                    self._save_agenda()
+                if goal == "sleep" and task["status"] == "done":
+                    self.woke_up = True
+                if task["status"] == "failed" and goal in COOLDOWN_FAILED_SHORT_S:
+                    self.cooldown[goal] = time.time() + COOLDOWN_FAILED_SHORT_S[goal]
+                elif goal not in NEVER_COOL:
+                    hold = COOLDOWN_FAILED_S if task["status"] == "failed" else COOLDOWN_DONE_S.get(goal, 0)
+                    if hold:
+                        self.cooldown[goal] = time.time() + hold
             situ = summarize(raw, self.mem)
             now = time.time()
             cooled = [g for g in situ.legal if self.cooldown.get(g, 0) > now]
             if cooled and len(cooled) < len(situ.legal):
                 situ.legal = [g for g in situ.legal if g not in cooled]
+            plan_goal = self._follow_plan(raw, situ, now)
+            situ.percept["knowhow"] = knowledge.relevant(situ.percept, 3)
             self.situ = situ
+            self._maybe_plan(raw, situ, now)
             if raw.get("manual"):
                 self.status = "you're driving"
                 return
@@ -177,13 +340,20 @@ class Bridge:
             if not due:
                 return
             plan = strategy.plan(situ.percept, situ.legal, cur["goal"] if cur else None, running,
-                                 cur["source"] if cur else None)
+                                 cur["source"] if cur else None, plan_goal=plan_goal)
             self.plan = plan
+            if (running and cur["goal"] == "flee" and plan.goal == "fight" and "flee" in situ.legal
+                    and now - cur.get("t0", now) < FLEE_COMMIT_S):
+                cur["at"] = now   # committed to running
+                return
             if plan.source == "keep" or (running and plan.goal == cur["goal"]):
                 cur["at"] = now
                 return
             changed = self._issue(plan.goal, situ.args[plan.goal], situ, plan, "rules", force=finished)
-            if self.llm and changed:
+            # a re-sent goal (a "wait" that timed out, say) gets no new line: in game that made the AI repeat
+            # "I'm hungry and thirsty" every 15 s
+            fresh = plan.goal != self.said["goal"] or now - self.said["at"] > SPEAK_EVERY_S
+            if self.llm and changed and (fresh or not plan.clear):
                 self._ask("narrate" if plan.clear else "choose", situ, plan.goal, plan.candidates)
 
     def _issue(self, goal, args, situ, plan, source, why="", say="", force=False):
@@ -198,7 +368,9 @@ class Bridge:
         if goal == "explore":
             self.mem.explore_dir = situ.threat["explore_heading"]
         keep_why = cur["why"] if cur and cur["goal"] == goal and not why else why
-        self.current = {"goal": goal, "args": list(args), "seq": self.seq, "source": source, "why": keep_why, "at": time.time()}
+        started = cur["t0"] if cur and cur["goal"] == goal and "t0" in cur else time.time()
+        self.current = {"goal": goal, "args": list(args), "seq": self.seq, "source": source, "why": keep_why,
+                        "at": time.time(), "t0": started}
         scores = plan.scores if plan else {}
         top = sorted(scores.items(), key=lambda kv: -kv[1])[:5]
         entry = {"seq": self.seq, "time": situ.percept["time"], "goal": goal, "source": source, "why": why,
@@ -219,6 +391,18 @@ class Bridge:
             except queue.Empty:
                 pass
             self.jobs.put_nowait(job)
+        self.wake.set()
+
+    def _ask_slow(self, job):
+        self.slow.append(job)
+        self.wake.set()
+
+    def _next_job(self):
+        """Decisions first (they're short and time-sensitive), then plans, diary entries and lessons."""
+        try:
+            return self.jobs.get_nowait()
+        except queue.Empty:
+            return self.slow.popleft() if self.slow else None
 
     def llm_loop(self):
         try:
@@ -227,31 +411,103 @@ class Bridge:
         except OSError as e:
             self.llm_state.update(errors=self.llm_state["errors"] + 1, last_error=f"warm-up: {e}")
         while True:
-            job = self.jobs.get()
-            self.llm_state["busy"] = True
-            try:
-                situ = job["situ"]
-                legal = [job["goal"]] if job["kind"] == "narrate" else job["candidates"]
-                goal, why, ms = self.llm.choose(situ.percept, legal)
-                self.llm_state.update(last_ms=round(ms), calls=self.llm_state["calls"] + 1, ready=True)
-                self.strikes = self.strikes + 1 if ms > SLOW_MS else 0
-                with self.lock:
-                    cur = self.current
-                    if cur is None or cur["seq"] != job["seq"]:
-                        continue   # something newer was decided while the LLM thought: drop this answer
-                    if goal == cur["goal"]:
-                        source = cur["source"] if job["kind"] == "narrate" else "rules+AI"
-                        self._issue(goal, cur["args"], situ, self.plan, source, why=why, say=why)
-                    else:
-                        self._issue(goal, situ.args[goal], situ, self.plan, "AI", why=why, say=why)
-            except (OSError, ValueError, KeyError) as e:
-                self.llm_state.update(errors=self.llm_state["errors"] + 1, last_error=str(e)[:200])
-                if isinstance(e, OSError):   # timeouts and refused connections, not bad answers
-                    self.strikes += 1
-            finally:
-                self.llm_state["busy"] = False
-            if self.strikes >= 2:
-                self._reload_llm()
+            self.wake.wait(1.0)
+            self.wake.clear()
+            while (job := self._next_job()) is not None:
+                self._run_job(job)
+                if self.strikes >= 2:
+                    self._reload_llm()
+
+    def _run_job(self, job):
+        self.llm_state["busy"] = True
+        try:
+            if job["kind"] == "plan":
+                self._make_plan(job)
+            elif job["kind"] == "diary":
+                self._write_diary(job)
+            elif job["kind"] == "lesson":
+                self._write_lesson(job)
+            else:
+                self._decide(job)
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            self.llm_state.update(errors=self.llm_state["errors"] + 1, last_error=f"{job['kind']}: {e}"[:200])
+            if isinstance(e, OSError):   # timeouts and refused connections, not bad answers
+                self.strikes += 1
+            if job["kind"] == "plan":
+                self.plan_pending = False
+        finally:
+            self.llm_state["busy"] = False
+
+    def _make_plan(self, job):
+        messages, labels = planner.build_messages(job["percept"], job["raw"], self.world, job["reason"], self.agenda)
+        obj, ms = self.llm.structured(messages, planner.output_schema(), num_predict=450)
+        self.llm_state.update(plan_ms=round(ms), plans=self.llm_state.get("plans", 0) + 1)
+        with self.lock:
+            self.plan_pending, self.plan_asked_at = False, time.time()
+            new = planner.parse_plan(obj, job["raw"], self.world, labels, job["reason"])
+            self._log("plans", {"ts": datetime.now().isoformat(timespec="seconds"), "reason": job["reason"],
+                                "time": job["percept"].get("time"), "answer": obj, "ms": round(ms),
+                                "accepted": new is not None, "prompt": messages[1]["content"]})
+            if new is None:
+                self.llm_state["last_error"] = "plan: no step I can carry out; asking again later"
+                return
+            self.agenda = new
+            self.world.data.setdefault("aims", []).append({"day": new.made_day, "aim": new.aim})
+            self.mem.note(job["raw"], f"new plan: {new.aim}")
+            self._save_agenda()
+            cur = self.current
+            if cur and self.situ:   # say it: the new aim goes in a speech bubble
+                self.said = {"goal": cur["goal"], "at": time.time(), "text": new.aim}
+                self._issue(cur["goal"], cur["args"], self.situ, self.plan, cur["source"], why=new.why,
+                            say=f"New plan: {new.aim}")
+
+    def _write_diary(self, job):
+        today = [f"{e['t']} {e['msg']}" for e in self.world.data.get("today", []) if e.get("day") == job["day"]]
+        aim = self.agenda.aim if self.agenda else "none"
+        user = (f"Day {job['day']}. Kills so far: {job['raw'].get('kills', 0)}. Your aim: {aim}.\nToday:\n"
+                + "\n".join(f"- {x}" for x in today[-25:] or ["(nothing written down)"]))
+        obj, _ = self.llm.structured([{"role": "system", "content": DIARY_SYSTEM}, {"role": "user", "content": user}],
+                                     {"type": "object", "properties": {"entry": {"type": "string", "maxLength": 400}},
+                                      "required": ["entry"]}, num_predict=200)
+        with self.lock:
+            for d in self.world.data["diary"]:
+                if d.get("day") == job["day"]:
+                    d["text"] = " ".join(str(obj.get("entry", "")).split())[:400]
+            del self.world.data["diary"][:-20]
+            self.world.save(force=True)
+
+    def _write_lesson(self, job):
+        obj, _ = self.llm.structured([{"role": "system", "content": LESSON_SYSTEM},
+                                      {"role": "user", "content": job["plain"]}],
+                                     {"type": "object", "properties": {"lesson": {"type": "string", "maxLength": 200}},
+                                      "required": ["lesson"]}, num_predict=80)
+        lesson = " ".join(str(obj.get("lesson", "")).split())[:200]
+        t = job["raw"].get("time") or {}
+        with self.lock:
+            self.world.add_lesson(f"Day {t.get('day', 1)}: {lesson}" if lesson else job["plain"])
+
+    def _decide(self, job):
+        """A close call or a speech line for the goal just chosen."""
+        situ = job["situ"]
+        legal = [job["goal"]] if job["kind"] == "narrate" else job["candidates"]
+        goal, why, ms = self.llm.choose(situ.percept, legal)
+        self.llm_state.update(last_ms=round(ms), calls=self.llm_state["calls"] + 1, ready=True)
+        self.strikes = self.strikes + 1 if ms > SLOW_MS else 0
+        with self.lock:
+            cur = self.current
+            if cur is None or cur["seq"] != job["seq"]:
+                return   # something newer was decided while the LLM thought: drop this answer
+            if (self.raw or {}).get("asleep"):
+                return   # read on waking, a late "sleep" line would put the AI back to bed
+            now = time.time()
+            say = why if (goal != self.said["goal"] or now - self.said["at"] > SPEAK_EVERY_S) else ""
+            if say:
+                self.said = {"goal": goal, "at": now, "text": say}
+            if goal == cur["goal"]:
+                source = cur["source"] if job["kind"] == "narrate" else "rules+AI"
+                self._issue(goal, cur["args"], situ, self.plan, source, why=why, say=say)
+            else:
+                self._issue(goal, situ.args[goal], situ, self.plan, "AI", why=why, say=say)
 
     def _reload_llm(self):
         """The rules keep playing meanwhile; only the speech bubbles and close calls wait."""
@@ -276,8 +532,11 @@ class Bridge:
                 "percept_age_s": round(time.time() - self.raw_at, 1) if self.raw else None,
                 "current": self.current,
                 "task": raw.get("task"), "reflex": raw.get("reflex"), "manual": raw.get("manual"),
+                "action": raw.get("action"),
                 "err": raw.get("err"), "kills": raw.get("kills"), "speed": raw.get("speed"),
                 "health": raw.get("health"), "stats": raw.get("stats"), "moodles": raw.get("moodles"),
+                "asleep": raw.get("asleep"), "home": situ.percept["home"] if situ else None,
+                "weight": f"{raw.get('weight', 0):.1f}/{raw.get('maxWeight', 0):.0f}" if raw else None,
                 "time": situ.percept["time"] if situ else None, "where": situ.percept["where"] if situ else None,
                 "weapon": situ.percept["weapon"] if situ else None,
                 "zombies": {"within10": sum(1 for z in zs if z["d"] <= 10), "within40": len(zs),
@@ -287,6 +546,15 @@ class Bridge:
                 "legal": situ.legal if situ else [],
                 "scores": sorted(plan.scores.items(), key=lambda kv: -kv[1]) if plan else [],
                 "llm": self.llm_state,
+                "agenda": ({"aim": self.agenda.aim, "why": self.agenda.why, "reason": self.agenda.reason,
+                            "made": f"day {self.agenda.made_day}",
+                            "steps": [{"do": st.do, "where": st.where, "note": st.note, "status": st.status}
+                                      for st in self.agenda.steps]} if self.agenda else None),
+                "planning": self.plan_pending,
+                "diary": (self.world.data.get("diary") or [])[-3:] if self.world else [],
+                "lessons": self.world.lessons[-4:] if self.world else [],
+                "places": len(self.world.places) if self.world else 0,
+                "who": (raw.get("who") or {}).get("name"),
                 "decisions": list(self.decisions)[-20:],
                 "recent": list(self.mem.recent),
             }

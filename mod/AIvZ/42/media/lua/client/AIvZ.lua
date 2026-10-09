@@ -5,8 +5,12 @@
 --
 -- Layers in this file:
 --   reflex  every few ticks: swing, shove, grab a weapon or break away from zombies within ~3 tiles
---   tactics carries out the goal the bridge picked (walk, loot, eat, drink, bandage, fight, flee, close up)
---   HUD     on-screen panel with the goal, the reason, the action and vitals (F7 hides it)
+--   tactics carries out the goal the bridge picked (walk, loot, eat, drink, bandage, fight, flee, close up,
+--           go home, sleep, drop junk). Locked buildings are entered through a window.
+--   HUD     on-screen panel with the goal, the reason, the action, the AI's own plan and vitals (F7 hides it)
+--   plan IN  ~/Zomboid/Lua/aivz/plan.txt "aim|step" (the bridge's planner), shown on the HUD
+-- The home base is remembered in the save (player mod data): the first building with a bed the AI closes
+-- up or sleeps in, moved when the AI shelters for the night somewhere far from it.
 -- G toggles auto fast-forward. Pressing a movement key hands control to you; the AI takes over again
 -- after ~10 s without input.
 --
@@ -15,7 +19,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.1.0"
+A.VERSION = "0.3.0"
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -23,6 +27,10 @@ local INTENT_EVERY = 15    -- ticks between intent polls
 local TASK_EVERY = 10      -- ticks between tactic steps
 local REFLEX_EVERY = 4     -- ticks between reflex checks
 local MANUAL_IDLE = 600    -- ticks without your input before the AI takes back over
+local HOME_MOVE = 120      -- a new shelter this far from home becomes the new home
+local FOOD_CAP = 8         -- edible food items worth carrying
+local WATER_CAP = 2        -- drink containers worth carrying
+local MED_CAP = 6          -- medical items worth carrying
 local KEY_HUD = Keyboard.KEY_F7
 local KEY_SPEED = Keyboard.KEY_G
 
@@ -163,6 +171,8 @@ local function isDoor(o)
 	return instanceof(o, "IsoDoor") or (instanceof(o, "IsoThumpable") and try(function() return o:isDoor() end) == true)
 end
 local function isWindow(o) return instanceof(o, "IsoWindow") end
+local function isBed(o) return try(function() return o:getProperties():has(IsoFlagType.bed) end) == true end
+local function winIs(o, m) return try(function() return o[m](o) end) == true end
 
 local function containersOn(sq)
 	local out = {}
@@ -216,7 +226,7 @@ end
 
 local function medKind(it)
 	local t = it:getType() or ""
-	if t:find("Dirty") then return nil end
+	if t:find("Dirty") or t:find("^Bandage_") then return nil end -- Bandage_Abdomen etc. is one already on you
 	if t:find("Bandage") or t:find("RippedSheets") then return "bandage" end
 	if t:find("Disinfectant") or t:find("AlcoholWipes") then return "disinfectant" end
 	if t:find("^Pills") then return "pills" end
@@ -243,6 +253,152 @@ local function bestMelee(p)
 	end)
 	return best, bs
 end
+
+-- B42 crafting from the bag, the way the inventory's right-click menu does it: tearing clothes into
+-- rags, opening a can (with a can opener, or a sharp knife) and eating it.
+local function craftable(p, name, it)
+	local recipe = try(function() return getScriptManager():getCraftRecipe(name) end)
+	if not recipe then return nil end
+	local ok = try(function()
+		local logic = HandcraftLogic.new(p, nil, nil)
+		logic:setContainers(ISInventoryPaneContextMenu.getContainers(p))
+		logic:setRecipeFromContextClick(recipe, it)
+		return logic:canPerformCurrentRecipe()
+	end)
+	return ok and recipe or nil
+end
+
+-- Only sealed cans are checked. Kahlua logs every exception thrown inside pcall with a stack dump, so the
+-- hot paths must not probe methods that may not exist (an isCannedFood() call did, twice a second).
+local CAN_RECIPES = { "OpenCannedFood", "OpenCannedFoodWithKnifeOrSharpStoneFlake" }
+local function sealedCan(it)
+	local t = it:getType() or ""
+	return instanceof(it, "Food") and not t:find("Open") and (t:find("Can") or t:find("Tin") or t:find("Tuna") or t:find("Dogfood")) ~= nil
+end
+local function canRecipe(p, it)
+	if not sealedCan(it) then return nil end
+	S.cache.canr = S.cache.canr or {}
+	local c = S.cache.canr[it]
+	if c and S.tick - c.at < 600 then return c.r end
+	local r = nil
+	for _, name in ipairs(CAN_RECIPES) do
+		r = craftable(p, name, it)
+		if r then break end
+	end
+	S.cache.canr[it] = { at = S.tick, r = r }
+	return r
+end
+
+-- the lightest unworn piece of clothing that tears into rags
+local function ragSource(p)
+	local best, bw = nil, 1e9
+	eachItem(p:getInventory(), function(it)
+		if instanceof(it, "Clothing") and not try(function() return p:isEquipped(it) end) then
+			local w = try(function() return it:getUnequippedWeight() end) or 1
+			if w < bw and craftable(p, "RipClothing", it) then best, bw = it, w end
+		end
+	end)
+	return best
+end
+
+-- a worn cotton top (T-shirt, shirt, vest): a wound and nothing else to use, it comes off and becomes bandages
+local function wornTop(p)
+	local best = nil
+	eachItem(p:getInventory(), function(it)
+		local t = it:getType() or ""
+		if not best and instanceof(it, "Clothing") and try(function() return p:isEquipped(it) end)
+			and (t:find("Tshirt") or t:find("Shirt") or t:find("Vest") or t:find("TankTop")) and not t:find("Jacket") then
+			best = it
+		end
+	end, 1)
+	return best
+end
+
+-- backpacks: B42 reports where a bag is worn in canBeEquipped() ("" for anything that isn't worn)
+local function isBackBag(it)
+	if not instanceof(it, "InventoryContainer") then return false end
+	local loc = tostring(try(function() return it:canBeEquipped() end) or "")
+	return loc:lower():find("back") ~= nil
+end
+local function backBag(p) return try(function() return p:getClothingItem_Back() end) end
+local function bagCapacity(it) return it and (try(function() return it:getCapacity() end) or 0) or 0 end
+
+-- where loot goes: the worn backpack while it has room (it carries the weight for less), else the main inventory
+local function carryInv(p, it)
+	local bag = backBag(p)
+	local bi = bag and try(function() return bag:getInventory() end)
+	if bi and try(function() return bi:hasRoomFor(p, it) end) then return bi end
+	return p:getInventory()
+end
+
+local function isKeep(it)
+	local t = it:getType() or ""
+	return t:find("Key") or t:find("IDcard") or t:find("Lighter") or t:find("Matches") or t:find("Opener")
+		or t:find("Flashlight") or t:find("Torch") or t:find("Battery")
+end
+
+-- a can opener, or a knife (most knives open cans in B42, slowly)
+local function isOpener(it)
+	local t = it:getType() or ""
+	return t:find("TinOpener") or t:find("CanOpener") or t:find("Knife")
+end
+
+-- what the AI carries, by kind, for the loot caps
+local function carried(p)
+	local n = { food = 0, water = 0, medical = 0, can = 0, opener = false }
+	eachItem(p:getInventory(), function(it)
+		if isOpener(it) then n.opener = true end
+		if sealedCan(it) then n.can = n.can + 1
+		elseif foodValue(it) then n.food = n.food + 1
+		elseif waterIn(it) or (try(function() return it:getFluidContainer() end) and not instanceof(it, "Food")) then n.water = n.water + 1
+		elseif medKind(it) then n.medical = n.medical + 1 end
+	end)
+	return n
+end
+
+-- Items worth leaving behind, least useful first: {it, kg, why}. Away from home that's junk (rotten or
+-- uncookable food, spare clothes, weapons beyond the one in hand and one spare, heavy odds and ends) and
+-- food beyond what's worth carrying. At home it also stores food beyond a few snacks, to eat there later.
+function A.junk(p, atHome)
+	local held = p:getPrimaryHandItem()
+	local best = bestMelee(p)
+	local melee = {}
+	eachItem(p:getInventory(), function(it) if weaponScore(it) and it ~= held and it ~= best then melee[#melee + 1] = it end end)
+	table.sort(melee, function(a, b) return weaponScore(a) > weaponScore(b) end)
+	-- two weapons in all: the one in hand and the best (or the best and one spare)
+	local spare = (held == best or not isMelee(held)) and melee[1] or nil
+	local bandages, rag = 0, nil
+	eachItem(p:getInventory(), function(it)
+		if medKind(it) == "bandage" then bandages = bandages + 1
+		elseif instanceof(it, "Clothing") and not try(function() return p:isEquipped(it) end)
+			and (not rag or (it:getUnequippedWeight() or 1) < (rag:getUnequippedWeight() or 1)) then rag = it end
+	end)
+	if bandages >= 2 then rag = nil end -- otherwise the lightest spare shirt is the next bandage
+	local out, food = {}, {}
+	eachItem(p:getInventory(), function(it)
+		if it == held or it == best or it == spare or it == rag or try(function() return p:isEquipped(it) end)
+			or try(function() return it:isFavorite() end) or instanceof(it, "InventoryContainer") or isKeep(it) then return end
+		local kg = try(function() return it:getUnequippedWeight() end) or 0
+		local rank = nil
+		if instanceof(it, "Food") then
+			if try(function() return it:isRotten() end) then rank = 1
+			elseif not foodValue(it) and not canRecipe(p, it) then rank = 4
+			else food[#food + 1] = { it = it, kg = kg, v = foodValue(it) } end
+		elseif waterIn(it) or medKind(it) then return
+		elseif instanceof(it, "Clothing") then rank = 2
+		elseif instanceof(it, "HandWeapon") then rank = 3
+		elseif kg >= 0.5 then rank = 2 end
+		if rank then out[#out + 1] = { it = it, kg = kg, rank = rank } end
+	end)
+	-- the most filling food per kilo stays
+	table.sort(food, function(a, b) return a.v / math.max(a.kg, 0.05) > b.v / math.max(b.kg, 0.05) end)
+	local keep = atHome and 3 or FOOD_CAP
+	for i = keep + 1, #food do out[#out + 1] = { it = food[i].it, kg = food[i].kg, rank = 5 } end
+	table.sort(out, function(a, b) if a.rank ~= b.rank then return a.rank < b.rank end return a.kg > b.kg end)
+	return out
+end
+
+local function junkKg(list) local s = 0; for _, j in ipairs(list) do s = s + j.kg end; return s end
 
 ---------------------------------------------------------------- perception
 local STATS = { "HUNGER", "THIRST", "FATIGUE", "ENDURANCE", "PANIC", "PAIN", "STRESS", "SICKNESS", "FOOD_SICKNESS", "WETNESS", "TEMPERATURE" }
@@ -347,7 +503,8 @@ end
 function A.scanBuilding(p, b, z)
 	local def = b:getDef()
 	local m = mem(p)
-	local info = { id = bkey(def), containers = 0, searched = 0, unsearched = {}, doorsOpen = {}, windowsOpen = {} }
+	local info = { id = bkey(def), containers = 0, searched = 0, unsearched = {}, doorsOpen = {}, windowsOpen = {},
+		smashed = 0, food = {}, all = {}, curtainsOpen = {} }
 	local function inside(sq) return sq ~= nil and sq:getBuilding() == b end
 	for x = def:getX() - 1, def:getX2() do
 		for y = def:getY() - 1, def:getY2() do
@@ -359,7 +516,14 @@ function A.scanBuilding(p, b, z)
 						n = n + 1
 						local key = x .. "," .. y .. "," .. z .. "," .. n
 						info.containers = info.containers + 1
-						if m.searched[key] then info.searched = info.searched + 1
+						info.all[#info.all + 1] = { c = c, sq = sq }
+						if m.searched[key] then
+							info.searched = info.searched + 1
+							-- food we know is here (left behind, or stored at home)
+							eachItem(c, function(it)
+								local v = foodValue(it)
+								if v and #info.food < 20 then info.food[#info.food + 1] = { it = it, c = c, sq = sq, v = v } end
+							end, 1)
 						else info.unsearched[#info.unsearched + 1] = { key = key, c = c, sq = sq } end
 					end
 				end
@@ -371,8 +535,13 @@ function A.scanBuilding(p, b, z)
 						local other = o:getNorth() and sqAt(x, y - 1, z) or sqAt(x - 1, y, z)
 						if inside(sq) ~= inside(other) then
 							local open = try(function() return o:IsOpen() end)
+							-- an open curtain lets zombies see in (and light out at night)
+							local cur = isWindow(o) and o:HasCurtains() or nil
+							if cur and cur:IsOpen() then info.curtainsOpen[#info.curtainsOpen + 1] = { o = cur, sq = cur:getSquare() or sq } end
 							if isDoor(o) and open then info.doorsOpen[#info.doorsOpen + 1] = { o = o, sq = sq }
-							elseif isWindow(o) and open and not try(function() return o:isSmashed() end) then
+							elseif isWindow(o) and winIs(o, "isSmashed") then
+								if not winIs(o, "isBarricaded") then info.smashed = info.smashed + 1 end
+							elseif isWindow(o) and open then
 								info.windowsOpen[#info.windowsOpen + 1] = { o = o, sq = sq }
 							end
 						end
@@ -398,12 +567,58 @@ function A.buildingInfo(p, fresh)
 	return c
 end
 
+-- beds in building b on any floor, nearest first (another floor counts as 12 tiles further)
+function A.beds(p, b)
+	local def = b:getDef()
+	local out = {}
+	local px, py, pz = p:getX(), p:getY(), math.floor(p:getZ())
+	for z = 0, 3 do
+		for x = def:getX(), def:getX2() do
+			for y = def:getY(), def:getY2() do
+				local sq = sqAt(x, y, z)
+				if sq and sq:getBuilding() == b then
+					for _, o in ipairs(objList(sq)) do
+						if isBed(o) then out[#out + 1] = { o = o, d = math.abs(x - px) + math.abs(y - py) + 12 * math.abs(z - pz) } end
+					end
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, c) return a.d < c.d end)
+	return out
+end
+
+local function hasBed(p, b)
+	local id = bkey(b:getDef())
+	S.cache.beds = S.cache.beds or {}
+	if S.cache.beds[id] == nil then S.cache.beds[id] = #A.beds(p, b) > 0 end
+	return S.cache.beds[id]
+end
+
+-- Building b becomes home if it has a bed and no smashed window on this floor, and there's no home yet
+-- or the old one is far away (the AI has moved on to another part of town).
+function A.maybeSetHome(p, b, info)
+	local m = mem(p)
+	local def = b:getDef()
+	local id = bkey(def)
+	if m.home and m.home.id == id then return end
+	if (info and info.smashed or 0) > 0 or not hasBed(p, b) then return end
+	if m.home and math.sqrt((m.home.x - p:getX()) ^ 2 + (m.home.y - p:getY()) ^ 2) < HOME_MOVE then return end
+	local sq = p:getCurrentSquare()
+	if not sq or sq:getBuilding() ~= b then sq = try(function() return def:getRooms():get(0):getFreeSquare() end) end
+	if not sq then return end
+	local moved = m.home ~= nil
+	m.home = { id = id, x = sq:getX(), y = sq:getY(), z = sq:getZ() }
+	A.event(moved and "moved my home base here" or "made this place my home base")
+	pcall(function() p:Say(moved and "I'll make this my new home." or "This place will do. Home.") end)
+end
+
 local function roomNames(def)
 	local names, seen = {}, {}
 	local rooms = def:getRooms()
 	for i = 0, rooms:size() - 1 do
 		local n = try(function() return rooms:get(i):getName() end)
-		if n and not seen[n] and #names < 4 then seen[n] = true; names[#names + 1] = n end
+		if n and not seen[n] and #names < 6 then seen[n] = true; names[#names + 1] = n end
 	end
 	return names
 end
@@ -439,7 +654,7 @@ function A.scanBuildings(p, R)
 		end
 	end
 	table.sort(out, function(a, b) return a.d < b.d end)
-	while #out > 10 do table.remove(out) end
+	while #out > 16 do table.remove(out) end
 	return out
 end
 
@@ -467,13 +682,17 @@ function A.scanWater(p, R)
 end
 
 function A.percept(p)
-	local s = { v = 1, ver = A.VERSION, tick = S.tick, ack = S.lastSeq, manual = S.manual, err = S.err, kills = S.kills }
+	local s = { v = 1, ver = A.VERSION, tick = S.tick, ack = S.lastSeq, manual = S.manual, err = S.err, kills = mem(p).kills or 0 }
 	s.dead = p:isDead()
+	s.asleep = try(function() return p:isAsleep() end) == true
+	local d = p:getDescriptor()
+	s.who = { name = d:getForename() .. " " .. d:getSurname(), save = tostring(getWorld():getWorld()) }
 	local px, py, pz = p:getX(), p:getY(), math.floor(p:getZ())
 	s.pos = { x = r1(px), y = r1(py), z = pz }
 	local gt = getGameTime()
 	local cm = getClimateManager()
 	s.time = { day = gt:getNightsSurvived() + 1, hour = gt:getHour(), min = gt:getMinutes(),
+		age = r2(gt:getWorldAgeHours()), -- a clock that only goes forward (the day number ticks over at dawn)
 		-- GameTime:getDawn()/getDusk() are stale in B42 (they read 12 and 3); the season has the real hours
 		dawn = r1(try(function() return cm:getSeason():getDawn() end) or 6),
 		dusk = r1(try(function() return cm:getSeason():getDusk() end) or 21),
@@ -489,9 +708,22 @@ function A.percept(p)
 		local openings = {}
 		for _, e in ipairs(info.doorsOpen) do openings[#openings + 1] = { x = e.sq:getX(), y = e.sq:getY(), kind = "door" } end
 		for _, e in ipairs(info.windowsOpen) do openings[#openings + 1] = { x = e.sq:getX(), y = e.sq:getY(), kind = "window" } end
+		local b = sq:getBuilding()
 		s.bld = { id = info.id, doorsOpen = #info.doorsOpen, windowsOpen = #info.windowsOpen, containers = info.containers,
-			searched = info.searched, looted = mem(p).looted[info.id] and true or false, openings = openings }
+			searched = info.searched, looted = mem(p).looted[info.id] and true or false, openings = openings,
+			smashed = info.smashed, food = #info.food, bed = b and hasBed(p, b) or false, curtainsOpen = #info.curtainsOpen,
+			home = (mem(p).home and mem(p).home.id == info.id) or false }
 	end
+	local home = mem(p).home
+	if home then
+		local hx, hy = home.x + 0.5 - px, home.y + 0.5 - py
+		s.home = { id = home.id, x = home.x, y = home.y, z = home.z, d = r1(math.sqrt(hx * hx + hy * hy)), dir = dir8(hx, hy),
+			here = (info and info.id == home.id) or false }
+	end
+	local atHome = s.home and s.home.here or false
+	s.junk = { drop = r1(junkKg(A.junk(p, false))), store = atHome and r1(junkKg(A.junk(p, true))) or 0 }
+	local bag = backBag(p)
+	s.bag = bag and { name = bag:getDisplayName(), cap = bagCapacity(bag) } or nil
 	s.health = r1(p:getBodyDamage():getOverallBodyHealth())
 	s.stats = {}
 	for _, k in ipairs(STATS) do s.stats[k:lower()] = r2(stat(p, k)) end
@@ -507,6 +739,16 @@ function A.percept(p)
 			score = r2(weaponScore(w) or 0) }
 	end
 	s.inv = A.inventory(p)
+	-- what it could tear into bandages, so the language model knows it doesn't have to go looking for some
+	if not S.cache.rags or S.tick - S.cache.rags.at > 300 then
+		local it = ragSource(p)
+		S.cache.rags = { at = S.tick, v = it and { name = it:getDisplayName(), worn = false } or false }
+	end
+	local top = not S.cache.rags.v and wornTop(p)
+	s.rags = S.cache.rags.v or (top and { name = top:getDisplayName(), worn = true }) or false
+	local cans = 0
+	eachItem(p:getInventory(), function(it) if instanceof(it, "Food") and canRecipe(p, it) then cans = cans + 1 end end)
+	s.cans = cans
 	s.weight = r1(p:getInventory():getCapacityWeight())
 	s.maxWeight = r1(p:getMaxWeight())
 	local zs = {}
@@ -527,6 +769,7 @@ function A.percept(p)
 			target = (t.args[1] and t.args[2] and t.args[1] ~= "") and (tostring(t.args[1]) .. "," .. tostring(t.args[2])) or nil }
 	end
 	s.reflex = { act = S.reflexAct, ago = S.tick - S.reflexTick }
+	s.action = H.action
 	s.events = A.ev.list
 	s.speed = getSpeed()
 	return s
@@ -557,7 +800,7 @@ function A.swing(p, e, w)
 end
 
 -- a free square about `want` tiles away from the zombies, veering if the straight line is blocked
-function A.fleeSquare(p, zs, want)
+function A.fleeSquare(p, zs, want, bad)
 	local px, py, pz = p:getX(), p:getY(), math.floor(p:getZ())
 	local fx, fy = 0, 0
 	for _, e in ipairs(zs) do
@@ -574,7 +817,7 @@ function A.fleeSquare(p, zs, want)
 		local vx, vy = fx * c - fy * s, fx * s + fy * c
 		for _, dd in ipairs({ want, want * 0.7, want * 0.45 }) do
 			local sq = sqAt(math.floor(px + vx * dd), math.floor(py + vy * dd), pz)
-			if sq and sq:getFloor() and try(function() return sq:isFree(false) end) then return sq end
+			if sq and not (bad and bad[sq]) and sq:getFloor() and try(function() return sq:isFree(false) end) then return sq end
 		end
 	end
 	return nil
@@ -590,6 +833,10 @@ end
 -- Reflex: anything within ~3 tiles is handled here, every few ticks, without asking the bridge.
 function A.reflex(p)
 	if p:getVehicle() then return false end
+	-- running away: keep running. Swinging at whatever is in reach cleared the flee path every time, so in
+	-- game every flee "went nowhere" and the AI died surrounded, twice.
+	local cur = S.task
+	if cur and cur.status == "running" and cur.goal == "flee" then return false end
 	local zs = {}
 	for _, e in ipairs(A.zombies(p, 3.5)) do if (e.seen or e.chasing) and not e.blocked then zs[#zs + 1] = e end end
 	if #zs == 0 then
@@ -639,8 +886,10 @@ end
 function A.onZombieDead(z)
 	local p = P()
 	if p and try(function() return z:getAttackedBy() == p end) then
-		S.kills = (S.kills or 0) + 1
-		A.event("killed a zombie (" .. S.kills .. " so far)")
+		-- counted per character (in the save), so a new character after a death starts from zero
+		local m = mem(p)
+		m.kills = (m.kills or 0) + 1
+		A.event("killed a zombie (" .. m.kills .. " so far)")
 	end
 end
 
@@ -702,13 +951,49 @@ A.tasks.rest = function(p, t)
 end
 
 A.tasks.eat = function(p, t)
+	if t.phase == "fetch" then
+		if qlen(p) > 0 and S.tick - t.t1 < 900 then return end
+		t.phase = "start"
+	end
 	if t.phase == "start" then
 		local best, bv = nil, 0
 		eachItem(p:getInventory(), function(it)
 			local v = foodValue(it)
 			if v and v > bv then best, bv = it, v end
 		end)
-		if not best then return fail(t, "no food I can eat as is") end
+		if not best and not t.triedCan then
+			local can, recipe = nil, nil
+			eachItem(p:getInventory(), function(it)
+				if not can and instanceof(it, "Food") and not try(function() return it:isRotten() end) then
+					recipe = canRecipe(p, it)
+					if recipe then can = it end
+				end
+			end)
+			if can then
+				t.triedCan = true
+				ISTimedActionQueue.clear(p)
+				ISInventoryPaneContextMenu.OnNewCraft(can, recipe, p:getPlayerNum(), false) -- opens it and eats
+				t.msg = "opening " .. can:getDisplayName()
+				H.action = t.msg
+				t.phase, t.t1, t.resume = "eat", S.tick, "start"
+				return
+			end
+		end
+		if not best then
+			-- food stored in this building: the home stash, or what was left behind while looting
+			local info = A.buildingInfo(p, true)
+			local f = nil
+			for _, e in ipairs(info and info.food or {}) do if not f or e.v > f.v then f = e end end
+			if not f or (t.fetches or 0) >= 2 then return fail(t, "no food I can eat as is") end
+			t.fetches = (t.fetches or 0) + 1
+			ISTimedActionQueue.clear(p)
+			luautils.walkToContainer(f.c, p:getPlayerNum())
+			Q(ISInventoryTransferAction:new(p, f.it, f.c, p:getInventory()))
+			t.msg = "fetching " .. f.it:getDisplayName()
+			H.action = t.msg
+			t.phase, t.t1, t.resume = "fetch", S.tick, "start"
+			return
+		end
 		ISInventoryPaneContextMenu.eatItem(best, 1, p:getPlayerNum())
 		t.msg = "eating " .. best:getDisplayName()
 		H.action = t.msg
@@ -769,7 +1054,32 @@ A.tasks.bandage = function(p, t)
 		if not part then return done(t, "nothing left to bandage") end
 		local band = nil
 		eachItem(p:getInventory(), function(it) if not band and medKind(it) == "bandage" then band = it end end)
-		if not band then return fail(t, "no bandages") end
+		if not band then
+			local cloth = not t.ripped and ragSource(p)
+			if not cloth and not t.stripped then -- (only reached for a wound that needs a bandage)
+				-- nothing spare to tear: take off the shirt on your back, then tear that
+				local top = wornTop(p)
+				if top then
+					t.stripped = true
+					ISTimedActionQueue.clear(p)
+					Q(ISUnequipAction:new(p, top, 50))
+					t.msg = "taking off " .. top:getDisplayName() .. " to make bandages"
+					H.action = t.msg
+					A.event(t.msg)
+					t.phase, t.t1, t.resume = "wrap", S.tick, "start"
+					return
+				end
+			end
+			if not cloth then return fail(t, "no bandages and nothing to tear into rags") end
+			t.ripped = true
+			ISTimedActionQueue.clear(p)
+			ISInventoryPaneContextMenu.OnNewCraft(cloth, craftable(p, "RipClothing", cloth), p:getPlayerNum(), false)
+			t.msg = "tearing " .. cloth:getDisplayName() .. " into bandages"
+			H.action = t.msg
+			A.event(t.msg)
+			t.phase, t.t1, t.resume = "wrap", S.tick, "start"
+			return
+		end
 		if band:getContainer() ~= p:getInventory() then Q(ISInventoryTransferAction:new(p, band, band:getContainer(), p:getInventory())) end
 		Q(ISApplyBandage:new(p, p, band, part, true))
 		t.msg = "bandaging " .. (try(function() return BodyPartType.getDisplayName(part:getType()) end) or "a wound")
@@ -781,20 +1091,40 @@ A.tasks.bandage = function(p, t)
 end
 
 -- shared by loot_here and loot_building once inside: walk to each unsearched container on this
--- floor, take food, water, medical supplies and better weapons, mark it searched
-local function wanted(it, curBest)
-	if instanceof(it, "Food") and not try(function() return it:isRotten() end) then return "food" end
-	if waterIn(it) then return "water" end
-	if medKind(it) then return "medical" end
+-- floor, take what's worth carrying, mark it searched. In the first run the AI took everything edible or
+-- sharp and was at its weight limit by midday with four spare weapons and raw meat it couldn't cook.
+-- Now: food it can eat as is (up to FOOD_CAP, nothing heavier than a kilo), drinks, medical supplies,
+-- a weapon only if clearly better, and a bigger backpack.
+local function wanted(it, ctx)
+	if sealedCan(it) then return (ctx.n.opener and ctx.n.can < 3) and "can" or nil end
+	if not ctx.n.opener and ((it:getType() or ""):find("TinOpener") or (it:getType() or ""):find("CanOpener")) then
+		ctx.n.opener = true
+		return "opener"
+	end
+	if foodValue(it) then
+		if ctx.n.food < FOOD_CAP and (try(function() return it:getUnequippedWeight() end) or 1) <= 1 then return "food" end
+		return nil
+	end
+	if waterIn(it) then return ctx.n.water < WATER_CAP and "water" or nil end
+	if medKind(it) then return ctx.n.medical < MED_CAP and "medical" or nil end
 	local ws = weaponScore(it)
-	if ws and ws > curBest * 1.1 then return "weapon" end
+	if ws and ws > ctx.best * 1.1 then return "weapon" end
+	if isBackBag(it) and bagCapacity(it) > ctx.bagCap then return "bag" end
 	return nil
 end
 
 function A.lootStep(p, t)
 	if t.phase == "next" then
 		local info = A.buildingInfo(p, true)
-		if not info then return fail(t, "not inside a building") end
+		if not info then
+			-- pushed outside (a reflex break-away, a door): head back in a couple of times before giving up
+			if t.goal == "loot_building" and (t.reentries or 0) < 2 then
+				t.reentries = (t.reentries or 0) + 1
+				t.phase = "start"
+				return
+			end
+			return fail(t, "not inside a building")
+		end
 		local best, bd = nil, 1e9
 		for _, u in ipairs(info.unsearched) do
 			local d = (u.sq:getX() - p:getX()) ^ 2 + (u.sq:getY() - p:getY()) ^ 2
@@ -802,6 +1132,11 @@ function A.lootStep(p, t)
 		end
 		if not best then
 			mem(p).looted[info.id] = true
+			-- the first house with a bed the AI has been through becomes home
+			if not mem(p).home then
+				local sq = p:getCurrentSquare()
+				if sq and sq:getBuilding() then A.maybeSetHome(p, sq:getBuilding(), info) end
+			end
 			return done(t, t.found and ("searched this floor, found " .. t.found) or "searched this floor, nothing useful")
 		end
 		t.cur = best
@@ -815,6 +1150,7 @@ function A.lootStep(p, t)
 		mem(p).searched[c.key] = true
 		if math.abs(c.sq:getX() - p:getX()) + math.abs(c.sq:getY() - p:getY()) > 3 then t.phase = "next"; return end
 		local _, curBest = bestMelee(p)
+		local ctx = { n = carried(p), best = curBest, bagCap = bagCapacity(backBag(p)) }
 		local budget = p:getMaxWeight() - p:getInventory():getCapacityWeight()
 		local names, list = {}, {}
 		t.taking = {}
@@ -822,14 +1158,22 @@ function A.lootStep(p, t)
 		for i = 0, items:size() - 1 do list[#list + 1] = items:get(i) end
 		for _, it in ipairs(list) do
 			if #names >= 8 then break end
-			local kind = wanted(it, curBest)
+			local kind = wanted(it, ctx)
 			local wgt = try(function() return it:getUnequippedWeight() end) or 1
-			if kind and wgt <= budget then
+			if kind == "bag" then
+				-- worn bags weigh little; put it on now, the old bag's contents follow below
 				Q(ISInventoryTransferAction:new(p, it, c.c, p:getInventory()))
+				ISInventoryPaneContextMenu.wearItem(it, p:getPlayerNum())
+				t.newBag, ctx.bagCap = it, bagCapacity(it)
+				names[#names + 1] = it:getDisplayName()
+				t.taking[#t.taking + 1] = it
+			elseif kind and wgt <= budget then
+				Q(ISInventoryTransferAction:new(p, it, c.c, carryInv(p, it)))
 				budget = budget - wgt
 				names[#names + 1] = it:getDisplayName()
 				t.taking[#t.taking + 1] = it
-				if kind == "weapon" then curBest = weaponScore(it) end
+				if kind == "weapon" then ctx.best = weaponScore(it) end
+				if type(ctx.n[kind]) == "number" then ctx.n[kind] = ctx.n[kind] + 1 end
 			end
 		end
 		if #names > 0 then
@@ -843,14 +1187,30 @@ function A.lootStep(p, t)
 		-- report only what actually reached the bag: a transfer can be cut short (a zombie, manual control)
 		local inv, took = p:getInventory(), {}
 		for _, it in ipairs(t.taking or {}) do
-			if try(function() return inv:contains(it) end) then took[#took + 1] = it:getDisplayName() end
+			if try(function() return inv:containsRecursive(it) end) or try(function() return inv:contains(it) end) then
+				took[#took + 1] = it:getDisplayName()
+			end
+		end
+		-- a new backpack: move what was in the old one across, then leave the old one here
+		local nb = t.newBag
+		t.newBag = nil
+		if nb and backBag(p) == nb then
+			local nbi = nb:getInventory()
+			eachItem(inv, function(old)
+				if old ~= nb and isBackBag(old) then
+					eachItem(old:getInventory(), function(x, from) Q(ISInventoryTransferAction:new(p, x, from, nbi)) end, 1)
+					ISInventoryPaneContextMenu.dropItem(old, p:getPlayerNum())
+				end
+			end, 1)
+			A.event("put on " .. nb:getDisplayName())
 		end
 		if #took > 0 then
 			local found = table.concat(took, ", ")
 			t.found = t.found and (t.found .. ", " .. found) or found
 			A.event("took " .. found)
 		end
-		t.taking, t.phase = nil, "next"
+		t.taking = nil
+		if qlen(p) > 0 then t.t1 = S.tick else t.phase = "next" end -- let the bag swap finish first
 	end
 end
 
@@ -864,30 +1224,167 @@ local function buildingId(sq)
 	return b and bkey(b:getDef()) or nil
 end
 
+---------------------------------------------------------------- getting into buildings
+-- exterior windows of building b on floor z, cheapest way in first: {o, sq, out (the outside square), cost}
+local function entryWindows(p, b, z, bad)
+	local def = b:getDef()
+	local out = {}
+	local px, py = p:getX(), p:getY()
+	local function inside(sq) return sq ~= nil and sq:getBuilding() == b end
+	for x = def:getX() - 1, def:getX2() do
+		for y = def:getY() - 1, def:getY2() do
+			local sq = sqAt(x, y, z)
+			if sq then
+				for _, o in ipairs(objList(sq)) do
+					if isWindow(o) and not bad[o] and not winIs(o, "isBarricaded") then
+						local other = o:getNorth() and sqAt(x, y - 1, z) or sqAt(x - 1, y, z)
+						if other and inside(sq) ~= inside(other) then
+							local outsq = inside(sq) and other or sq
+							if try(function() return outsq:isFree(false) end) then
+								local cost = math.sqrt((outsq:getX() - px) ^ 2 + (outsq:getY() - py) ^ 2)
+								-- smashing is loud: it's the last resort
+								if winIs(o, "isSmashed") then cost = cost + (winIs(o, "isGlassRemoved") and 0 or 3)
+								elseif not winIs(o, "IsOpen") then
+									cost = cost + ((winIs(o, "isLocked") or winIs(o, "isPermaLocked")) and 25 or 4)
+								end
+								out[#out + 1] = { o = o, sq = sq, out = outsq, cost = cost }
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, c) return a.cost < c.cost end)
+	return out
+end
+
+-- Get into building b through a ground-floor window: open it, or (locked) smash it and clear the glass,
+-- then climb in and shut it behind. True once inside; calls fail() when out of windows to try.
+function A.enterStep(p, t, b)
+	local e = t.entry
+	if not e then e = { phase = "pick", bad = {}, tries = 0 }; t.entry = e end
+	local function inB() local sq = p:getCurrentSquare(); return sq ~= nil and sq:getBuilding() == b end
+	if e.phase ~= "climb" and inB() then return true end
+	if e.phase == "pick" then
+		e.tries = e.tries + 1
+		local w = e.tries <= 4 and entryWindows(p, b, 0, e.bad)[1] or nil
+		if not w then fail(t, "no way into the building at " .. tostring(t.args[1]) .. "," .. tostring(t.args[2])); return false end
+		e.w, e.acts, e.triedOpen = w, 0, false
+		ISTimedActionQueue.clear(p)
+		pathTo(p, t, w.out:getX(), w.out:getY(), w.out:getZ())
+		e.phase, e.t1 = "goto", S.tick
+		H.action = "going round to a window"
+	elseif e.phase == "goto" then
+		if qlen(p) > 0 and not t.pathFailed and S.tick - e.t1 < 1200 then return false end
+		local o = e.w.out
+		if t.pathFailed or math.abs(p:getX() - o:getX() - 0.5) + math.abs(p:getY() - o:getY() - 0.5) > 2 then
+			e.bad[e.w.o] = true; e.phase = "pick"; return false
+		end
+		e.phase = "open"
+	elseif e.phase == "open" then
+		local w = e.w.o
+		e.acts = e.acts + 1
+		if e.acts > 6 then e.bad[w] = true; e.phase = "pick"; return false end
+		if winIs(w, "IsOpen") or (winIs(w, "isSmashed") and winIs(w, "isGlassRemoved")) or try(function() return w:canClimbThrough(p) end) then
+			Q(ISClimbThroughWindow:new(p, w, 0))
+			e.phase = "climb"; H.action = "climbing in through a window"
+		elseif winIs(w, "isSmashed") then
+			Q(ISRemoveBrokenGlass:new(p, w)); e.phase = "wait"; H.action = "clearing the broken glass"
+		elseif not winIs(w, "isPermaLocked") and not e.triedOpen then
+			e.triedOpen = true -- a locked one is worth one try before smashing it
+			Q(ISOpenCloseWindow:new(p, w)); e.phase = "wait"; H.action = "opening a window"
+		else
+			Q(ISSmashWindow:new(p, w)); Q(ISRemoveBrokenGlass:new(p, w))
+			e.phase = "wait"; H.action = "smashing a window to get in"
+			A.event("smashed a window to get in")
+		end
+		e.t1 = S.tick
+	elseif e.phase == "wait" then
+		if qlen(p) > 0 and S.tick - e.t1 < 900 then return false end
+		e.phase = "open"
+	elseif e.phase == "climb" then
+		if qlen(p) > 0 and S.tick - e.t1 < 600 then return false end
+		if inB() then
+			local w = e.w.o
+			if winIs(w, "IsOpen") and not winIs(w, "isSmashed") then Q(ISOpenCloseWindow:new(p, w)) end
+			if not e.told then e.told = true; A.event("climbed in through a window") end
+			return true
+		end
+		e.bad[e.w.o] = true; e.phase = "pick"
+	end
+	return false
+end
+
+-- Walk into the building at (tx, ty, tz); true once inside. No route (locked doors): in through a window.
+-- A target beyond the loaded map is approached in 40-tile legs until it loads.
+function A.travelStep(p, t, tx, ty, tz)
+	local tsq = sqAt(tx, ty, tz)
+	local tb = tsq and tsq:getBuilding()
+	local here = p:getCurrentSquare()
+	if tb and here and here:getBuilding() == tb and not t.entry then return true end
+	local tv = t.tv
+	if not tv then tv = { phase = "path", retries = 0, legs = 0 }; t.tv = tv end
+	if tv.phase == "path" then
+		if not tsq then
+			tv.legs = tv.legs + 1
+			local dx, dy = tx - p:getX(), ty - p:getY()
+			local len = math.max(1, math.sqrt(dx * dx + dy * dy))
+			local sq = tv.legs <= 15 and farthestFree(p, dx / len * 40, dy / len * 40) or nil
+			if not sq then fail(t, "no way " .. dir8(dx, dy)); return false end
+			pathTo(p, t, sq:getX(), sq:getY(), sq:getZ())
+		else
+			pathTo(p, t, tx, ty, tz)
+		end
+		tv.phase, tv.t1 = "walk", S.tick
+	elseif tv.phase == "walk" then
+		if t.pathFailed then
+			if tb then tv.phase = "window" else fail(t, "no route to " .. tx .. "," .. ty) end
+			return false
+		end
+		if qlen(p) == 0 and S.tick - tv.t1 > 60 then
+			if not tsq then tv.phase = "path"; return false end -- next leg
+			tv.retries = tv.retries + 1
+			if tv.retries > 2 then
+				if tb then tv.phase = "window" else fail(t, "couldn't get to " .. tx .. "," .. ty) end
+				return false
+			end
+			tv.phase = "path"
+		end
+	elseif tv.phase == "window" then
+		return A.enterStep(p, t, tb)
+	end
+	return false
+end
+
 A.tasks.loot_building = function(p, t)
 	local tx, ty, tz = tonumber(t.args[1]), tonumber(t.args[2]), tonumber(t.args[3]) or 0
 	if not tx or not ty then return fail(t, "no target building") end
 	if t.phase == "start" then
-		pathTo(p, t, tx, ty, tz)
-		t.phase, t.t1, t.resume = "travel", S.tick, "start"
+		t.tv, t.entry = nil, nil
+		t.phase, t.resume = "travel", "start"
 		H.action = "heading to a building " .. dir8(tx - p:getX(), ty - p:getY())
-	elseif t.phase == "travel" then
-		local here, there = buildingId(p:getCurrentSquare()), buildingId(sqAt(tx, ty, tz))
-		if here and there and here == there then
+	end
+	if t.phase == "travel" then
+		if A.travelStep(p, t, tx, ty, tz) and not (t.entry and qlen(p) > 0) then
 			ISTimedActionQueue.clear(p)
 			t.phase, t.resume = "next", "next"
-			return
 		end
-		if t.pathFailed then return fail(t, "no route to the building at " .. tx .. "," .. ty) end
-		if qlen(p) == 0 and S.tick - t.t1 > 60 then
-			t.retries = (t.retries or 0) + 1
-			if t.retries > 2 then return fail(t, "couldn't get inside the building at " .. tx .. "," .. ty) end
-			pathTo(p, t, tx, ty, tz)
-			t.t1 = S.tick
-		end
-	else
-		A.lootStep(p, t)
+		return
 	end
+	A.lootStep(p, t)
+end
+
+A.tasks.retreat_home = function(p, t)
+	local h = mem(p).home
+	if not h then return fail(t, "no home yet") end
+	if t.phase == "start" then
+		t.tv, t.entry = nil, nil
+		t.phase, t.resume = "travel", "start"
+	end
+	local dx, dy = h.x - p:getX(), h.y - p:getY()
+	if not t.entry then H.action = "heading home (" .. math.floor(math.sqrt(dx * dx + dy * dy)) .. " tiles " .. dir8(dx, dy) .. ")" end
+	if A.travelStep(p, t, h.x, h.y, h.z) and not (t.entry and qlen(p) > 0) then done(t, "home") end
 end
 
 A.tasks.explore = function(p, t)
@@ -913,7 +1410,8 @@ A.tasks.fight = function(p, t)
 	end
 	local close = 0
 	for _, e in ipairs(vis) do if e.d < 2 then close = close + 1 end end
-	if close >= 3 then return fail(t, "surrounded") end
+	-- surrounded: keep swinging at the nearest (the reflex breaks away when it can); giving up here left the
+	-- AI with no goal at all while three zombies bit it
 	if stat(p, "ENDURANCE") < 0.25 then return fail(t, "too exhausted to fight") end
 	local e = vis[1]
 	local w = p:getPrimaryHandItem()
@@ -942,13 +1440,19 @@ A.tasks.flee = function(p, t)
 		-- a leg only counts if it got us somewhere; legs that went nowhere (no path, interrupted) mean stuck
 		if t.legX then
 			local moved = math.abs(p:getX() - t.legX) + math.abs(p:getY() - t.legY)
-			if moved >= 3 then t.legs, t.stuck = (t.legs or 0) + 1, 0 else t.stuck = (t.stuck or 0) + 1 end
+			if moved >= 3 then t.legs, t.stuck = (t.legs or 0) + 1, 0
+			else
+				t.stuck = (t.stuck or 0) + 1
+				t.bad = t.bad or {}
+				if t.legSq then t.bad[t.legSq] = true end -- no way there: pick another direction next leg
+			end
 		end
 		if (t.legs or 0) >= 6 then pcall(function() p:setRunning(false) end); return done(t, "ran a long way") end
 		if (t.stuck or 0) >= 4 then pcall(function() p:setRunning(false) end); return fail(t, "stuck, can't get away") end
 		t.legX, t.legY = p:getX(), p:getY()
-		local sq = A.fleeSquare(p, zs, 14)
+		local sq = A.fleeSquare(p, zs, 14, t.bad)
 		if not sq then return fail(t, "nowhere to run") end
+		t.legSq = sq
 		ISTimedActionQueue.clear(p)
 		pcall(function() p:setRunning(true) end)
 		Q(ISPathFindAction:pathToLocationF(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ()))
@@ -963,24 +1467,62 @@ local function closeOpening(p, e)
 	return true
 end
 
+-- a window's curtain hangs on its inside square; stand there (or next to it) and pull it, like the game's menu
+local function closeCurtain(p, e)
+	local sq = e.sq
+	if sq and sq:isFree(false) then
+		if sq ~= p:getCurrentSquare() then Q(ISWalkToTimedAction:new(p, sq)) end
+	elseif not luautils.walkAdjWindowOrDoor(p, sq, e.o, true) then
+		return false
+	end
+	Q(ISOpenCloseCurtain:new(p, e.o))
+	return true
+end
+
 A.tasks.secure_building = function(p, t)
 	if qlen(p) > 0 and S.tick - (t.t1 or 0) < 600 then return end
-	local info = A.buildingInfo(p, true)
-	if not info then return fail(t, "not inside a building") end
+	-- the building it started in: closing a door can leave you standing on its outside
+	if not t.b then
+		local sq = p:getCurrentSquare()
+		if not (sq and sq:getBuilding()) and tonumber(t.args[1]) then
+			sq = sqAt(tonumber(t.args[1]), tonumber(t.args[2]), tonumber(t.args[3]) or 0) -- where the bridge saw us
+		end
+		t.b, t.z = sq and sq:getBuilding(), sq and sq:getZ() or math.floor(p:getZ())
+		if not t.b then return fail(t, "not inside a building") end
+	end
+	local info = A.scanBuilding(p, t.b, t.z)
+	S.cache.bld = nil
 	t.tries = t.tries or {}
 	local pick = nil
 	for _, e in ipairs(info.doorsOpen) do if (t.tries[e.o] or 0) < 2 then pick = e; break end end
 	if not pick then for _, e in ipairs(info.windowsOpen) do if (t.tries[e.o] or 0) < 2 then pick = e; break end end end
-	if not pick then return done(t, "closed every door and window I could") end
+	local curtain = false
+	if not pick then
+		for _, e in ipairs(info.curtainsOpen) do if (t.tries[e.o] or 0) < 2 then pick, curtain = e, true; break end end
+	end
+	if not pick then
+		A.maybeSetHome(p, t.b, info)
+		return done(t, "closed every door, window and curtain I could")
+	end
 	t.tries[pick.o] = (t.tries[pick.o] or 0) + 1
 	ISTimedActionQueue.clear(p)
-	closeOpening(p, pick)
+	if curtain then closeCurtain(p, pick) else closeOpening(p, pick) end
 	t.t1, t.resume = S.tick, "start"
-	H.action = "closing up the building"
+	H.action = curtain and "drawing the curtains" or "closing up the building"
 end
 
 A.tasks.hide = function(p, t)
-	if t.phase == "start" then t.phase = "close" end
+	local tx, ty, tz = tonumber(t.args[1]), tonumber(t.args[2]), tonumber(t.args[3]) or 0
+	if t.phase == "start" then
+		t.tv, t.entry = nil, nil
+		local sq = p:getCurrentSquare()
+		t.phase, t.resume = (tx and ty and not (sq and sq:getBuilding())) and "travel" or "close", "start"
+	end
+	if t.phase == "travel" then
+		if not t.entry then H.action = "getting indoors" end
+		if A.travelStep(p, t, tx, ty, tz) and not (t.entry and qlen(p) > 0) then t.phase = "close" end
+		return
+	end
 	if t.phase == "close" then
 		if qlen(p) > 0 then return end
 		local info = A.buildingInfo(p, true)
@@ -1003,6 +1545,85 @@ A.tasks.hide = function(p, t)
 	end
 end
 
+-- Sleep in the nearest bed in this building (on the floor if there's none), through the game's own sleep
+-- flow. The game refuses with zombies in sight, panic or bad pain; the reason is reported back.
+A.tasks.sleep = function(p, t)
+	local asleep = try(function() return p:isAsleep() end) == true
+	if t.phase == "start" then
+		if asleep then t.phase = "asleep"; return end
+		local sq = p:getCurrentSquare()
+		local b = sq and sq:getBuilding()
+		local bed = b and A.beds(p, b)[1] or nil
+		ISTimedActionQueue.clear(p)
+		pcall(function() p:setSneaking(false) end)
+		ISWorldObjectContextMenu.onConfirmSleep(nil, { internal = "YES" }, p:getPlayerNum(), bed and bed.o or nil)
+		t.b, t.bed = b, bed ~= nil
+		t.phase, t.t1, t.resume = "lie", S.tick, "start"
+		H.action = bed and "going to bed" or "lying down on the floor"
+	elseif t.phase == "lie" then
+		if asleep then
+			t.phase = "asleep"
+			A.event(t.bed and "went to sleep in a bed" or "went to sleep on the floor")
+			if t.b then A.maybeSetHome(p, t.b, A.buildingInfo(p, true)) end
+			return
+		end
+		if qlen(p) == 0 and S.tick - t.t1 > 90 then
+			local why = "couldn't fall asleep"
+			if (try(function() return p:getStats():getNumVisibleZombies() end) or 0) > 0 then why = "not safe to sleep, zombies in sight"
+			elseif moodle(p, "PANIC") >= 1 then why = "too panicked to sleep"
+			elseif moodle(p, "PAIN") >= 2 then why = "too much pain to sleep" end
+			return fail(t, why)
+		end
+		if S.tick - t.t1 > 2400 then return fail(t, "couldn't reach the bed") end
+	elseif t.phase == "asleep" then
+		H.action = "asleep"
+		if not asleep then done(t, "woke up"); H.action = "just woke up" end
+	end
+end
+
+local NO_STASH = { bin = true, stove = true, microwave = true, oven = true, toaster = true, barbecue = true, fireplace = true }
+
+-- Leave junk behind (A.junk). At home, food beyond a few snacks goes into the roomiest cupboard; away
+-- from home, or with nowhere to put it, it's dropped on the floor.
+A.tasks.drop_weight = function(p, t)
+	if t.phase == "start" then
+		local info = A.buildingInfo(p, true)
+		local home = mem(p).home
+		local atHome = (info and home and home.id == info.id) or false
+		local list = A.junk(p, atHome)
+		if #list == 0 then return done(t, "nothing worth leaving") end
+		local stash, room = nil, 0.5
+		if atHome then
+			for _, e in ipairs(info.all) do
+				local free = (try(function() return e.c:getCapacity() end) or 0) - (try(function() return e.c:getCapacityWeight() end) or 0)
+				if not NO_STASH[tostring(e.c:getType())] and free > room then stash, room = e, free end
+			end
+		end
+		ISTimedActionQueue.clear(p)
+		local stored, dropped = {}, {}
+		if stash then luautils.walkToContainer(stash.c, p:getPlayerNum()) end
+		for _, j in ipairs(list) do
+			local it = j.it
+			if stash and j.rank > 1 and j.kg <= room then
+				Q(ISInventoryTransferAction:new(p, it, it:getContainer(), stash.c))
+				room = room - j.kg
+				stored[#stored + 1] = it:getDisplayName()
+			elseif j.rank <= 4 or not atHome then
+				ISInventoryPaneContextMenu.dropItem(it, p:getPlayerNum())
+				dropped[#dropped + 1] = it:getDisplayName()
+			end
+		end
+		t.stored, t.dropped = stored, dropped
+		t.phase, t.t1, t.resume = "work", S.tick, "start"
+		H.action = #stored > 0 and "putting things away" or "dropping junk"
+	elseif t.phase == "work" then
+		if qlen(p) > 0 and S.tick - t.t1 < 1500 then return end
+		if #t.stored > 0 then A.event("stored at home: " .. table.concat(t.stored, ", ")) end
+		if #t.dropped > 0 then A.event("dropped " .. table.concat(t.dropped, ", ")) end
+		done(t, string.format("now carrying %.1f of %.0f", p:getInventory():getCapacityWeight(), p:getMaxWeight()))
+	end
+end
+
 ---------------------------------------------------------------- intent from the bridge
 function A.pollIntent(p)
 	local line = readFirstLine("intent.txt")
@@ -1020,12 +1641,27 @@ function A.pollIntent(p)
 	if not S.manual then A.startTask(p, seq, goal, { parts[3], parts[4], parts[5] }) end
 end
 
+-- the AI's own plan (written by the bridge's planner), for the HUD: "aim|current step"
+function A.readPlan()
+	local line = readFirstLine("plan.txt")
+	if not line then H.aim, H.step = nil, nil; return end
+	local parts = split(tostring(line), "|")
+	H.aim, H.step = parts[1] ~= "" and parts[1] or nil, parts[2] ~= "" and parts[2] or nil
+end
+
 ---------------------------------------------------------------- body upkeep
 function A.manageSpeed(p)
 	if not S.autoSpeed then return end
 	local cur = getSpeed()
 	if not cur or cur == 0 then return end -- paused by you: leave it
 	local want = (#A.zombies(p, 45) == 0 and not S.manual) and 2 or 1
+	-- waiting or resting in a closed-up home with nothing within 20 tiles: the quiet hours go faster
+	local t = S.task
+	if not S.manual and t and t.status == "running" and (t.goal == "wait" or t.goal == "rest") and #A.zombies(p, 20) == 0 then
+		local info = A.buildingInfo(p, false)
+		local home = mem(p).home
+		if info and home and info.id == home.id and #info.doorsOpen == 0 and #info.windowsOpen == 0 then want = 3 end
+	end
 	if cur ~= want then setSpeed(want) end
 end
 
@@ -1053,9 +1689,22 @@ function A.onTick()
 	S.tick = S.tick + 1
 	local p = P()
 	if not p then return end
+	-- a new character after a death: nothing cached about the old one's surroundings carries over
+	-- (the first new map once listed two buildings from the other end of the county)
+	local who = try(function() local d = p:getDescriptor(); return d:getForename() .. " " .. d:getSurname() end)
+	if who and who ~= S.who then
+		if S.who then S.cache, S.task, S.zc = {}, nil, nil end
+		S.who = who
+	end
 	if p:isDead() then
 		H.action = "DEAD"
 		if S.tick % (PERCEPT_EVERY * 4) == 0 then A.writePercept(p) end
+		return
+	end
+	if try(function() return p:isAsleep() end) then
+		H.action = "asleep"
+		if S.tick % PERCEPT_EVERY == 0 then safe("percept", A.writePercept, p) end
+		if S.tick % TASK_EVERY == 0 then safe("task", A.taskTick, p) end
 		return
 	end
 	local px, py = p:getX(), p:getY()
@@ -1080,10 +1729,13 @@ function A.onTick()
 	if not took and S.tick % TASK_EVERY == 0 then safe("task", A.taskTick, p) end
 	if S.tick % 15 == 0 then safe("speed", A.manageSpeed, p) end
 	if S.tick % 30 == 0 then safe("sneak", A.manageSneak, p) end
-	if S.observing and not took and qlen(p) == 0 and S.tick % 30 == 0 then
-		local rad = (math.floor(S.tick / 30) % 8) * (math.pi / 4)
+	-- watching: outdoors, a look round every ~7 s; indoors, stand still. (It used to turn to a new
+	-- direction every half second, which looked like spinning on the spot.)
+	if S.observing and not took and qlen(p) == 0 and S.tick % 400 == 0 and p:isOutside() then
+		local rad = ZombRand(8) * (math.pi / 4)
 		pcall(function() p:faceLocation(px + math.cos(rad) * 4, py + math.sin(rad) * 4) end)
 	end
+	if S.tick % 120 == 0 then safe("plan", A.readPlan) end
 	if S.tick % PERCEPT_EVERY == 0 then safe("percept", A.writePercept, p) end
 	if S.tick % INTENT_EVERY == 0 then safe("intent", A.pollIntent, p) end
 end
@@ -1116,7 +1768,7 @@ AIvZHUD = ISUIElement:derive("AIvZHUD")
 
 function AIvZHUD:new()
 	local sh = try(function() return getCore():getScreenHeight() end) or 1080
-	local h = 196
+	local h = 232
 	local o = ISUIElement:new(14, sh - h - 48, 400, h)
 	setmetatable(o, self)
 	self.__index = self
@@ -1159,11 +1811,14 @@ function AIvZHUD:render()
 	self:drawText("NOW: " .. tostring(H.action), 12, 46, 0.9, 0.95, 1, 1, UIFont.Small)
 	local ty = 64
 	for _, line in ipairs(self:wrap(H.why, 60)) do
-		if ty > 94 then break end
+		if ty > 79 then break end
 		self:drawText(line, 12, ty, 0.74, 0.79, 0.85, 1, UIFont.Small)
 		ty = ty + 15
 	end
-	local by = 118
+	local function cut(t, n) t = tostring(t); return #t > n and (t:sub(1, n - 1) .. "...") or t end
+	self:drawText("AIM: " .. cut(H.aim or "none yet", 56), 12, 98, 0.62, 0.86, 1, 1, UIFont.Small)
+	if H.step then self:drawText("NEXT: " .. cut(H.step, 55), 12, 113, 0.62, 0.86, 1, 1, UIFont.Small) end
+	local by = 136
 	local hp = try(function() return p:getBodyDamage():getOverallBodyHealth() end) or 0
 	self:bar("HP", hp / 100, 12, by, function(v) return v < 0.3 end)
 	self:bar("HUN", stat(p, "HUNGER"), 104, by, function(v) return v > 0.7 end)
@@ -1175,10 +1830,19 @@ function AIvZHUD:render()
 	local zt = zs[1] and (math.floor(zs[1].d) .. " tiles " .. dir8(zs[1].dx, zs[1].dy)) or "none in 30 tiles"
 	self:drawText("Zombies  " .. near .. " within 10 / " .. #zs .. " within 30  (nearest " .. zt .. ")", 12, by + 22, 0.9, 0.62, 0.62, 1, UIFont.Small)
 	local wpn = p:getPrimaryHandItem()
-	self:drawText("Kills " .. tostring(S.kills or 0) .. "  |  " .. (wpn and wpn:getDisplayName() or "no weapon"), 12, by + 38, 0.7, 0.86, 0.7, 1, UIFont.Small)
+	self:drawText("Kills " .. tostring(mem(p).kills or 0) .. "  |  " .. (wpn and wpn:getDisplayName() or "no weapon"), 12, by + 38, 0.7, 0.86, 0.7, 1, UIFont.Small)
+	local home = mem(p).home
+	local ht = "no home yet"
+	if home then
+		local sq = p:getCurrentSquare()
+		local b = sq and sq:getBuilding()
+		if b and bkey(b:getDef()) == home.id then ht = "at home"
+		else ht = "home " .. math.floor(math.sqrt((home.x - p:getX()) ^ 2 + (home.y - p:getY()) ^ 2)) .. " tiles " .. dir8(home.x - p:getX(), home.y - p:getY()) end
+	end
+	self:drawText(string.format("%s  |  %.1f/%.0f kg", ht, p:getInventory():getCapacityWeight(), p:getMaxWeight()), 12, by + 56, 0.55, 0.6, 0.66, 1, UIFont.Small)
 	local gt = getGameTime()
 	self:drawTextRight(string.format("day %d  %02d:%02d   F7 hide  G speed%s", gt:getNightsSurvived() + 1, gt:getHour(), gt:getMinutes(),
-		S.autoSpeed and "" or " (off)"), w - 12, by + 56, 0.55, 0.6, 0.66, 1, UIFont.Small)
+		S.autoSpeed and "" or " (off)"), w - 12, by + 74, 0.55, 0.6, 0.66, 1, UIFont.Small)
 end
 
 function A.startHUD()

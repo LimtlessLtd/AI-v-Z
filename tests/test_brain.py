@@ -202,6 +202,21 @@ class BridgeTests(unittest.TestCase):
             seq2, _ = self.intent(b)
             self.assertEqual(int(seq2), int(seq) + 1)   # a new order went out, even if it's the same goal
 
+    def test_an_ended_task_from_another_order_is_noticed(self):
+        # an order from before a bridge restart finished: the bridge must not wait on its own goal forever
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            b = self.make_bridge(tmp)
+            raw = copy.deepcopy(RAW)
+            raw["zombies"], raw["bld"]["doorsOpen"] = [], 0
+            b.on_percept(raw)
+            seq, _ = self.intent(b)
+            raw = copy.deepcopy(raw)
+            raw["ack"] = int(seq) + 5
+            raw["task"] = {"seq": int(seq) + 5, "goal": "sleep", "status": "done", "msg": "woke up", "phase": "asleep", "age": 400}
+            b.on_percept(raw)
+            self.assertEqual(int(self.intent(b)[0]), int(seq) + 6)
+
     def test_secure_building_rests_after_finishing(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -216,6 +231,331 @@ class BridgeTests(unittest.TestCase):
             b.on_percept(raw)
             self.assertNotIn("secure_building", b.situ.legal)
             self.assertNotEqual(self.intent(b)[1], "secure_building")
+
+
+def outside(raw, zombies=()):
+    raw = copy.deepcopy(raw)
+    raw["bld"], raw["outside"], raw["room"] = None, True, None
+    raw["zombies"] = list(zombies)
+    return raw
+
+
+class SurvivalTests(unittest.TestCase):
+    """Phase 2: home base, nights, sleep, weight."""
+
+    def test_scattered_zombies_far_off_are_not_a_horde(self):
+        # in game: 16 spread over 22-40 tiles of town, none chasing or in sight. The AI "fled" on the spot.
+        zs = ([{"dx": 0, "dy": -24, "d": 24, "seen": False, "chasing": False}] * 6
+              + [{"dx": 30, "dy": 0, "d": 30, "seen": False, "chasing": False}] * 7
+              + [{"dx": -35, "dy": 5, "d": 35.4, "seen": False, "chasing": False}] * 3)
+        s = summarize(outside(RAW, zs), Memory(), random.Random(1))
+        self.assertNotIn("flee", s.legal)   # nothing within 20 tiles to run from
+        self.assertNotEqual(strategy.plan(s.percept, s.legal).goal, "hide")
+
+    def test_hide_from_outside_runs_into_a_building_away_from_the_zombies(self):
+        raw = outside(RAW, [{"dx": 0, "dy": 6, "d": 6, "seen": True, "chasing": False}] * 3)
+        raw["buildings"] = [
+            {"id": "a", "d": 8, "dir": "S", "tx": 10500, "ty": 9807, "tz": 0, "rooms": ["kitchen"], "looted": True},
+            {"id": "b", "d": 14, "dir": "N", "tx": 10500, "ty": 9786, "tz": 0, "rooms": ["bedroom"], "looted": False},
+            {"id": "c", "d": 45, "dir": "E", "tx": 10545, "ty": 9800, "tz": 0, "rooms": ["bedroom"], "looted": False},
+        ]
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(s.args["hide"], (10500, 9786, 0))   # not the one the zombies stand next to
+
+    def test_home_is_described_and_can_be_walked_to(self):
+        raw = copy.deepcopy(RAW)
+        raw["home"] = {"x": 10460, "y": 9800, "z": 0, "d": 40.5, "dir": "W", "here": False}
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(s.percept["home"], "home base 40 tiles W")
+        self.assertEqual(s.args["retreat_home"], (10460, 9800, 0))
+        raw["home"]["here"], raw["bld"]["home"] = True, True
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(s.percept["home"], "you are at home base")
+        self.assertTrue(s.percept["where"].startswith("inside home base"))
+        self.assertNotIn("retreat_home", s.legal)
+
+    def test_dusk_outside_goes_home_or_shelters_when_home_is_far(self):
+        raw = outside(RAW)
+        raw["time"] = {"day": 1, "hour": 20, "min": 40, "dawn": 6, "dusk": 21}
+        raw["moodles"] = {}
+        raw["home"] = {"x": 10460, "y": 9800, "z": 0, "d": 40, "dir": "W", "here": False}
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "retreat_home")
+        raw["home"]["d"] = 300
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "hide")
+        self.assertEqual(len(s.args["hide"]), 3)
+
+    def test_stays_home_at_sunset(self):
+        # in game: at home 20 minutes before sunset, "next house" outscored everything indoors, so the AI
+        # walked out, got sent home, and walked out again
+        raw = copy.deepcopy(RAW)
+        raw["time"] = {"day": 1, "hour": 21, "min": 14, "dawn": 7.1, "dusk": 21.6}
+        raw["bld"].update(doorsOpen=0, searched=9, home=True, bed=True)
+        raw["home"] = {"x": 10500, "y": 9800, "z": 0, "d": 1, "dir": "HERE", "here": True}
+        raw["moodles"], raw["zombies"] = {}, []
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertNotIn(strategy.plan(s.percept, s.legal).goal, ("loot_building", "explore"))
+
+    def test_sleeps_at_night_at_a_closed_up_home(self):
+        raw = copy.deepcopy(RAW)
+        raw["time"] = {"day": 2, "hour": 23, "min": 30, "dawn": 6, "dusk": 21}
+        raw["bld"].update(doorsOpen=0, searched=9, home=True, bed=True)
+        raw["home"] = {"x": 10500, "y": 9800, "z": 0, "d": 1, "dir": "HERE", "here": True}
+        raw["moodles"], raw["zombies"] = {"tired": 1}, []
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "sleep")
+
+    def test_no_sleep_with_a_zombie_in_sight(self):
+        raw = copy.deepcopy(RAW)
+        raw["moodles"] = {"tired": 3}
+        raw["zombies"] = [{"dx": 5, "dy": 0, "d": 5, "seen": True, "chasing": False}]
+        self.assertNotIn("sleep", summarize(raw, Memory(), random.Random(1)).legal)
+
+    def test_heavy_bag_sheds_junk(self):
+        raw = copy.deepcopy(RAW)
+        raw["bld"]["doorsOpen"], raw["zombies"], raw["moodles"] = 0, [], {}
+        raw["weight"], raw["junk"] = 11.5, {"drop": 7.0, "store": 0}
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "drop_weight")
+        raw["weight"] = 6   # light enough: junk can wait
+        self.assertNotIn("drop_weight", summarize(raw, Memory(), random.Random(1)).legal)
+
+    def test_hungry_eats_from_the_cupboards(self):
+        raw = copy.deepcopy(RAW)
+        raw["inv"]["food"], raw["moodles"], raw["zombies"] = [], {"hungry": 2}, []
+        raw["bld"].update(doorsOpen=0, food=3, searched=9)   # with rooms left to search it is a close call
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertIn("3 food items in the cupboards here", s.percept["building"])
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "eat")
+
+    def test_cornered_fights_back_instead_of_fetching_water(self):
+        # the first death: flee kept failing ("stuck"), fight was ruled out, so the AI went for a drink and
+        # bled out under two zombies
+        raw = copy.deepcopy(RAW)
+        raw["moodles"] = {"thirst": 2, "endurance": 2, "panic": 3, "pain": 2}
+        raw["zombies"] = [{"dx": 1, "dy": 1, "d": 1.4, "seen": True, "chasing": True}] * 2
+        s = summarize(raw, Memory(), random.Random(1))
+        legal = [g for g in s.legal if g != "flee"]   # flee cooling down after it failed
+        self.assertEqual(strategy.plan(s.percept, legal).goal, "fight")
+
+    def test_zombies_behind_you_count_against_a_fight(self):
+        # the second death: 3 chasing in front, 4 more within 3 tiles out of sight; it fought with a frying pan
+        raw = outside(RAW, [{"dx": -2, "dy": 0, "d": 2, "seen": True, "chasing": True}] * 3
+                      + [{"dx": 1, "dy": 2, "d": 2.2, "seen": False, "chasing": False}] * 4)
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "flee")
+
+    def test_buildings_with_zombies_round_them_are_not_looted(self):
+        raw = outside(RAW, [{"dx": 0, "dy": 25, "d": 25, "seen": False, "chasing": False}] * 4)   # at the house S
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertNotEqual(s.args.get("loot_building"), (10500, 9826, 0))   # the house next door instead
+
+    def test_a_flee_is_not_dropped_for_a_fight_straight_away(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            args = __import__("argparse").Namespace(lua_dir=tmp, log_dir=tmp, no_llm=True, model="none", ollama=None, port=0)
+            b = bridge_mod.Bridge(args)
+            raw = outside(RAW, [{"dx": 0, "dy": 6, "d": 6, "seen": True, "chasing": True}] * 5)
+            b.on_percept(raw)
+            self.assertEqual(b.current["goal"], "flee")
+            raw = copy.deepcopy(raw)
+            raw["zombies"] = [{"dx": 0, "dy": 6, "d": 6, "seen": True, "chasing": True}]   # down to one
+            raw["task"] = {"seq": b.seq, "goal": "flee", "status": "running", "msg": "", "phase": "run", "age": 30}
+            b.current["at"] = 0
+            b.on_percept(raw)
+            self.assertEqual(b.current["goal"], "flee")   # still running
+            b.current["t0"] -= 10
+            b.current["at"] = 0
+            b.on_percept(copy.deepcopy(raw))
+            self.assertEqual(b.current["goal"], "fight")
+
+    def test_bleeding_without_bandages_tears_a_shirt(self):
+        raw = copy.deepcopy(RAW)
+        raw["zombies"], raw["rags"] = [], True
+        raw["wounds"] = [{"part": "Hand_R", "flags": ["bleeding", "laceration"]}]
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertIn("a spare shirt to tear into bandages", s.percept["inventory"]["medical"])
+        self.assertEqual(strategy.plan(s.percept, s.legal).goal, "bandage")
+
+    def test_bridge_stays_quiet_while_asleep(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            args = __import__("argparse").Namespace(lua_dir=tmp, log_dir=tmp, no_llm=True, model="none", ollama=None, port=0)
+            b = bridge_mod.Bridge(args)
+            raw = copy.deepcopy(RAW)
+            raw["asleep"] = True
+            b.on_percept(raw)
+            self.assertFalse(b.intent_path.exists())
+            self.assertEqual(b.status, "asleep")
+
+
+def planning_world(tmp, raw):
+    from brain.memory import WorldMemory
+    world = WorldMemory(tmp, "test", "Tania Ward")
+    world.observe(raw)
+    return world
+
+
+PHARMACY = {"id": "789", "d": 48, "dir": "E", "tx": 10548, "ty": 9805, "tz": 0, "rooms": ["pharmacy"], "looted": False}
+
+
+class PlannerTests(unittest.TestCase):
+    """The AI's own aim and plan (brain/planner.py) and its long-term memory (brain/memory.py)."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.raw = copy.deepcopy(RAW)
+        self.raw["buildings"].append(copy.deepcopy(PHARMACY))
+        self.raw["home"] = {"id": "123", "x": 10500, "y": 9800, "z": 0, "d": 1, "dir": "HERE", "here": True}
+        self.world = planning_world(self.tmp.name, self.raw)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def labels(self):
+        return {label: pid for label, pid, _ in self.world.labelled_places(self.raw)}
+
+    def test_places_get_kinds_and_labels(self):
+        from brain.memory import building_kind
+        self.assertEqual(building_kind(["pharmacystorage", "pharmacy"]), "pharmacy")
+        self.assertEqual(building_kind(["bedroom", "kitchen"]), "house")
+        texts = [t for _, _, t in self.world.labelled_places(self.raw)]
+        self.assertTrue(any(t.startswith("pharmacy 48 tiles E") for t in texts))
+
+    def test_plan_keeps_only_steps_it_can_carry_out(self):
+        from brain import planner
+        labels = self.labels()
+        pharmacy = next(l for l, pid in labels.items() if pid == "789")
+        obj = {"aim": "Find bandages", "why": "None left.", "steps": [
+            {"do": "explore", "where": "E", "note": "towards the pharmacy"},   # dropped: loot walks there
+            {"do": "loot", "where": pharmacy, "note": "bandages"},
+            {"do": "loot", "where": "P99", "note": "made up"},                  # dropped: unknown place
+            {"do": "explore", "where": "up", "note": "nonsense"},               # dropped: not a direction
+            {"do": "go_home", "where": "", "note": "before dark"}]}
+        plan = planner.parse_plan(obj, self.raw, self.world, labels)
+        self.assertEqual([s.do for s in plan.steps], ["loot", "go_home"])
+        self.assertEqual(plan.steps[0].target, (10548, 9805, 0))
+        self.assertIsNone(planner.parse_plan({"aim": "x", "why": "", "steps": [{"do": "loot", "where": "P99"}]},
+                                             self.raw, self.world, labels))
+
+    def test_steps_that_dont_apply_are_skipped(self):
+        from brain import planner
+        plan = planner.Plan("Rest up", "", [planner.Step("close_up", "secure_building"),
+                                            planner.Step("go_home", "retreat_home"),
+                                            planner.Step("explore", "explore", "N", target=(0, -40, 0))])
+        # already closed up and at home: straight on to exploring
+        self.assertEqual(planner.hint(plan, {"wait": ()}, self.raw, self.world.places), ("explore", (0, -40, 0)))
+        self.assertEqual([s.status for s in plan.steps], ["skipped", "done", "todo"])
+
+    def test_steps_advance_as_tasks_end(self):
+        from brain import planner
+        plan = planner.Plan("Scout", "", [planner.Step("explore", "explore", "N", target=(0, -40, 0)),
+                                          planner.Step("loot", "loot_building", "P1", place="456")])
+        planner.on_task_end(plan, "explore", "done")
+        self.assertEqual(plan.current().do, "explore")    # one leg isn't enough
+        planner.on_task_end(plan, "explore", "done")
+        self.assertEqual(plan.current().do, "loot")
+        planner.on_task_end(plan, "loot_building", "failed", "no way in")
+        planner.on_task_end(plan, "loot_building", "failed", "no way in")
+        self.assertTrue(plan.finished())
+        self.assertIn("finished", planner.needs_new_plan(plan, self.raw))
+
+    def test_plan_age_uses_the_world_clock(self):
+        # the day number ticks over at dawn: day 1 06:38 -> day 2 07:00 is 22 minutes, not a day
+        from brain import planner
+        plan = planner.Plan("x", "", [planner.Step("wait", "wait")], made_hour=30.6)
+        raw = {"time": {"day": 2, "hour": 7, "min": 0, "age": 31.0}}
+        self.assertIsNone(planner.needs_new_plan(plan, raw))
+        raw["time"]["age"] = 37.0
+        self.assertIn("hours old", planner.needs_new_plan(plan, raw))
+
+    def test_plan_step_beats_routine_but_not_danger(self):
+        self.raw["bld"]["doorsOpen"] = 0   # an open door with a zombie about rightly comes first
+        s = summarize(self.raw, Memory(), random.Random(1))
+        self.assertEqual(strategy.plan(s.percept, s.legal, plan_goal="explore").goal, "explore")
+        raw = copy.deepcopy(self.raw)
+        raw["zombies"] = [{"dx": 0, "dy": 6, "d": 6, "seen": True, "chasing": True}] * 5
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertNotEqual(strategy.plan(s.percept, s.legal, plan_goal="explore").goal, "explore")
+
+    def test_bridge_asks_for_a_plan_and_follows_it(self):
+        from brain import planner
+
+        class FakeLLM:
+            def structured(self, messages, schema, **kw):
+                import re
+                pharmacy = re.search(r"(P\d+): pharmacy", messages[1]["content"]).group(1)   # read it like Qwen
+                return {"aim": "Stock up on bandages", "why": "None left.",
+                        "steps": [{"do": "loot", "where": pharmacy, "note": "pharmacy for bandages"}]}, 1000.0
+
+            def choose(self, percept, legal):
+                return legal[0], "Off to the pharmacy.", 900.0
+
+        args = __import__("argparse").Namespace(lua_dir=self.tmp.name, log_dir=self.tmp.name, no_llm=True,
+                                               model="none", ollama=None, port=0)
+        b = bridge_mod.Bridge(args)
+        b.llm = FakeLLM()
+        b.llm_state["ready"] = True
+        raw = copy.deepcopy(self.raw)
+        raw["who"], raw["zombies"], raw["moodles"] = {"name": "Tania Ward", "save": "test"}, [], {}
+        raw["bld"].update(doorsOpen=0, searched=9, looted=True, home=True)
+        b.on_percept(raw)
+        self.assertTrue(b.plan_pending)
+        while (job := b._next_job()) is not None:   # a speech line for the first goal, then the planning call
+            b._run_job(job)
+        self.assertEqual(b.agenda.aim, "Stock up on bandages")
+        self.assertIn("New plan: Stock up on bandages", b.intent_path.read_text(encoding="utf-8"))
+        self.assertIn("Stock up on bandages|", (Path(self.tmp.name) / "plan.txt").read_text(encoding="utf-8"))
+        b.current["at"] = 0   # due for a re-plan
+        b.on_percept(copy.deepcopy(raw))
+        self.assertEqual(b.current["goal"], "loot_building")
+        self.assertEqual(b.current["args"], [10548, 9805, 0])
+        self.assertIsInstance(planner.Plan.from_dict(b.agenda.to_dict()), planner.Plan)
+
+    def test_speech_is_not_repeated_for_a_resent_goal(self):
+        class FakeLLM:
+            def choose(self, percept, legal):
+                return legal[0], "Thirsty. Zombies about.", 900.0
+
+        args = __import__("argparse").Namespace(lua_dir=self.tmp.name, log_dir=self.tmp.name, no_llm=True,
+                                               model="none", ollama=None, port=0)
+        b = bridge_mod.Bridge(args)
+        b.llm = FakeLLM()
+        raw = copy.deepcopy(RAW)
+        raw["zombies"], raw["bld"]["doorsOpen"], raw["moodles"] = [], 0, {}
+        lines = []
+        for _ in range(3):   # the same goal finishing and being re-sent
+            b.on_percept(copy.deepcopy(raw))
+            job = b._next_job()
+            if job:
+                b._run_job(job)
+            lines.append(b.intent_path.read_text(encoding="utf-8").split("|")[5])
+            raw["task"] = {"seq": b.seq, "goal": b.current["goal"], "status": "done", "msg": "", "phase": "", "age": 900}
+        self.assertEqual(sum(1 for line in lines if line), 1)
+
+
+class KnowledgeTests(unittest.TestCase):
+    def test_bleeding_without_bandages_brings_up_tearing_clothes(self):
+        # in game it said "I need to find bandages" while wearing a T-shirt
+        from brain import knowledge
+        raw = copy.deepcopy(RAW)
+        raw["wounds"] = [{"part": "Torso_Lower", "flags": ["bleeding", "laceration"]}]
+        raw["rags"] = {"name": "T-shirt", "worn": True}
+        s = summarize(raw, Memory(), random.Random(1))
+        self.assertIn("you can tear your T-shirt into bandages (take it off first)", s.percept["inventory"]["medical"])
+        facts = knowledge.relevant(s.percept, 3)
+        self.assertTrue(facts[0].startswith("Bleeding kills fast"))
+        s.percept["knowhow"] = facts
+        self.assertIn("Tear any cotton clothing", build_messages(s.percept, s.legal)[1]["content"])
+
+    def test_planner_gets_shop_advice_and_only_relevant_facts(self):
+        from brain import knowledge
+        s = summarize(RAW, Memory(), random.Random(1))
+        facts = knowledge.relevant(s.percept, 6, planning=True)
+        self.assertTrue(any(f.startswith("Shops beat houses") for f in facts))
+        self.assertFalse(any(f.startswith("Bleeding") for f in facts))
 
 
 class IntentLineTests(unittest.TestCase):
