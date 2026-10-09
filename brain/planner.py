@@ -17,6 +17,7 @@ PLAN_SCORE = 70          # the plan's step beats looting (50), a top-up drink (4
                          # but not a fight (90), bleeding (92), nightfall (85) or severe thirst (75)
 REPLAN_GAME_HOURS = 6    # a plan older than this gets revisited
 EXPLORE_LEGS = 2         # an "explore" step is done after this many walks that way
+MAX_TRIP = 250           # tiles: further than this isn't a day trip
 
 # what the model may write -> the goal it maps to
 ACTIONS = {
@@ -173,6 +174,9 @@ def parse_plan(obj, raw, world, labels, reason=""):
             pid = labels.get(where)
             p = world.places.get(pid) if pid else None
             if not p or p.get("looted") or p.get("locked"):
+                continue
+            pos = raw.get("pos") or {}
+            if pos and math.hypot(p["x"] - pos.get("x", 0), p["y"] - pos.get("y", 0)) > MAX_TRIP:
                 continue
             step.place, step.target = pid, (p["x"], p["y"], p.get("z", 0))
         elif do == "explore":

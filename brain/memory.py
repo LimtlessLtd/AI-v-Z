@@ -90,7 +90,10 @@ class WorldMemory:
     def observe(self, raw, unreachable=()):
         """Fold one percept into the map: buildings seen, looted, unreachable; today's events."""
         day = (raw.get("time") or {}).get("day", 1)
+        pos = raw.get("pos") or {}
         for b in raw.get("buildings") or []:
+            if pos and math.hypot(b["tx"] - pos.get("x", 0), b["ty"] - pos.get("y", 0)) > 90:
+                continue   # the mod scans 60 tiles; anything further is a stale scan from before a respawn
             p = self.places.setdefault(b["id"], {"found": []})
             rooms = b.get("rooms") or p.get("rooms") or []
             p.update(kind=building_kind(rooms), rooms=rooms, x=b["tx"], y=b["ty"], z=b.get("tz", 0), seen_day=day)

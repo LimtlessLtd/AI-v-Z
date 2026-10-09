@@ -1657,6 +1657,13 @@ function A.onTick()
 	S.tick = S.tick + 1
 	local p = P()
 	if not p then return end
+	-- a new character after a death: nothing cached about the old one's surroundings carries over
+	-- (the first new map once listed two buildings from the other end of the county)
+	local who = try(function() local d = p:getDescriptor(); return d:getForename() .. " " .. d:getSurname() end)
+	if who and who ~= S.who then
+		if S.who then S.cache, S.task, S.zc = {}, nil, nil end
+		S.who = who
+	end
 	if p:isDead() then
 		H.action = "DEAD"
 		if S.tick % (PERCEPT_EVERY * 4) == 0 then A.writePercept(p) end
