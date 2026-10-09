@@ -1,0 +1,286 @@
+{
+  "label": "tev1_4b-q4_K_M__auto__systemone__short__pz-open",
+  "model": "tev1:4b-q4_K_M",
+  "backend": "systemone",
+  "mode": "auto",
+  "why_first": false,
+  "long": false,
+  "pz_running": true,
+  "when": "2026-10-08T21:41:30",
+  "ollama": "0.40.1",
+  "settings": {
+    "num_ctx": 4096,
+    "temperature": 0.3,
+    "num_predict": 80,
+    "think": false,
+    "keep_alive": -1,
+    "repeats": 1
+  },
+  "n": 31,
+  "valid_json_rate": 1.0,
+  "sensible_rate": 0.6774193548387096,
+  "bad_rate": 0.0967741935483871,
+  "stable_rate": 1.0,
+  "latency_ms": {
+    "median": 688.18,
+    "p95": 756.1,
+    "max": 781.68,
+    "cold_start": 9367
+  },
+  "tokens": {
+    "prompt_median": 671,
+    "prompt_max": 758,
+    "out_median": 1
+  },
+  "why_words_median": 0,
+  "vram": {
+    "gpu_total_mib": 6144,
+    "baseline_used_mib": 2032,
+    "after_load_used_mib": 4904,
+    "peak_used_mib": 4912,
+    "ollama_model_mib": 2761,
+    "ollama_model_vram_mib": 2761
+  },
+  "per_snapshot": {
+    "day1_start": {
+      "goals": {
+        "loot_here": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "thirsty_sink": {
+      "goals": {
+        "drink": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "hungry_has_food": {
+      "goals": {
+        "eat": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "hungry_thirsty_empty": {
+      "goals": {
+        "loot_building": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "lone_zombie_armed": {
+      "goals": {
+        "fight": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "group_five_chasing": {
+      "goals": {
+        "flee": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "horde_approaching_indoors": {
+      "goals": {
+        "loot_here": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 0.0
+    },
+    "night_outdoors_no_light": {
+      "goals": {
+        "loot_building": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 1.0
+    },
+    "night_home_tired": {
+      "goals": {
+        "sleep": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "tired_zombies_near_unsecured": {
+      "goals": {
+        "secure_building": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "bleeding_safe": {
+      "goals": {
+        "bandage": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "bleeding_chased": {
+      "goals": {
+        "flee": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "bitten_at_home": {
+      "goals": {
+        "bandage": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "house_fully_looted": {
+      "goals": {
+        "loot_building": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "overloaded_near_home": {
+      "goals": {
+        "loot_building": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 1.0
+    },
+    "exhausted_safe": {
+      "goals": {
+        "loot_here": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 0.0
+    },
+    "exhausted_zombies_close": {
+      "goals": {
+        "flee": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "unarmed_has_weapon": {
+      "goals": {
+        "loot_building": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 0.0
+    },
+    "panic_after_chase": {
+      "goals": {
+        "loot_here": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 0.0
+    },
+    "soaked_cold": {
+      "goals": {
+        "loot_building": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 0.0
+    },
+    "food_poisoning": {
+      "goals": {
+        "rest": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "water_shutoff": {
+      "goals": {
+        "loot_here": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 0.0
+    },
+    "all_good_daytime": {
+      "goals": {
+        "loot_building": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "zombies_at_door": {
+      "goals": {
+        "loot_here": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 1.0
+    },
+    "dusk_far_from_home": {
+      "goals": {
+        "loot_building": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "pain_painkillers": {
+      "goals": {
+        "take_medicine": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "weapon_breaking": {
+      "goals": {
+        "loot_building": 1
+      },
+      "sensible_rate": 0.0,
+      "bad_rate": 0.0
+    },
+    "surrounded": {
+      "goals": {
+        "flee": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "extreme_thirst_blocked": {
+      "goals": {
+        "drink": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "night_home_not_tired": {
+      "goals": {
+        "wait": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    },
+    "helicopter_event": {
+      "goals": {
+        "retreat_home": 1
+      },
+      "sensible_rate": 1.0,
+      "bad_rate": 0.0
+    }
+  },
+  "decision": {
+    "mean_confidence": 0.44282037361993093,
+    "routing": [
+      {
+        "threshold": 0.3,
+        "coverage": 0.6451612903225806,
+        "sensible_rate": 0.7,
+        "bad_rate": 0.1
+      },
+      {
+        "threshold": 0.5,
+        "coverage": 0.3548387096774194,
+        "sensible_rate": 0.7272727272727273,
+        "bad_rate": 0.09090909090909091
+      },
+      {
+        "threshold": 0.7,
+        "coverage": 0.0967741935483871,
+        "sensible_rate": 1.0,
+        "bad_rate": 0.0
+      }
+    ]
+  }
+}
