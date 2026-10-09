@@ -1,7 +1,7 @@
 # Phase 0 — brain benchmark
 
 **Date:** 2026-10-08 · **Ollama:** 0.40.1 (models on `E:\Ollama\models`) · **GPU:** RTX 2060 6 GB ·
-**PZ:** closed for all runs so far (see "Still to measure")
+**PZ:** closed, except the rows marked "PZ open" (42.21 with a save loaded, same day)
 
 ## Setup
 
@@ -28,18 +28,44 @@
 | rules · auto · PZ closed | 100% | 100% | 0% | 100% | <1 | <1 | <1 | <1 | – | – | – |
 | qwen3.5:4b · chat · auto · long · PZ closed | 100% | 65% | 6% | 100% | 1,152 | 1,152 | 1,194 | 5,335 | 1115 | 2983 / 2983 | 1562 → 5308 |
 | qwen3.5:4b · chat · auto · PZ closed | 100% | 73% | 5% | 90% | 815 | 801 | 896 | 4,971 | 632 | 2983 / 2983 | 1618 → 5408 |
+| qwen3.5:4b · chat · auto · PZ open | 100% | 81% | 3% | 100% | 1,041 | 1,041 | 1,106 | 15,885 | 632 | 2983 / 2983 | 5416 → 5802 |
 | qwen3.5:4b · chat · auto · why-first · PZ closed | 100% | 68% | 6% | 45% | 846 | 817 | 908 | 4,661 | 632 | 2983 / 2983 | 1582 → 5313 |
 | qwen3.5:4b · chat · cpu · PZ closed | 100% | 71% | 3% | 100% | 7,784 | 7,784 | 8,664 | 12,182 | 632 | 0 / 2989 | 1575 → 1565 |
+| qwen3.5:4b · chat · cpu · PZ open | 100% | 68% | 6% | 100% | 8,192 | 8,192 | 8,886 | 17,196 | 632 | 0 / 2989 | 2022 → 2042 |
 | qwen3.5:latest · chat · auto · PZ closed | 100% | 81% | 2% | 84% | 3,699 | 3,616 | 4,127 | 15,810 | 632 | 3357 / 5864 | 1561 → 5687 |
 | qwen3:4b · chat · auto · PZ closed | 100% | 66% | 5% | 94% | 591 | 559 | 641 | 11,382 | 604 | 3031 / 3031 | 1561 → 4691 |
 | tev1:0.8b · systemone · auto · PZ closed | 100% | 39% | 19% | 100% | 175 | 97 | 198 | 461 | 758 | 852 / 852 | 2460 → 2456 |
+| tev1:0.8b · systemone · auto · PZ open | 100% | 39% | 19% | 100% | 214 | 214 | 238 | 4,851 | 758 | 852 / 852 | 2034 → 2986 |
 | tev1:4b-q4_K_M · systemone · auto · PZ closed | 100% | 68% | 10% | 100% | 551 | 179 | 580 | 3,497 | 758 | 2761 / 2761 | 1483 → 4354 |
+| tev1:4b-q4_K_M · systemone · auto · PZ open | 100% | 68% | 10% | 100% | 688 | 688 | 756 | 9,367 | 758 | 2761 / 2761 | 2032 → 4912 |
 
 - **Sensible** means the goal was in the acceptable set; **bad** means it was in the dangerous/wasteful set.
 - **Stable** means all 3 repeats agreed. Decision models don't sample, so they're always stable.
 - **First-pass ms** is the median of the first repeat only. Later repeats send identical prompts, which
   Ollama partly serves from cache. The first pass is the realistic in-game number, because the state is
   different every time.
+
+## With PZ running
+
+PZ 42.21 itself took **~3.9 GB of the 6 GB** with a save loaded (GPU use was 5.4 GB before Qwen was asked
+anything, with Qwen already loaded). Windows (WDDM) then moves some graphics memory into system RAM, so
+Qwen still ran entirely on the GPU:
+
+| | PZ closed | PZ open |
+|---|---|---|
+| `qwen3.5:4b` on GPU, per decision | 815 ms | **1,041 ms** (p95 1,106) |
+| `qwen3.5:4b` on CPU only | 7,784 ms | 8,192 ms |
+| `tev1:4b-q4_K_M` | 551 ms | 688 ms |
+| `tev1:0.8b` | 175 ms | 214 ms |
+| Cold start (first load) `qwen3.5:4b` | 5.0 s | 15.9 s |
+
+- **The 4B stays usable with the game open: ~1.0 s per decision.** In the first in-game run (2026-10-09)
+  the bridge measured 1.0–1.3 s per Qwen call.
+- The PZ-open runs used **1 repeat** instead of 3, so their "Stable" column means nothing and their
+  accuracy differs from the PZ-closed runs only by sampling noise (31 answers). Latency is the point of
+  these rows.
+- Not yet measured: whether moving PZ's graphics memory out to RAM makes the game stutter. Nothing was
+  visible in the first run, but nobody watched frame times.
 
 ## Decision models (Jev-style) vs Qwen
 
@@ -96,8 +122,8 @@
    | Rules | <0.1 ms |
 7. **VRAM:**
    - **4B:** takes 2,983 MiB itself; with the CUDA context, GPU usage went from ~1.6 GB to **5.4 of 6.1
-     GB** before PZ was even running. **With PZ open it won't fit entirely on the GPU** unless desktop apps
-     are closed. Expect latency somewhere between the GPU and CPU numbers. Not yet measured.
+     GB** before PZ was even running. With PZ open it still ran fully on the GPU at ~1.0 s per decision,
+     because Windows moves graphics memory into system RAM (see "With PZ running").
    - **9B:** only 3.4 of its 5.9 GB fit on the GPU.
 
 ## Winner
@@ -115,8 +141,8 @@
 
 ## Still to measure
 
-- [ ] **With PZ open** (load a save, then `python bench/run_bench.py --model qwen3.5:4b` and
-      `--model tev1:4b-q4_K_M`). This is the decisive VRAM/latency number.
+- [x] **With PZ open**: ~1.0 s per decision for `qwen3.5:4b` (see "With PZ running").
+- [ ] Game frame times with Qwen loaded vs not (does the memory shuffling cause stutter?).
 - [ ] Fine-tuned decision model (Julia-1 / Laya / tev1) on labels from real play. Needs Phase 1 logs.
 - [ ] A fairer test set: situations written by you, or taken from real game logs, that the rules weren't
       written against.
@@ -143,38 +169,38 @@ Raw answers, including every "why" line and every decision-model probability, ar
 
 <details><summary>Per-snapshot picks (✅ all sensible · ⚠️ some not sensible · ❌ at least one dangerous pick)</summary>
 
-| Snapshot | Sensible | rules · auto · PZ closed | qwen3.5:4b · chat · auto · long · PZ closed | qwen3.5:4b · chat · auto · PZ closed | qwen3.5:4b · chat · auto · why-first · PZ closed | qwen3.5:4b · chat · cpu · PZ closed | qwen3.5:latest · chat · auto · PZ closed | qwen3:4b · chat · auto · PZ closed | tev1:0.8b · systemone · auto · PZ closed | tev1:4b-q4_K_M · systemone · auto · PZ closed |
-|---|---|---|---|---|---|---|---|---|---|---|
-| `day1_start` | loot_here | ✅ loot_here | ✅ loot_here | ✅ loot_here×3 | ⚠️ drink×2, loot_here | ⚠️ drink | ✅ loot_here×3 | ⚠️ secure_building×3 | ⚠️ wait×3 | ✅ loot_here×3 |
-| `thirsty_sink` | drink | ✅ drink | ⚠️ fill_water | ⚠️ fill_water×3 | ⚠️ fill_water×2, drink | ⚠️ fill_water | ✅ drink×3 | ✅ drink×3 | ⚠️ wait×3 | ✅ drink×3 |
-| `hungry_has_food` | eat | ✅ eat | ⚠️ drink | ⚠️ drink×3 | ⚠️ eat×2, drink | ⚠️ drink | ⚠️ drink×3 | ✅ eat×3 | ⚠️ drink×3 | ✅ eat×3 |
-| `hungry_thirsty_empty` | loot_building | ✅ loot_building | ✅ loot_building | ✅ loot_building×3 | ✅ loot_building×3 | ✅ loot_building | ⚠️ explore×2, loot_building | ⚠️ explore×3 | ❌ wait×3 | ✅ loot_building×3 |
-| `lone_zombie_armed` | fight | ✅ fight | ⚠️ flee | ⚠️ flee×3 | ⚠️ flee×2, fight | ⚠️ flee | ✅ fight×3 | ❌ loot_building×3 | ✅ fight×3 | ✅ fight×3 |
-| `group_five_chasing` | flee | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee×3 | ✅ flee | ✅ flee×3 | ✅ flee×3 | ❌ wait×3 | ✅ flee×3 |
-| `horde_approaching_indoors` | secure_building, hide, flee | ✅ secure_building | ✅ secure_building | ✅ secure_building×3 | ✅ secure_building, flee, hide | ✅ secure_building | ⚠️ secure_building×2, loot_here | ✅ flee×3 | ⚠️ wait×3 | ⚠️ loot_here×3 |
-| `night_outdoors_no_light` | retreat_home | ✅ retreat_home | ❌ loot_building | ❌ loot_building×3 | ❌ wait, loot_building, retreat_home | ❌ loot_building | ❌ retreat_home×2, loot_building | ✅ retreat_home×3 | ⚠️ wait×3 | ❌ loot_building×3 |
-| `night_home_tired` | sleep | ✅ sleep | ⚠️ rest | ⚠️ rest×3 | ⚠️ rest×3 | ⚠️ rest | ✅ sleep×3 | ✅ sleep×3 | ⚠️ wait×3 | ✅ sleep×3 |
-| `tired_zombies_near_unsecured` | secure_building, hide, fight | ✅ secure_building | ✅ secure_building | ✅ secure_building×3 | ❌ sleep×2, secure_building | ✅ secure_building | ✅ secure_building×3 | ❌ secure_building×2, sleep | ⚠️ wait×3 | ✅ secure_building×3 |
-| `bleeding_safe` | bandage | ✅ bandage | ✅ bandage | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage×3 |
-| `bleeding_chased` | flee | ✅ flee | ✅ flee | ✅ flee×3 | ⚠️ bandage×2, flee | ✅ flee | ✅ flee×3 | ✅ flee×3 | ✅ flee×3 | ✅ flee×3 |
-| `bitten_at_home` | bandage | ✅ bandage | ✅ bandage | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage×3 |
-| `house_fully_looted` | loot_building, explore | ✅ loot_building | ⚠️ retreat_home | ⚠️ retreat_home, rest, loot_building | ⚠️ secure_building×2, retreat_home | ⚠️ secure_building | ⚠️ retreat_home×3 | ⚠️ secure_building×3 | ⚠️ wait×3 | ✅ loot_building×3 |
-| `overloaded_near_home` | retreat_home, drop_weight | ✅ retreat_home | ❌ loot_building | ❌ loot_building×2, retreat_home | ❌ drop_weight×2, loot_building | ✅ drop_weight | ❌ retreat_home×2, explore | ❌ retreat_home×2, loot_building | ❌ explore×3 | ❌ loot_building×3 |
-| `exhausted_safe` | rest | ✅ rest | ⚠️ loot_here | ✅ rest×3 | ✅ rest×3 | ✅ rest | ✅ rest×3 | ⚠️ loot_here×3 | ✅ rest×3 | ⚠️ loot_here×3 |
-| `exhausted_zombies_close` | hide, flee | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee×3 | ✅ flee | ✅ flee×3 | ✅ flee×3 | ✅ flee×3 | ✅ flee×3 |
-| `unarmed_has_weapon` | equip_weapon | ✅ equip_weapon | ✅ equip_weapon | ✅ equip_weapon×3 | ⚠️ equip_weapon×2, loot_building | ✅ equip_weapon | ✅ equip_weapon×3 | ⚠️ loot_building×3 | ⚠️ wait×3 | ⚠️ loot_building×3 |
-| `panic_after_chase` | rest, hide, wait | ✅ rest | ⚠️ loot_here | ⚠️ loot_here×3 | ✅ rest×3 | ⚠️ loot_here | ⚠️ loot_here×3 | ⚠️ loot_here×3 | ✅ wait×3 | ⚠️ loot_here×3 |
-| `soaked_cold` | retreat_home | ✅ retreat_home | ✅ retreat_home | ✅ retreat_home×3 | ⚠️ change_clothes×3 | ✅ retreat_home | ✅ retreat_home×3 | ✅ retreat_home×3 | ⚠️ wait×3 | ⚠️ loot_building×3 |
-| `food_poisoning` | rest, sleep, drink, wait | ✅ rest | ✅ drink | ✅ drink×3 | ❌ eat×2, drink | ✅ drink | ✅ wait×3 | ✅ rest×3 | ✅ rest×3 | ✅ rest×3 |
-| `water_shutoff` | drink | ✅ drink | ⚠️ loot_here | ✅ drink×3 | ✅ drink×3 | ✅ drink | ⚠️ loot_here×3 | ⚠️ loot_here×3 | ⚠️ loot_here×3 | ⚠️ loot_here×3 |
-| `all_good_daytime` | loot_building, explore | ✅ loot_building | ⚠️ eat | ⚠️ eat×3 | ✅ loot_building×3 | ⚠️ eat | ⚠️ loot_building, explore, eat | ⚠️ rest×3 | ⚠️ wait×3 | ✅ loot_building×3 |
-| `zombies_at_door` | secure_building, fight | ✅ fight | ✅ secure_building | ✅ secure_building×3 | ⚠️ hide×2, secure_building | ✅ secure_building | ✅ secure_building×3 | ✅ secure_building×3 | ✅ fight×3 | ❌ loot_here×3 |
-| `dusk_far_from_home` | retreat_home, loot_building | ✅ retreat_home | ✅ retreat_home | ✅ retreat_home×3 | ✅ loot_building×2, retreat_home | ✅ retreat_home | ✅ loot_building×3 | ✅ retreat_home×3 | ❌ explore×3 | ✅ loot_building×3 |
-| `pain_painkillers` | take_medicine, rest | ✅ take_medicine | ✅ take_medicine | ✅ take_medicine×3 | ⚠️ wait, rest, take_medicine | ✅ take_medicine | ✅ take_medicine×3 | ✅ rest×3 | ✅ take_medicine×3 | ✅ take_medicine×3 |
-| `weapon_breaking` | equip_weapon | ✅ equip_weapon | ✅ equip_weapon | ✅ equip_weapon×3 | ✅ equip_weapon×3 | ✅ equip_weapon | ✅ equip_weapon×3 | ⚠️ loot_building×3 | ⚠️ wait×3 | ⚠️ loot_building×3 |
-| `surrounded` | flee, fight | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee×3 | ✅ flee | ✅ flee×3 | ✅ fight×3 | ✅ fight×3 | ✅ flee×3 |
-| `extreme_thirst_blocked` | fight, drink | ✅ drink | ✅ drink | ✅ drink×3 | ✅ drink×3 | ✅ drink | ✅ drink×3 | ✅ drink×3 | ❌ wait×3 | ✅ drink×3 |
-| `night_home_not_tired` | wait, rest | ✅ wait | ✅ wait | ✅ wait×3 | ⚠️ wait×2, eat | ✅ wait | ✅ wait×3 | ✅ wait×3 | ✅ wait×3 | ✅ wait×3 |
-| `helicopter_event` | retreat_home, hide, flee | ✅ retreat_home | ✅ retreat_home | ✅ hide×2, retreat_home | ✅ flee, hide, retreat_home | ✅ retreat_home | ✅ retreat_home×3 | ✅ flee×3 | ❌ explore×3 | ✅ retreat_home×3 |
+| Snapshot | Sensible | rules · auto · PZ closed | qwen3.5:4b · chat · auto · long · PZ closed | qwen3.5:4b · chat · auto · PZ closed | qwen3.5:4b · chat · auto · PZ open | qwen3.5:4b · chat · auto · why-first · PZ closed | qwen3.5:4b · chat · cpu · PZ closed | qwen3.5:4b · chat · cpu · PZ open | qwen3.5:latest · chat · auto · PZ closed | qwen3:4b · chat · auto · PZ closed | tev1:0.8b · systemone · auto · PZ closed | tev1:0.8b · systemone · auto · PZ open | tev1:4b-q4_K_M · systemone · auto · PZ closed | tev1:4b-q4_K_M · systemone · auto · PZ open |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `day1_start` | loot_here | ✅ loot_here | ✅ loot_here | ✅ loot_here×3 | ✅ loot_here | ⚠️ drink×2, loot_here | ⚠️ drink | ✅ loot_here | ✅ loot_here×3 | ⚠️ secure_building×3 | ⚠️ wait×3 | ⚠️ wait | ✅ loot_here×3 | ✅ loot_here |
+| `thirsty_sink` | drink | ✅ drink | ⚠️ fill_water | ⚠️ fill_water×3 | ⚠️ fill_water | ⚠️ fill_water×2, drink | ⚠️ fill_water | ⚠️ fill_water | ✅ drink×3 | ✅ drink×3 | ⚠️ wait×3 | ⚠️ wait | ✅ drink×3 | ✅ drink |
+| `hungry_has_food` | eat | ✅ eat | ⚠️ drink | ⚠️ drink×3 | ⚠️ drink | ⚠️ eat×2, drink | ⚠️ drink | ⚠️ drink | ⚠️ drink×3 | ✅ eat×3 | ⚠️ drink×3 | ⚠️ drink | ✅ eat×3 | ✅ eat |
+| `hungry_thirsty_empty` | loot_building | ✅ loot_building | ✅ loot_building | ✅ loot_building×3 | ✅ loot_building | ✅ loot_building×3 | ✅ loot_building | ✅ loot_building | ⚠️ explore×2, loot_building | ⚠️ explore×3 | ❌ wait×3 | ❌ wait | ✅ loot_building×3 | ✅ loot_building |
+| `lone_zombie_armed` | fight | ✅ fight | ⚠️ flee | ⚠️ flee×3 | ⚠️ flee | ⚠️ flee×2, fight | ⚠️ flee | ⚠️ flee | ✅ fight×3 | ❌ loot_building×3 | ✅ fight×3 | ✅ fight | ✅ fight×3 | ✅ fight |
+| `group_five_chasing` | flee | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee | ✅ flee×3 | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee×3 | ❌ wait×3 | ❌ wait | ✅ flee×3 | ✅ flee |
+| `horde_approaching_indoors` | secure_building, hide, flee | ✅ secure_building | ✅ secure_building | ✅ secure_building×3 | ✅ secure_building | ✅ secure_building, flee, hide | ✅ secure_building | ✅ secure_building | ⚠️ secure_building×2, loot_here | ✅ flee×3 | ⚠️ wait×3 | ⚠️ wait | ⚠️ loot_here×3 | ⚠️ loot_here |
+| `night_outdoors_no_light` | retreat_home | ✅ retreat_home | ❌ loot_building | ❌ loot_building×3 | ✅ retreat_home | ❌ wait, loot_building, retreat_home | ❌ loot_building | ❌ loot_building | ❌ retreat_home×2, loot_building | ✅ retreat_home×3 | ⚠️ wait×3 | ⚠️ wait | ❌ loot_building×3 | ❌ loot_building |
+| `night_home_tired` | sleep | ✅ sleep | ⚠️ rest | ⚠️ rest×3 | ⚠️ rest | ⚠️ rest×3 | ⚠️ rest | ⚠️ rest | ✅ sleep×3 | ✅ sleep×3 | ⚠️ wait×3 | ⚠️ wait | ✅ sleep×3 | ✅ sleep |
+| `tired_zombies_near_unsecured` | secure_building, hide, fight | ✅ secure_building | ✅ secure_building | ✅ secure_building×3 | ✅ secure_building | ❌ sleep×2, secure_building | ✅ secure_building | ✅ secure_building | ✅ secure_building×3 | ❌ secure_building×2, sleep | ⚠️ wait×3 | ⚠️ wait | ✅ secure_building×3 | ✅ secure_building |
+| `bleeding_safe` | bandage | ✅ bandage | ✅ bandage | ✅ bandage×3 | ✅ bandage | ✅ bandage×3 | ✅ bandage | ✅ bandage | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage | ✅ bandage×3 | ✅ bandage |
+| `bleeding_chased` | flee | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee | ⚠️ bandage×2, flee | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee×3 | ✅ flee×3 | ✅ flee | ✅ flee×3 | ✅ flee |
+| `bitten_at_home` | bandage | ✅ bandage | ✅ bandage | ✅ bandage×3 | ✅ bandage | ✅ bandage×3 | ✅ bandage | ✅ bandage | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage×3 | ✅ bandage | ✅ bandage×3 | ✅ bandage |
+| `house_fully_looted` | loot_building, explore | ✅ loot_building | ⚠️ retreat_home | ⚠️ retreat_home, rest, loot_building | ✅ loot_building | ⚠️ secure_building×2, retreat_home | ⚠️ secure_building | ⚠️ retreat_home | ⚠️ retreat_home×3 | ⚠️ secure_building×3 | ⚠️ wait×3 | ⚠️ wait | ✅ loot_building×3 | ✅ loot_building |
+| `overloaded_near_home` | retreat_home, drop_weight | ✅ retreat_home | ❌ loot_building | ❌ loot_building×2, retreat_home | ❌ loot_building | ❌ drop_weight×2, loot_building | ✅ drop_weight | ✅ drop_weight | ❌ retreat_home×2, explore | ❌ retreat_home×2, loot_building | ❌ explore×3 | ❌ explore | ❌ loot_building×3 | ❌ loot_building |
+| `exhausted_safe` | rest | ✅ rest | ⚠️ loot_here | ✅ rest×3 | ✅ rest | ✅ rest×3 | ✅ rest | ✅ rest | ✅ rest×3 | ⚠️ loot_here×3 | ✅ rest×3 | ✅ rest | ⚠️ loot_here×3 | ⚠️ loot_here |
+| `exhausted_zombies_close` | hide, flee | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee | ✅ flee×3 | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee×3 | ✅ flee×3 | ✅ flee | ✅ flee×3 | ✅ flee |
+| `unarmed_has_weapon` | equip_weapon | ✅ equip_weapon | ✅ equip_weapon | ✅ equip_weapon×3 | ✅ equip_weapon | ⚠️ equip_weapon×2, loot_building | ✅ equip_weapon | ✅ equip_weapon | ✅ equip_weapon×3 | ⚠️ loot_building×3 | ⚠️ wait×3 | ⚠️ wait | ⚠️ loot_building×3 | ⚠️ loot_building |
+| `panic_after_chase` | rest, hide, wait | ✅ rest | ⚠️ loot_here | ⚠️ loot_here×3 | ✅ rest | ✅ rest×3 | ⚠️ loot_here | ⚠️ loot_here | ⚠️ loot_here×3 | ⚠️ loot_here×3 | ✅ wait×3 | ✅ wait | ⚠️ loot_here×3 | ⚠️ loot_here |
+| `soaked_cold` | retreat_home | ✅ retreat_home | ✅ retreat_home | ✅ retreat_home×3 | ✅ retreat_home | ⚠️ change_clothes×3 | ✅ retreat_home | ✅ retreat_home | ✅ retreat_home×3 | ✅ retreat_home×3 | ⚠️ wait×3 | ⚠️ wait | ⚠️ loot_building×3 | ⚠️ loot_building |
+| `food_poisoning` | rest, sleep, drink, wait | ✅ rest | ✅ drink | ✅ drink×3 | ✅ drink | ❌ eat×2, drink | ✅ drink | ✅ drink | ✅ wait×3 | ✅ rest×3 | ✅ rest×3 | ✅ rest | ✅ rest×3 | ✅ rest |
+| `water_shutoff` | drink | ✅ drink | ⚠️ loot_here | ✅ drink×3 | ✅ drink | ✅ drink×3 | ✅ drink | ⚠️ loot_here | ⚠️ loot_here×3 | ⚠️ loot_here×3 | ⚠️ loot_here×3 | ⚠️ loot_here | ⚠️ loot_here×3 | ⚠️ loot_here |
+| `all_good_daytime` | loot_building, explore | ✅ loot_building | ⚠️ eat | ⚠️ eat×3 | ⚠️ eat | ✅ loot_building×3 | ⚠️ eat | ⚠️ eat | ⚠️ loot_building, explore, eat | ⚠️ rest×3 | ⚠️ wait×3 | ⚠️ wait | ✅ loot_building×3 | ✅ loot_building |
+| `zombies_at_door` | secure_building, fight | ✅ fight | ✅ secure_building | ✅ secure_building×3 | ✅ secure_building | ⚠️ hide×2, secure_building | ✅ secure_building | ❌ loot_here | ✅ secure_building×3 | ✅ secure_building×3 | ✅ fight×3 | ✅ fight | ❌ loot_here×3 | ❌ loot_here |
+| `dusk_far_from_home` | retreat_home, loot_building | ✅ retreat_home | ✅ retreat_home | ✅ retreat_home×3 | ✅ retreat_home | ✅ loot_building×2, retreat_home | ✅ retreat_home | ✅ retreat_home | ✅ loot_building×3 | ✅ retreat_home×3 | ❌ explore×3 | ❌ explore | ✅ loot_building×3 | ✅ loot_building |
+| `pain_painkillers` | take_medicine, rest | ✅ take_medicine | ✅ take_medicine | ✅ take_medicine×3 | ✅ take_medicine | ⚠️ wait, rest, take_medicine | ✅ take_medicine | ✅ take_medicine | ✅ take_medicine×3 | ✅ rest×3 | ✅ take_medicine×3 | ✅ take_medicine | ✅ take_medicine×3 | ✅ take_medicine |
+| `weapon_breaking` | equip_weapon | ✅ equip_weapon | ✅ equip_weapon | ✅ equip_weapon×3 | ✅ equip_weapon | ✅ equip_weapon×3 | ✅ equip_weapon | ✅ equip_weapon | ✅ equip_weapon×3 | ⚠️ loot_building×3 | ⚠️ wait×3 | ⚠️ wait | ⚠️ loot_building×3 | ⚠️ loot_building |
+| `surrounded` | flee, fight | ✅ flee | ✅ flee | ✅ flee×3 | ✅ flee | ✅ flee×3 | ✅ flee | ✅ flee | ✅ flee×3 | ✅ fight×3 | ✅ fight×3 | ✅ fight | ✅ flee×3 | ✅ flee |
+| `extreme_thirst_blocked` | fight, drink | ✅ drink | ✅ drink | ✅ drink×3 | ✅ drink | ✅ drink×3 | ✅ drink | ✅ drink | ✅ drink×3 | ✅ drink×3 | ❌ wait×3 | ❌ wait | ✅ drink×3 | ✅ drink |
+| `night_home_not_tired` | wait, rest | ✅ wait | ✅ wait | ✅ wait×3 | ✅ wait | ⚠️ wait×2, eat | ✅ wait | ✅ wait | ✅ wait×3 | ✅ wait×3 | ✅ wait×3 | ✅ wait | ✅ wait×3 | ✅ wait |
+| `helicopter_event` | retreat_home, hide, flee | ✅ retreat_home | ✅ retreat_home | ✅ hide×2, retreat_home | ✅ hide | ✅ flee, hide, retreat_home | ✅ retreat_home | ✅ hide | ✅ retreat_home×3 | ✅ flee×3 | ❌ explore×3 | ❌ explore | ✅ retreat_home×3 | ✅ retreat_home |
 
 </details>

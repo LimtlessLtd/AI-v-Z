@@ -993,8 +993,9 @@ function A.pollIntent(p)
 	local goal = parts[2] or "wait"
 	local say, why, src = parts[6] or "", parts[7] or "", parts[8] or ""
 	if say ~= "" then pcall(function() p:Say(say) end) end
+	-- a new goal clears the old reason (Qwen's line for it follows a second later)
+	if why ~= "" or goal ~= H.goal then H.why = why end
 	H.goal, H.source, H.lastIntent = goal, src, S.tick
-	if why ~= "" then H.why = why end
 	if not S.manual then A.startTask(p, seq, goal, { parts[3], parts[4], parts[5] }) end
 end
 
