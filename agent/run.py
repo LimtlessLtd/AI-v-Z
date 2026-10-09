@@ -10,9 +10,10 @@ with the game's own buttons (or F3-F6); the mod keeps your pick while the agent 
 Experience goes to logs/experience/YYYYMMDD-HH.jsonl.gz, one line per decision:
     {ts, life, id, reason, obs, options, last, choice, probs, policy, reward, parts, dead, new_life, resumed}
 where reward/parts are for what happened since the previous decision of the same life ("resumed": the agent
-was restarted in between, so that stretch earns nothing). That's everything the learner (Phase 4) needs,
-and the reward can be recomputed later from the raw observations. Restarting carries on with the same
-character (logs/agent-state.json).
+was restarted in between, so that stretch earns nothing). These records support later learning,
+and the reward can be recomputed later from the raw observations. Action and perception coverage are
+still incomplete (docs/PHASE3_COVERAGE.md); these records have no hearing input. Restarting carries on
+with the same character (logs/agent-state.json).
 """
 
 import argparse
