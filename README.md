@@ -4,10 +4,11 @@ An AI running entirely on your own PC plays **Project Zomboid singleplayer (Buil
 you watch. You see the game, an in-game HUD and speech bubbles with the AI's reasoning, and a local web
 dashboard of its "mind". It uses no cloud APIs and no multiplayer.
 
-> **Status:** Phase 1 (first watchable run) **runs in game** since 2026-10-09: hands off, the AI loots
-> houses, explores, flees, fights (first kill 12:35 on day 1), and says why in speech bubbles. Rough edges
-> are listed under [Known issues](#known-issues). Benchmarks: [docs/BENCHMARK.md](docs/BENCHMARK.md).
-> Design research: [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md).
+> **Status:** Phase 1 (first watchable run) runs in game since 2026-10-09: hands off, the AI loots
+> houses, explores, flees, fights, and says why in speech bubbles. **Phase 2 (survival)** adds a home base,
+> nights indoors, sleep, getting into locked houses through windows, sensible loads, rag bandages and
+> opening cans. Rough edges are listed under [Known issues](#known-issues). Benchmarks:
+> [docs/BENCHMARK.md](docs/BENCHMARK.md). Design research: [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md).
 
 ## Tested against
 
@@ -26,12 +27,23 @@ again, and update this table.
 | Layer | Where | Speed | Job |
 |---|---|---|---|
 | Reflex | Lua mod, every 4 ticks | <1 ms | Zombies within ~3 tiles: swing, shove, grab a weapon from the bag, break away from 3+ |
-| Tactics | Lua mod, every 10 ticks | per tick | Carries out the current goal: pathfind, loot containers, eat, drink at sinks, bandage, fight, flee, close doors |
+| Tactics | Lua mod, every 10 ticks | per tick | Carries out the current goal: pathfind (through a window if the doors are locked), loot containers, eat, drink at sinks, bandage, fight, flee, close doors, go home, sleep, drop junk |
 | Strategy | Python bridge | on events, at least every 6 s | Rules score the legal goals. Clear winners act immediately; close calls also go to Qwen, which may overrule the rules. Qwen writes the one-line reason shown in the speech bubble |
 
-Goals the AI can pick (Phase 1): `fight`, `flee`, `hide`, `secure_building`, `loot_here`, `loot_building`,
-`explore`, `eat`, `drink`, `bandage`, `equip_weapon`, `rest`, `wait`. Only the goals that are possible
-right now are offered.
+Goals the AI can pick: `fight`, `flee`, `hide`, `secure_building`, `loot_here`, `loot_building`,
+`explore`, `eat`, `drink`, `bandage`, `equip_weapon`, `rest`, `wait`, and since Phase 2 `retreat_home`,
+`sleep` and `drop_weight`. Only the goals that are possible right now are offered.
+
+### Survival (Phase 2)
+
+| | What the AI does |
+|---|---|
+| Home base | The first house with a bed it searches, closes up or sleeps in becomes home (kept in the save). If it shelters for the night more than 120 tiles from home, that shelter becomes the new home. |
+| Nights | From an hour before sunset it heads home, or into the nearest building if home is far, closes it up and stays in. It sleeps in the nearest bed when tired; the game won't allow sleep with zombies in sight, panic or bad pain, and the dashboard says why. |
+| Locked houses | No route in: it walks round to the cheapest ground-floor window, opens it, or smashes it and clears the glass if it's locked, climbs in and shuts it behind. Smashing is loud and the last resort. |
+| Loads | It carries up to 8 foods it can eat as is (none over 1 kg), 2 drinks, 6 medical items and two weapons, and swaps to a bigger backpack. With the bag 85% full it drops junk (spare weapons and clothes, rotten food); at home it stores spare food in a cupboard and eats from there later. |
+| Wounds | Bleeding with no bandage: it tears a spare shirt into rags. |
+| Cans | Opened and eaten with a can opener or a sharp knife. |
 
 The mod and the bridge talk through files in `%USERPROFILE%\Zomboid\Lua\aivz\`, because PZ Lua mods
 can't open sockets:
@@ -119,18 +131,23 @@ docs/               SPECS, BENCHMARK, DECISION_MODELS, REVIEW
 
 ## Known issues
 
-- **Locked houses are skipped.** The AI can't open locked doors or climb in through windows yet; a
-  house it can't path into is marked unreachable ("no route") and it moves on.
+- **Early deaths happen.** The first Phase 2 character died at 20:13 on day 1: bleeding, no bandage,
+  cornered in a house where fleeing kept failing. Since then a cornered AI fights back, never walks off
+  to drink with zombies on it, and tears clothes into bandages, but one bad fight can still end a run.
+- **Fleeing indoors is weak.** Flee picks a square away from the zombies and pathfinds there; inside a
+  house that often goes nowhere ("stuck, can't get away"). After a failed flee it fights or hides for
+  15 s before trying again.
 - **Weapons are scarce early.** It fights bare-handed only against a single zombie and flees from more.
   It picks up melee weapons it finds while looting, but doesn't go looking for them.
-- **It hoards.** Looting takes every better weapon it finds (two canoe paddles in the first run) and
-  fills the bag to the limit. Dropping junk and managing weight are Phase 2.
+- **Smashed windows stay open.** A house it smashed its way into can't be closed up (no barricading yet),
+  so it isn't made home.
+- **Nights are quiet.** If it isn't tired it waits indoors until dawn. With zombies within 45 tiles the
+  game runs at normal speed, so a night can take most of an hour to watch.
 - **Ollama can bog down after ~30 min.** In the first run every Qwen call started timing out until
   Ollama was restarted. The bridge now reloads the model after two slow calls; the dashboard's LLM
   panel shows `reloads`. If speech bubbles stop for long, restart Ollama.
-- Only the floor you're on is looted. Unopened cans aren't opened, so they don't count as food yet.
-  Curtains aren't closed.
-- There's no home base yet, so `retreat_home` and `sleep` aren't offered (Phase 2).
+- Only the floor you're on is looted and closed up. Curtains aren't closed, lights aren't used, raw
+  food isn't cooked, and bottles aren't refilled (sinks work for the first days of a game).
 - On this 6 GB GPU, Windows makes room for Qwen while PZ runs by moving some graphics memory into system
   RAM. Decisions take ~1.0 s instead of 0.8 s. Watch for game stutter. See
   [docs/BENCHMARK.md](docs/BENCHMARK.md).

@@ -1503,7 +1503,7 @@ A.tasks.sleep = function(p, t)
 		if S.tick - t.t1 > 2400 then return fail(t, "couldn't reach the bed") end
 	elseif t.phase == "asleep" then
 		H.action = "asleep"
-		if not asleep then done(t, "woke up") end
+		if not asleep then done(t, "woke up"); H.action = "just woke up" end
 	end
 end
 

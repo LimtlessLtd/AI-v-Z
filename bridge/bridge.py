@@ -162,7 +162,9 @@ class Bridge:
             cur = self.current
             ours = cur is not None and task.get("seq") == cur["seq"]
             running = ours and task.get("status") == "running"
-            finished = ours and task.get("status") in ("done", "failed")
+            # a task that ended counts even if it wasn't our latest order (an order from before a bridge
+            # restart): otherwise the AI stands idle while the bridge thinks its own goal is running
+            finished = task.get("status") in ("done", "failed") and int(task.get("seq") or 0) >= (cur["seq"] if cur else 0)
             if finished and task["seq"] != self.ended_seq:
                 self.ended_seq = task["seq"]
                 goal = task.get("goal")

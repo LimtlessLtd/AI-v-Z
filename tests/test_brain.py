@@ -202,6 +202,21 @@ class BridgeTests(unittest.TestCase):
             seq2, _ = self.intent(b)
             self.assertEqual(int(seq2), int(seq) + 1)   # a new order went out, even if it's the same goal
 
+    def test_an_ended_task_from_another_order_is_noticed(self):
+        # an order from before a bridge restart finished: the bridge must not wait on its own goal forever
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            b = self.make_bridge(tmp)
+            raw = copy.deepcopy(RAW)
+            raw["zombies"], raw["bld"]["doorsOpen"] = [], 0
+            b.on_percept(raw)
+            seq, _ = self.intent(b)
+            raw = copy.deepcopy(raw)
+            raw["ack"] = int(seq) + 5
+            raw["task"] = {"seq": int(seq) + 5, "goal": "sleep", "status": "done", "msg": "woke up", "phase": "asleep", "age": 400}
+            b.on_percept(raw)
+            self.assertEqual(int(self.intent(b)[0]), int(seq) + 6)
+
     def test_secure_building_rests_after_finishing(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
