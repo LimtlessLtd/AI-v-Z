@@ -63,6 +63,23 @@ def bucket(token):
     return zlib.crc32(token.encode("utf-8")) % BUCKETS
 
 
+# Inputs a player can't see (OBSERVATION_AUDIT.md): a window's lock isn't shown by the menu, and the fitness
+# screen shows endurance as a moodle, not a number. The slots stay (the layout and the network are kept), but
+# are always 0.
+HIDDEN_OPTION_FIELDS = {("window", "locked"), ("exercise", "endurance")}
+HEALTH_BANDS = (90, 80, 70, 60, 50, 40, 20, 10, 0)   # the health panel's status text changes at these
+
+
+def health_band(h):
+    """The overall health as the panel's wording bands it (OK at 100, then one step per band), 0..1."""
+    if h >= 100:
+        return 1.0
+    for i, b in enumerate(HEALTH_BANDS):
+        if h > b:
+            return round(0.9 - 0.1 * i, 1)
+    return 0.0
+
+
 def _clip(x, lo=-5.0, hi=5.0):
     return lo if x < lo else hi if x > hi else x
 
@@ -98,7 +115,7 @@ def encode_state(msg):
     speed = max(1.0, _num(obs.get("speed"), 1.0))
     creation = bool(msg.get("creation")) or reason == "creation"   # a logged record keeps only the reason
     v += [
-        _num(obs.get("health"), 100.0) / 100 if not creation else 1.0,
+        health_band(_num(obs.get("health"), 100.0)) if not creation else 1.0,
         _num(light.get("here"), 1.0), _num(t.get("dark")), 1.0 if where.get("outside") else 0.0,
         1.0 if where.get("building") else 0.0, 1.0 if obs.get("asleep") else 0.0,
         1.0 if clock else 0.0, math.sin(hour / 24 * 2 * math.pi) if clock else 0.0,
@@ -135,7 +152,7 @@ def encode_option(o):
     """(dense list of OPTION_DIM floats, list of token buckets) for one option."""
     o = _d(o)
     verb = str(o.get("verb"))
-    v = [_clip(_num(o.get(k)) / s) for k, s in OPTION_NUMBERS.items()]
+    v = [0.0 if (verb, k) in HIDDEN_OPTION_FIELDS else _clip(_num(o.get(k)) / s) for k, s in OPTION_NUMBERS.items()]
     v.append(1.0)   # a constant input, so every option has one non-zero entry
     toks = [f"verb:{verb}"]
     for k in OPTION_WORDS:

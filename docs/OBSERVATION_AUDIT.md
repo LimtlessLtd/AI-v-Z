@@ -210,3 +210,14 @@ tooltips' nutrition and other effects; whether it is light enough to read (`tooD
 * Whether `vehicle:getTargetAlpha(pn)` tracks vehicle visibility.
 * Whether the tainted-water text appears in the world tooltip with the default sandbox.
 * Whether exterior squares of a building seen from the street are `isCanSee(pn)` (for building memory).
+
+## 7. Kept from the network's input (agent/features.py, no layout change)
+
+Three leaks are cut on the learner's side, without a `features.VERSION` bump (the input slots stay, so the
+trained network is kept; the values it sees change a little, so it adapts over the next rounds):
+
+* `window.locked` is always 0 (leak item 7; doors keep `locked`).
+* `exercise.endurance` is always 0 (leak item 10; the endurance moodle is already an input).
+* Overall health goes in as the health panel's band, not the exact figure (leak item 10, precision).
+
+The Lua side still reports these fields; fixing them at the source is separate and needs the game.
