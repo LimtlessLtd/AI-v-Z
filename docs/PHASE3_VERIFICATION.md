@@ -59,3 +59,6 @@ coverage.
 
 The hot reload cleanup no longer calls `GameTime:setMultiplier`. The live loader accepted mod
 0.4.3 / gym 0.3.1 with no Lua error; game speed remains under the game's own controls.
+
+Gym 0.3.2 (2026-10-11) hides unseen zombies from gym observations and options. This was checked only by
+reading the code and the Python test suite; it has **not** been validated in the live game.

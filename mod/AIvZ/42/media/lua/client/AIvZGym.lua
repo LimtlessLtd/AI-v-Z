@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.3.1"
+G.VERSION = "0.3.2"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -37,6 +37,16 @@ local DIRS = { { "N", 0, -1 }, { "NE", 1, -1 }, { "E", 1, 0 }, { "SE", 1, 1 }, {
 
 local function tick() return A.s.tick end
 local function dist(p, x, y) return math.sqrt((x - p:getX()) ^ 2 + (y - p:getY()) ^ 2) end
+-- zombies the character can see right now. Unseen ones (behind walls, out of sight) are hidden world
+-- state: they appear in no observation, option, direction count or decision trigger.
+local function visibleZombies(p, R)
+	local out = {}
+	for _, e in ipairs(A.zombies(p, R)) do
+		if e.seen then out[#out + 1] = e end
+	end
+	return out
+end
+
 local function seen(p)
 	local m = U.mem(p)
 	m.seen = m.seen or {}   -- containers this character has looked into, by "x,y,z,n"
@@ -136,7 +146,7 @@ function G.observe(p, dead)
 		if #o.inv < 40 and it ~= held and not it:isHidden() then o.inv[#o.inv + 1] = G.itemInfo(p, it) end
 	end)
 	o.zombies = {}
-	for i, e in ipairs(A.zombies(p, 30)) do
+	for i, e in ipairs(visibleZombies(p, 30)) do
 		if i > 40 then break end
 		o.zombies[#o.zombies + 1] = { dx = r1(e.dx), dy = r1(e.dy), d = r1(e.d), seen = e.seen, chasing = e.chasing,
 			blocked = e.blocked, down = try(function() return e.z:isOnFloor() end) == true }
@@ -243,7 +253,7 @@ function G.options(p)
 	if cur and cur.status == "running" then add(list, "continue", { what = cur.verb, age = tick() - cur.t0 }) end
 	add(list, "wait", {})
 	add(list, "rest", {})
-	local zs = A.zombies(p, 30)
+	local zs = visibleZombies(p, 30)
 	for _, d in ipairs(DIRS) do
 		local n = zombiesToward(zs, d[1])
 		add(list, "walk", { dir = d[1], dx = d[2], dy = d[3], zombies = n }, { dx = d[2], dy = d[3] })
@@ -796,7 +806,7 @@ function G.request(p, reason)
 	GS.waiting, GS.reqTick, GS.lastReq = true, tick(), GS.gt
 	GS.lastHp = p:getBodyDamage():getOverallBodyHealth()
 	local n = 0
-	for _, e in ipairs(A.zombies(p, 4)) do if not e.blocked then n = n + 1 end end
+	for _, e in ipairs(visibleZombies(p, 4)) do if not e.blocked then n = n + 1 end end
 	GS.lastClose = n
 end
 
@@ -817,7 +827,7 @@ function G.needDecision(p)
 	if GS.gt - GS.lastReq < DECIDE_GAP then return nil end
 	if GS.lastHp and p:getBodyDamage():getOverallBodyHealth() < GS.lastHp - 0.5 then return "hurt" end
 	local n = 0
-	for _, e in ipairs(A.zombies(p, 4)) do if not e.blocked then n = n + 1 end end
+	for _, e in ipairs(visibleZombies(p, 4)) do if not e.blocked then n = n + 1 end end
 	if n > (GS.lastClose or 0) then return "zombie close" end
 	if GS.gt - GS.lastReq > RECHECK then return "still at it" end
 	return nil
