@@ -13,6 +13,7 @@ from pathlib import Path
 
 from . import reward
 
+WORLD_DEATH_LIMIT = 100   # deaths in one save after which a fresh world is due (resources/houses run out)
 GAP_S = 30   # real seconds between two decisions above this count as time away (the agent was off)
 
 
@@ -93,6 +94,14 @@ class Lives:
         except (KeyError, TypeError, ValueError):
             self.current = None
         self.history = self._load_history()
+        self.world_deaths = {k: int(v) for k, v in (st.get("world_deaths") or {}).items()}
+
+    def deaths_in(self, save):
+        return self.world_deaths.get(save or "?", 0)
+
+    def new_world_due(self, save):
+        """True once the save has seen WORLD_DEATH_LIMIT deaths. Only reported: starting a new game is not built yet."""
+        return self.deaths_in(save) >= WORLD_DEATH_LIMIT
 
     def _load_history(self):
         try:
@@ -101,13 +110,14 @@ class Lives:
             return []
 
     def save(self):
-        st = {"lives": self.count, "current": self.current.state() if self.current else None}
+        st = {"lives": self.count, "world_deaths": self.world_deaths, "current": self.current.state() if self.current else None}
         tmp = self.state_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(st, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
         os.replace(tmp, self.state_path)
 
     def _end(self, how):
         rec = self.current.record(how)
+        rec["world_deaths"] = self.deaths_in(self.current.save)
         self.history.append(rec)
         with self.lives_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -135,6 +145,8 @@ class Lives:
             cur.add(r, parts)
             cur.kills = obs.get("kills", cur.kills)
             cur.age = (obs.get("t") or {}).get("age", cur.age)
+            key = cur.save or "?"
+            self.world_deaths[key] = self.world_deaths.get(key, 0) + 1
             rec = self._end("died")
             self.save()
             return cur, r, parts, False, rec

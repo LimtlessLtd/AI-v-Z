@@ -108,6 +108,19 @@ class LivesTests(unittest.TestCase):
             life, *_ = again.observe({"id": 4, "obs": other, "options": OPTIONS})
             self.assertEqual((life.number, life.name), (2, "Kate Smith"))
 
+    def test_deaths_are_counted_per_save_and_survive_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lives = Lives(tmp)
+            for i in range(3):
+                lives.observe({"id": i, "obs": later(OBS, 1), "options": OPTIONS})
+                _, _, _, _, rec = lives.observe({"id": 9, "dead": True, "obs": {"dead": True, "t": {"age": 5.0}}})
+                self.assertEqual(rec["world_deaths"], i + 1)
+            again = Lives(tmp)
+            self.assertEqual(again.deaths_in("test"), 3)
+            self.assertFalse(again.new_world_due("test"))
+            again.world_deaths["test"] = 100
+            self.assertTrue(again.new_world_due("test"))
+
     def test_restarting_the_agent_carries_on_with_the_same_character(self):
         with tempfile.TemporaryDirectory() as tmp:
             lives = Lives(tmp)
