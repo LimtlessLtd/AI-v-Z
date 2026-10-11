@@ -41,6 +41,13 @@ class QNet(nn.Module):
         return self.head(torch.cat([h, ha, h * ha], 1)).squeeze(1)
 
 
+def ranges(starts, stops):
+    """np.concatenate([np.arange(a, b) for a, b in zip(starts, stops)]), without the Python loop."""
+    lens = stops - starts
+    ends = np.cumsum(lens)
+    return np.arange(ends[-1] if len(ends) else 0, dtype=np.int64) + np.repeat(starts - (ends - lens), lens)
+
+
 class Pack:
     """Encoded rows (situations or options) as flat arrays: dense [n, dim], tokens flat, offsets [n]."""
 
@@ -63,11 +70,7 @@ class Pack:
         ends = np.append(self.offs[1:], len(self.toks))
         starts, stops = self.offs[idx], ends[idx]
         lens = stops - starts
-        if lens.sum():
-            take = np.concatenate([np.arange(a, b) for a, b in zip(starts, stops)])
-            toks = self.toks[take]
-        else:
-            toks = np.zeros(0, dtype=np.int64)
+        toks = self.toks[ranges(starts, stops)]
         offs = np.zeros(len(idx), dtype=np.int64)
         if len(idx):
             offs[1:] = np.cumsum(lens)[:-1]

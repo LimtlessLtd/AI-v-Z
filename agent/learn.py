@@ -4,7 +4,10 @@
 
 It reads every decision in logs/experience, learns Q (net.py) by Double-DQN updates over those decisions
 (off-policy, so the random policy's experience counts too), and saves logs/model/qnet.pt, which the playing
-agent picks up at its next decision. Each round carries on from the last saved network. Encoded hours are
+agent picks up at its next decision. A conservative term (CQL, Kumar et al. 2020) holds down the scores of
+options the experience says little about: without it, the max in each update picked options that were
+rarely or never tried in that situation, their arbitrary scores fed back, and the scores drifted upwards
+(round 2 of 2026-10-11 rated the average option +3 where the logged return averages -19). Each round carries on from the last saved network. Encoded hours are
 cached in logs/model/cache (the hour being written is always re-read). Rounds are logged to
 logs/model/history.jsonl, which the dashboard's Learning page shows.
 """
@@ -30,9 +33,9 @@ from agent import net as N  # noqa: E402
 
 GAMMA = 0.97          # per decision: a reward 23 decisions away counts half
 BATCH = 256
-EPOCHS = 8            # passes over the experience per round (each round also starts from the last network)
-MIN_STEPS, MAX_STEPS = 300, 6000
-TARGET_EVERY = 250    # steps between copies of the network used for the bootstrapped targets
+STEPS = 2000          # updates per round (about a minute on 4 threads); each round starts from the last network
+TARGET_EVERY = 200    # steps between copies of the network used for the bootstrapped targets
+CQL = 0.5             # weight of the conservative term
 LR = 5e-4
 THREADS = 4           # CPU threads for training, leaving the rest to the game
 
@@ -109,7 +112,7 @@ class Data:
     def option_rows(self, recs):
         """All option rows of these records, and which of them (0..len(recs)-1) each row belongs to."""
         counts = self.n_opts[recs]
-        rows = np.concatenate([np.arange(self.start[r], self.start[r + 1]) for r in recs]) if counts.sum() else np.zeros(0, np.int64)
+        rows = N.ranges(self.start[recs], self.start[recs + 1])
         seg = np.repeat(np.arange(len(recs)), counts)
         return rows, torch.from_numpy(seg)
 
@@ -121,12 +124,18 @@ def q_all(net, data, recs):
     return net.score(hs, seg, ha), seg
 
 
+def _logsumexp(q, seg, n):
+    m = torch.full((n,), -1e9).scatter_reduce(0, seg, q.detach(), "amax")
+    return torch.log(torch.zeros(n).index_add(0, seg, torch.exp(q - m[seg]))) + m
+
+
 def step(net, target, opt, data, rng):
     idx = rng.integers(0, len(data.ti), BATCH)
     I, J = data.ti[idx], data.tj[idx]
-    hs = net.states(*data.S.rows(I))
-    ha = net.options(*data.O.rows(data.start[I] + data.choice[I]))
-    q = net.score(hs, torch.arange(len(I)), ha)
+    q_s, seg_s = q_all(net, data, I)   # every option of each situation, the chosen one among them
+    first = np.zeros(len(I), dtype=np.int64)
+    first[1:] = np.cumsum(data.n_opts[I])[:-1]
+    q = q_s[torch.from_numpy(first + data.choice[I])]
     with torch.no_grad():
         boot = torch.zeros(len(J))
         live = np.nonzero(~data.terminal[J])[0]
@@ -139,16 +148,22 @@ def step(net, target, opt, data, rng):
             val = torch.full((len(Jl),), -1e9).scatter_reduce(0, seg[sel], q_tg[sel], "amax")
             boot[torch.from_numpy(live)] = val
         y = torch.from_numpy(data.reward[J]) + GAMMA * boot
-    loss = torch.nn.functional.smooth_l1_loss(q, y)
+    td = torch.nn.functional.smooth_l1_loss(q, y)
+    # only pushes down: the logged choice is held up by its own target, so lifting it as well (standard CQL)
+    # added a bias that compounded through the discount
+    conservative = (_logsumexp(q_s, seg_s, len(I)) - q.detach()).mean()
+    loss = td + CQL * conservative
     opt.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_norm_(net.parameters(), 5.0)
     opt.step()
-    return loss.item(), q.mean().item()
+    return td.item(), q.mean().item()
 
 
 def verb_values(net, data, last=3000):
-    """Average Q of each kind of option over the latest decisions: a first look at what it has come to value."""
+    """How each kind of option scores against the average option in the same situation, over the latest
+    decisions. (A plain average of Q would mostly say where an option is offered: eating is offered when
+    hungry, and hungry situations score low whatever is picked.)"""
     recs = np.arange(max(0, len(data.meta) - last), len(data.meta))
     recs = recs[data.n_opts[recs] > 0]
     sums, counts = defaultdict(float), defaultdict(int)
@@ -156,7 +171,8 @@ def verb_values(net, data, last=3000):
         for k in range(0, len(recs), 256):
             chunk = recs[k:k + 256]
             q, seg = q_all(net, data, chunk)
-            q = q.numpy()
+            mean = torch.zeros(len(chunk)).index_add(0, seg, q) / torch.from_numpy(data.n_opts[chunk]).float()
+            q = (q - mean[seg]).numpy()
             verbs = [v for r in chunk for v in data.meta[r]["verbs"]]
             for v, x in zip(verbs, q):
                 sums[v] += float(x)
@@ -175,15 +191,14 @@ def train(log_dir, steps=None, fresh=False, quiet=False):
         if not quiet:
             print(msg, flush=True)
         return {"skipped": msg}
-    net, meta = (None, None) if fresh else N.load(model_path)
+    old, meta = N.load(model_path)
     rnd = (meta or {}).get("round", 0) + 1
-    if net is None:
-        net, rnd = N.QNet(), 1
+    net = N.QNet() if fresh or old is None else old
     net.train()
     target = copy.deepcopy(net)
     opt = torch.optim.Adam(net.parameters(), lr=LR)
     rng = np.random.default_rng()
-    n = steps or int(np.clip(len(data.ti) * EPOCHS / BATCH, MIN_STEPS, MAX_STEPS))
+    n = steps or STEPS
     losses, qs = [], []
     for k in range(n):
         if k % TARGET_EVERY == 0:
@@ -193,7 +208,7 @@ def train(log_dir, steps=None, fresh=False, quiet=False):
         qs.append(qm)
     net.eval()
     lives = {m["life"] for m in data.meta if m["life"] is not None}
-    rec = {"round": rnd, "trained_at": datetime.now().isoformat(timespec="seconds"), "steps": n,
+    rec = {"round": rnd, "trained_at": datetime.now().isoformat(timespec="seconds"), "steps": n, "fresh": bool(fresh or old is None),
            "decisions": len(data.meta), "transitions": int(len(data.ti)), "lives": len(lives),
            "loss_first": round(float(np.mean(losses[:50])), 4), "loss": round(float(np.mean(losses[-100:])), 4),
            "q_mean": round(float(np.mean(qs[-100:])), 3), "seconds": round(time.time() - t0, 1),
@@ -210,7 +225,7 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--log-dir", default=str(ROOT / "logs"))
-    ap.add_argument("--steps", type=int, default=None, help="gradient steps (default: %d passes over the experience)" % EPOCHS)
+    ap.add_argument("--steps", type=int, default=None, help="gradient steps (default %d)" % STEPS)
     ap.add_argument("--fresh", action="store_true", help="start from a new network instead of the saved one")
     args = ap.parse_args()
     train(args.log_dir, args.steps, args.fresh)
