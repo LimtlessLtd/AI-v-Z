@@ -243,10 +243,10 @@ docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; A
   Long directional walks and runs can stop short or have no path. These failures are reported as failures
   to the agent. The probe repeatedly crossed the same rooms, so these counts are not a map-wide success
   rate.
-- **Speed and path failures are confounded by location and danger.** In that natural-play sample, 87 of 87
-  searches at 20× completed, versus 35 of 41 at 1×; room walks completed 817 of 817 at 20× and 14 of 25
-  at 1×. The game often forced 1× near zombies, and the locations differed. This does not establish that
-  either speed improves pathfinding. The earlier 1×/3× comparison was also in different places.
+- **Path failures go with danger, not speed.** A controlled test on 2026-10-11 (same save, alternating 1× and
+  20× blocks, 1,776 decisions) found 17% of moves failing in 1× blocks against 22% in 20× blocks. Moves made
+  while the game had dropped to 1× for a close zombie failed most (walk 35%, run 67%). Details in
+  [verification](docs/PHASE3_VERIFICATION.md#controlled-speed-test-2026-10-11).
 - **Fast forward only helps in quiet stretches.** With zombies close the game holds 1×, and the random
   agent is near zombies a lot, so a fast setting gains less than its number suggests.
 - **Screenshots of the game freeze in borderless mode.** Windows hands back a stale frame; windowed mode

@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.5.0"
+A.VERSION = "0.5.1"
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -414,8 +414,10 @@ local function junkKg(list) local s = 0; for _, j in ipairs(list) do s = s + j.k
 
 ---------------------------------------------------------------- perception
 local STATS = { "HUNGER", "THIRST", "FATIGUE", "ENDURANCE", "PANIC", "PAIN", "STRESS", "SICKNESS", "FOOD_SICKNESS", "WETNESS", "TEMPERATURE" }
+-- every moodle a player can see (zombie.scripting.objects.MoodleType in 42.21, apart from DEAD)
 local MOODLES = { "HUNGRY", "THIRST", "TIRED", "ENDURANCE", "PANIC", "PAIN", "SICK", "WET", "HYPOTHERMIA", "HYPERTHERMIA",
-	"HEAVY_LOAD", "BLEEDING", "STRESS", "INJURED", "HAS_A_COLD", "DRUNK", "ZOMBIE" }
+	"HEAVY_LOAD", "BLEEDING", "STRESS", "INJURED", "HAS_A_COLD", "DRUNK", "ZOMBIE", "BORED", "UNHAPPY", "ANGRY",
+	"WINDCHILL", "CANT_SPRINT", "UNCOMFORTABLE", "NOXIOUS_SMELL", "FOOD_EATEN" }
 
 local function stat(p, k) return try(function() return p:getStats():get(CharacterStat[k]) end) or 0 end
 local function moodle(p, k) return try(function() return p:getMoodles():getMoodleLevel(MoodleType[k]) end) or 0 end
@@ -1781,7 +1783,10 @@ function A.holdSpeed(p, inControl)
 	if not sc then return end
 	local sp, lvl = S.speed, sc:getCurrentGameSpeed()
 	if lvl ~= sp.seen then
-		if lvl >= 2 or (lvl == 1 and (sc:isMouseOver() or S.tick - sp.keyAt < 30)) then sp.held = lvl end
+		-- only your changes count. The game also changes speed by itself: up to 20x when the character falls
+		-- asleep (that became "your" pick and stuck after waking), down to 1x for a close zombie, a swing or
+		-- the end of every exercise
+		if lvl >= 1 and (sc:isMouseOver() or S.tick - sp.keyAt < 30) then sp.held = lvl end
 		sp.seen = lvl
 	end
 	if not inControl or lvl ~= 1 or sp.held <= 1 or S.tick % 15 ~= 0 then return end
@@ -1903,7 +1908,13 @@ function A.onKeyPressed(key)
 		if A.hudUI then pcall(function() A.hudUI:setVisible(H.visible) end) end
 		return
 	end
-	if isSpeedKey(key) then S.speed.keyAt = S.tick; return end
+	if isSpeedKey(key) then
+		S.speed.keyAt = S.tick
+		-- Play pressed while the game has already dropped to 1x for a close zombie changes no level for
+		-- A.holdSpeed to see, and the old pick (20x) came back once clear: the key itself is the choice
+		if getCore():isKey(KeybindId.NORMAL_SPEED, key) then S.speed.held = 1 end
+		return
+	end
 	if MOVE_KEYS[key] then
 		S.lastHumanKey = S.tick
 		if not S.manual then

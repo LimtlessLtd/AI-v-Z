@@ -61,12 +61,17 @@ end
 local EXERCISE_MINUTES = { 10, 20, 30, 40, 50, 60 }
 
 G.hooks.exercise = function(p, list, add)
-	local why = fitnessBlocked(p)
-	for _, e in ipairs(fitnessTypes(p)) do
-		for _, m in ipairs(EXERCISE_MINUTES) do
-			add(list, "exercise", { type = e.name, minutes = m, equipment = e.needs, unavailable = why, endurance = r2(endurance(p) or 0) },
-				{ name = e.name, data = e.data, minutes = m, blocked = why })
-		end
+	-- the fitness screen's Start is disabled while these hold: a game prerequisite, so not offered (BACKLOG.md,
+	-- "Guard rails": those stay). Offered anyway, each refused or interrupted try reset the game to 1x.
+	if fitnessBlocked(p) then return end
+	-- one duration per exercise each decision, turning over with the decision number, so every duration stays
+	-- reachable without six near-identical options per exercise (they were half of all options, and the
+	-- random agent started and dropped exercises all the time)
+	local page = (G.s and G.s.id) or 0
+	for i, e in ipairs(fitnessTypes(p)) do
+		local m = EXERCISE_MINUTES[(page + i) % #EXERCISE_MINUTES + 1]
+		add(list, "exercise", { type = e.name, minutes = m, equipment = e.needs, endurance = r2(endurance(p) or 0) },
+			{ name = e.name, data = e.data, minutes = m })
 	end
 end
 
@@ -225,12 +230,10 @@ G.X.engine_on, G.X.engine_off = engine(true), engine(false)
 ---------------------------------------------------------------- character creation: choosing traits
 -- Called from G.respawnStep on the profession/traits screen while the agent plays. Each call (every 1.5 s)
 -- either asks the agent (obs.json {creation = true}), reads its answer from act.txt, or gives up waiting.
--- Options: add or remove one trait (with its point cost as the game states it), or finish (Next). The game
--- enforces its own point budget and exclusions: an add that doesn't take effect is reported as failed.
--- Written from the vanilla CharacterCreationProfession (listboxTrait, listboxTraitSelected, addTraitBtn,
--- removeTraitBtn); NOT yet run in Build 42.21. If the screen differs, it returns false and Next is pressed.
-local MAX_STEPS, WAIT_MS = 12, 20000   -- after 12 trait changes in the spend stage, finishing is the only option
-local MAX_FAILS = 6                    -- repay stage: this many refused/unavailable picks, then traits are taken off
+-- Options: add one trait (with its point cost as the game states it), or finish (Next). The game enforces
+-- its own exclusions: an add that doesn't take effect is reported as failed.
+local WAIT_MS = 20000
+local MAX_FAILS = 6   -- this many refused picks in a row, then the stage moves on (or traits are taken off)
 
 local function traitLabel(item)
 	local t = item and item.item
@@ -244,12 +247,12 @@ local function selectedTraits(prof)
 	return out
 end
 
--- Points left to spend, as the game counts them. The game's own number when the screen exposes one
--- (pointToSpend); otherwise a conservative stand-in: 0 if the chosen traits cost nothing net, else negative,
--- so an unknown balance can never let a build that may be overdrawn start. A character may start only
--- with 0 or more points left; below 0 the game's rules say it can't.
+-- Points left to spend: the number the screen shows (CharacterCreationProfession:PointToSpend(), which adds the
+-- profession's points, the sandbox's free points and the negative-trait penalty to the raw pointToSpend).
+-- Gym 0.4.3-0.4.6 read the raw pointToSpend, which starts at 0 whatever the screen shows: the agent stopped
+-- buying while the screen still had points left. Without that method, a stand-in that is never above the truth.
 function G.creationPoints(prof)
-	local p = rawget(prof, "pointToSpend") or try(function() return prof.pointToSpend end)
+	local p = try(function() return prof:PointToSpend() end)
 	if type(p) == "number" then return p, true end
 	local net = 0
 	for _, it in ipairs(prof.listboxTraitSelected and prof.listboxTraitSelected.items or {}) do
@@ -258,26 +261,24 @@ function G.creationPoints(prof)
 	return (net <= 0) and 0 or -net, false
 end
 
--- The trait choice runs in three stages, so the screen can never be a dead end:
---   spend  (never overdrawn so far): add traits that cost points, or finish (finish is allowed at 0 or more)
---   repay  (points went below 0):    add only traits that give points back, until points are 0 or more
---   done   (repaid):                 the only option is to start the game
--- No trait is ever removed by the agent; `c.repaying` remembers that points went negative.
+-- The owner's rule (2026-10-11), in two stages:
+--   buy:  while the points are above 0, add any number of traits that cost points (good traits), nothing else
+--   pay:  once they reach 0 or below, add only traits that give points (bad traits); at 0 or above, Continue
+--         (start the game) is offered too
+-- No trait is ever removed by the agent; `c.paying` remembers that the points reached 0 or below.
 local function creationOptions(prof, points, c)
 	local opts = {}
-	local stage = c.repaying and (points >= 0 and "done" or "repay") or "spend"
-	if stage ~= "done" then
-		for _, key in ipairs({ "listboxTrait", "listboxBadTrait" }) do
-			for i, it in ipairs(prof[key] and prof[key].items or {}) do
-				local label, cost, ty = traitLabel(it)
-				cost = cost or 0
-				if (stage == "spend" and cost >= 0 and not (c.steps >= MAX_STEPS)) or (stage == "repay" and cost < 0) then
-					opts[#opts + 1] = { verb = "add_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i, list = key }
-				end
+	local stage = c.paying and "pay" or "buy"
+	for _, key in ipairs({ "listboxTrait", "listboxBadTrait" }) do
+		for i, it in ipairs(prof[key] and prof[key].items or {}) do
+			local label, cost, ty = traitLabel(it)
+			cost = cost or 0
+			if (stage == "buy" and cost > 0) or (stage == "pay" and cost < 0) then
+				opts[#opts + 1] = { verb = "add_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i, list = key }
 			end
 		end
 	end
-	if points >= 0 then opts[#opts + 1] = { verb = "finish_creation" } end
+	if stage == "pay" and points >= 0 then opts[#opts + 1] = { verb = "finish_creation" } end
 	return opts, stage
 end
 
@@ -308,7 +309,7 @@ end
 function G.creation(prof)
 	if not (prof.listboxTrait and prof.listboxTraitSelected and prof.addTraitBtn and prof.removeTraitBtn) then return false end
 	local c = G.s.creation
-	if not c then c = { steps = 0 }; G.s.creation = c end
+	if not c then c = { steps = 0, fails = 0 }; G.s.creation = c end
 	local now = getTimestampMs()
 	if c.asked then
 		local line = U.readFirstLine("act.txt")
@@ -324,29 +325,32 @@ function G.creation(prof)
 			c.steps = c.steps + 1
 			local before = #selectedTraits(prof)
 			click(prof, o)
-			local after = #selectedTraits(prof)
-			local ok = after == before + 1
-			if not ok then c.fails = (c.fails or 0) + 1 end
-			if G.creationPoints(prof) < 0 then c.repaying = true end
+			local ok = #selectedTraits(prof) == before + 1
+			c.fails = ok and 0 or c.fails + 1
 			c.last = { verb = o.verb, name = o.name, status = ok and "done" or "failed",
-				msg = ok and "" or "the game didn't accept it (points or exclusions)" }
+				msg = ok and "" or "the game didn't accept it (exclusions)" }
 			return true
 		end
 		if now - c.askedAt > WAIT_MS then G.creationRepair(prof); return false end   -- no answer: carry on with Next
 		return true
 	end
 	local points, known = G.creationPoints(prof)
-	if points < 0 then c.repaying = true end
+	if points <= 0 then c.paying = true end
 	local opts, stage = creationOptions(prof, points, c)
-	-- a repay stage with nothing to pick, or that keeps being refused, would be a dead end: undo and go on
-	if stage == "repay" and (#opts == 0 or (c.fails or 0) >= MAX_FAILS) then G.creationRepair(prof); return false end
+	-- buying with nothing left to buy (or every pick refused) ends the buying; paying with nothing left to
+	-- pay with would be a dead end, so the traits come off again and the game starts with what it can
+	if stage == "buy" and (#opts == 0 or c.fails >= MAX_FAILS) then
+		c.paying, c.fails = true, 0
+		opts, stage = creationOptions(prof, points, c)
+	end
+	if stage == "pay" and (#opts == 0 or c.fails >= MAX_FAILS) then G.creationRepair(prof); return false end
 	G.s.id = G.s.id + 1
 	c.id, c.opts, c.asked, c.askedAt = G.s.id, opts, true, now
 	local out = {}
 	for i, o in ipairs(c.opts) do out[i] = o end
 	U.writeFile("obs.json", A.json({ id = c.id, reason = "creation", creation = true, gym = G.VERSION,
-		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, may_finish = points >= 0, stage = stage,
-			bad_list = prof.listboxBadTrait ~= nil, bad_button = prof.addBadTraitBtn ~= nil },
+		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, may_finish = stage == "pay" and points >= 0,
+			stage = stage, bad_list = prof.listboxBadTrait ~= nil, bad_button = prof.addBadTraitBtn ~= nil },
 		options = out, last = c.last }))
 	return true
 end

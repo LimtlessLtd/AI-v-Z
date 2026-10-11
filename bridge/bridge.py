@@ -15,6 +15,7 @@ Uses the Python standard library only.
 import argparse
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -28,6 +29,18 @@ sys.path.insert(0, str(ROOT))
 
 from brain import strategy  # noqa: E402
 from brain.percept import Memory, summarize  # noqa: E402
+
+
+class ExclusiveHTTPServer(ThreadingHTTPServer):
+    """A dashboard server that owns its port. ThreadingHTTPServer sets SO_REUSEADDR, which on Windows lets a
+    second process bind the same port without an error, so a second agent or bridge ran alongside the first."""
+
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 DEFAULT_LUA_DIR = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Zomboid" / "Lua" / "aivz"
 RECHECK_S = 6      # re-plan at least this often while a goal runs
@@ -250,7 +263,7 @@ class Bridge:
                 "recent": list(self.mem.recent),
             }
 
-    def serve(self):
+    def server(self):
         bridge = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -275,7 +288,7 @@ class Bridge:
             def log_message(self, *a):
                 pass
 
-        ThreadingHTTPServer(("127.0.0.1", self.port), Handler).serve_forever()
+        return ExclusiveHTTPServer(("127.0.0.1", self.port), Handler)
 
     # ------------------------------------------------------------------ main loop
     def run(self):
@@ -296,7 +309,13 @@ def main():
     ap.add_argument("--lua-dir", default=str(DEFAULT_LUA_DIR))
     args = ap.parse_args()
     bridge = Bridge(args)
-    threading.Thread(target=bridge.serve, daemon=True).start()
+    try:
+        server = bridge.server()
+    except OSError as e:
+        print(f"port {args.port} is taken ({e.strerror}): the agent or another bridge is already running. Stop it first.",
+              flush=True)
+        sys.exit(1)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"AI-v-Z baseline bridge (rules); files in {bridge.lua_dir}; dashboard http://127.0.0.1:{args.port}/", flush=True)
     try:
         bridge.run()

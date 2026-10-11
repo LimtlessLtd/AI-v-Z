@@ -224,6 +224,17 @@ class ProbeTests(unittest.TestCase):
 
 
 class AgentLoopTests(unittest.TestCase):
+    def test_a_second_agent_cannot_take_the_dashboard_port(self):
+        from agent.run import Agent
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Agent(argparse.Namespace(lua_dir=tmp, log_dir=tmp, port=0)).server()
+            try:
+                port = first.server_address[1]
+                with self.assertRaises(OSError):   # on Windows a plain HTTPServer would have bound it too
+                    Agent(argparse.Namespace(lua_dir=tmp, log_dir=tmp, port=port)).server()
+            finally:
+                first.server_close()
+
     def test_decisions_are_answered_and_logged(self):
         from agent.run import Agent
         with tempfile.TemporaryDirectory() as tmp:
