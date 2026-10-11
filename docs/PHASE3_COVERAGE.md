@@ -52,6 +52,17 @@ Build 42 crafting system.
   capture needs a library that isn't installed; ask before installing.
 * `obs.speed` records the game's speed multiplier (read only).
 
+## Progress 2026-10-11 (gym 0.4.3, code only, not run in the game)
+
+* Hidden-information fix: gym zombie observations and `attack`/`shove` options no longer carry `chasing`
+  (the game's `getTarget() == player`, internal AI state) or the redundant `seen`. They carry what a player can
+  watch instead: relative position, distance, `blocked`, `down`, and `closing` (tiles closed since the last
+  decision that saw that same zombie, absent if not seen within ~15 s of game ticks). A Python test guards
+  that the gym Lua never reads `getTarget`. The rules baseline (`AIvZ.lua`) still uses `chasing`; it is not the gym.
+* Still open from the leakage audit: `sq:isCanSee` as a field-of-view proxy, recipe/target caches
+  (`G.recipes` evaluates recipes against containers the player may not have looked in), no memory of
+  previously seen zombies.
+
 ## Action interface to build
 
 1. Enumerate the game's available inventory/world context-menu trees and their normal prerequisites.

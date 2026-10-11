@@ -67,3 +67,5 @@ Gym 0.3.3 (2026-10-11) also hides zombies on unlit squares (threshold 0.2 is a g
 
 Gym 0.4.0 (2026-10-11): new verbs exercise, stow, enter_vehicle, exit_vehicle, engine_on, engine_off and the hearing
 record are covered only by Python tests of the hearing maths. The Lua has never been run; the probe has not tried the new verbs.
+
+Gym 0.4.3 (2026-10-11): zombie `chasing`/`seen` removed from gym observations, `closing` added; verified only by a Python static test and code reading, not in the live game.
