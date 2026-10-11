@@ -165,7 +165,7 @@ and 176 decisions, against roughly 20–30 game minutes and 80 decisions at 1×.
 
 | Key | Effect |
 |---|---|
-| **F7** | Show/hide the AI's HUD. *(H, in the original plan, opens the Health panel in 42.21, so the HUD moved to F7.)* |
+| **F7** | Show/hide the AI's HUD. Drag the panel anywhere; resize it from the bottom-right corner and the text steps up in size to match. Position and size are remembered in `Lua\aivz\hud.txt` (delete it to reset). Written in the cloud, not yet seen in game. *(H, in the original plan, opens the Health panel in 42.21, so the HUD moved to F7.)* |
 | PZ's speed buttons, F3–F6 | Game speed, as usual. While the AI plays it keeps the one you picked (see [Game speed](#game-speed)); the HUD's bottom line shows the speed, e.g. `speed 1x (20x when clear)` after the game has dropped to 1× for a close zombie. |
 | W A S D, arrows, E, Space, F, R, Q | **Manual override:** the AI stops at once and you're driving. It takes over again after ~10 s with no input and no movement. While you drive, the mod doesn't touch the speed. |
 | Pause (F2) | Respected: the AI never unpauses the game. |
