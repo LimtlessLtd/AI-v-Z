@@ -167,3 +167,11 @@ audio and continuous controls, once this environment work is validated.
   (10-60 game minutes) is an explicit option parameter. **Not done:** moving the equipment into hand
   (`ISFitnessUI:equipItems`), so prop exercises may still fail. Needs a live test: no `Fitness.incRegularity`
   exception and endurance must fall.
+
+## Progress 2026-10-11 (gym 0.4.5, code only, not run in the game)
+
+* `exercise`: 0.4.4 read the duration and the limit from `o.minutes` / `o.blocked`, which are always nil, so
+  `ISFitnessAction:new` would fail and every exercise would end as "unsupported". It now reads `o.data`.
+  A unit test checks that no executor reads option fields outside `o.data` / `o.info` / `o.verb`.
+* Vehicle scan: a nil (unloaded) square is now checked before it is indexed. Twice in the 2026-10-11
+  console log (BACKLOG item 8, C2).

@@ -15,7 +15,7 @@ check-in; the rest are noted so they are not lost. Nothing here is live-tested u
 | 5 | **No speech bubbles or announcements.** The character must not say or show anything the network didn't choose, and the network must not be handed explanations it couldn't know (e.g. "not safe to sleep here"). | 3 | Not done. Every source is listed in [Speech and announcements](#speech-and-announcements-item-5). |
 | 6 | **Remove the repo's own guard rails**, so the network learns its own rules from repetition. | 3 | Not done. [Guard rails](#guard-rails-item-6) lists them, separated from the game's own prerequisites (which stay, because a player has them too). |
 | 7 | **Item and vehicle status a player can see**: clothing condition, vehicle parts, weapons, ammo and which ammo/magazine fits which weapon. | 3 | **The network sees almost none of it today.** Work items O1-O6 in [Item and vehicle status](#item-and-vehicle-status-item-7), with verified APIs. |
-| 8 | **Errors from the mod** in `console.txt` (session 2026-10-11 12:06-12:52). | 3 | Two mod errors, both explained, **not fixed**: C1 (exercise, 517 times) and C2 (vehicle scan, twice) in [Console errors](#console-errors-item-8). |
+| 8 | **Errors from the mod** in `console.txt` (session 2026-10-11 12:06-12:52). | 3 | Two mod errors, both explained; fixed in code (gym 0.4.4 and 0.4.5), **not yet run in game**: C1 (exercise, 517 times) and C2 (vehicle scan, twice) in [Console errors](#console-errors-item-8). |
 
 ## Standing Phase 3 gaps (see PHASE3_COVERAGE.md)
 
@@ -248,7 +248,8 @@ nothing has been run in game.
 ## Console errors (item 8)
 
 From `C:\Users\fab_f\Zomboid\console.txt`: session 2026-10-11 12:06-12:52, 37,210 lines, loader "OK v0.5.0".
-It ran after commit 4d53766, so gym 0.4.3 with the "set current exercise" fix.
+It ran after commit 4d53766, so gym 0.4.3 with the "set current exercise" fix. Line numbers below are from
+that version.
 
 * **C1, exercise, 517 times.**
   * Error: `NullPointerException: Cannot read field "type" because "this.currentExe" is null` at
@@ -258,14 +259,21 @@ It ran after commit 4d53766, so gym 0.4.3 with the "set current exercise" fix.
   * Cause: `exercise` calls `ISFitnessAction:new(p, name, 25, data)` without the fifth argument
     `exeDataType`. `new` calls `fitness:setCurrentExercise(exeDataType)`, setting it to nil and undoing the
     gym's own `setCurrentExercise` (`AIvZGymActions.lua:66`).
-  * Fix: gap list item 2.
+  * Fixed in code, not yet run in game:
+    * Gym 0.4.4 (PR #21) passes `exeDataType`, matches equipment by full type and adds the fitness screen's
+      limits and a 10-60 minute duration.
+    * 0.4.4 read the duration and the limit from `o.minutes` / `o.blocked`, which are always nil (the
+      option's fields are in `o.data`), so every exercise would have failed with "unsupported". Gym 0.4.5
+      reads `o.data`. A new unit test checks every executor for this.
+  * Still open: moving the equipment into the hands (`ISFitnessUI:equipItems`).
+  * Live test: no `Fitness.incRegularity` exception, and endurance falls.
 * **C2, vehicle scan, twice.**
   * Error: `attempted index: getVehicleContainer of non-table: null` at `AIvZGymActions.lua:139`
     (`nearVehicles`, from the vehicle option hook in `G.options` ← `G.request` ← tick). First at console
     line 2591.
   * Cause: `sqAt(...)` returns nil for a square that isn't loaded at the edge of the 4-tile scan. `try`
     catches the error, but Kahlua still logs every caught exception with a stack dump.
-  * Fix: check the square before indexing (`local sq = sqAt(...); local v = sq and sq:getVehicleContainer()`).
+  * Fixed in code by gym 0.4.5, not yet run in game: the square is checked for nil before it is indexed.
     General rule: test for an expected nil, don't lean on `pcall`/`try` to skip it.
 * **Not from the mod:** warnings about vanilla content, such as SpriteConfig `Wooden_Windows`, `Coffin` and
   `Key_Duplicator` entity scripts, the `Build_AnvilStone` icon, AngelCodeFont textures, map object files for
@@ -294,8 +302,8 @@ Each line is open. Details, APIs and file references are in [GAP_LIST.md](GAP_LI
 
 **Verbs that are wrong:**
 
-* G2 `exercise` cannot work: missing `exeDataType`, and weight exercises are never offered (`getType()` vs
-  `"Base.BarBell"`).
+* G2 `exercise`: fixed in code by gym 0.4.4 and 0.4.5 (see C1), apart from moving the equipment into the
+  hands. Not yet run in game.
 * G3 `sleep` skips "not tired enough" and "too soon".
 * G4 `drink` lacks the thirst > 0.1 and beverage/bleach rules and the half/quarter portions.
 * G5 `engine_on` lacks the key/hotwire/working-engine check; no Hotwire.

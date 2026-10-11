@@ -320,5 +320,17 @@ class ExerciseLuaStaticTest(unittest.TestCase):
         import pathlib
         src = pathlib.Path(__file__).resolve().parents[1].joinpath(
             "mod/AIvZ/42/media/lua/client/AIvZGymActions.lua").read_text()
-        self.assertIn("ISFitnessAction:new(p, o.data.name, o.minutes, o.data.data, o.data.data.type)", src)
+        self.assertIn("ISFitnessAction:new(p, o.data.name, o.data.minutes, o.data.data, o.data.data.type)", src)
         self.assertIn("contains(need, true)", src)
+
+    def test_executors_read_option_fields_from_data(self):
+        # An executor gets the option as { verb, info, data } (add() in AIvZGym.lua); its own fields are in
+        # o.data. Gym 0.4.4 read o.minutes / o.blocked, which are always nil, so every exercise failed.
+        import re
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        for name in ("AIvZGym.lua", "AIvZGymActions.lua"):
+            src = (base / name).read_text(encoding="utf-8")
+            for block in re.findall(r"^G\.X\.\w+ = \{.*?^\}", src, re.M | re.S):
+                code = "\n".join(l.split("--")[0] for l in block.splitlines())
+                fields = set(re.findall(r"\bo\.(\w+)", code))
+                self.assertLessEqual(fields, {"data", "info", "verb"}, f"{name}: {block.splitlines()[0]}")

@@ -73,14 +73,15 @@ end
 G.X.exercise = {
 	start = function(p, t, o)
 		if not (rawget(_G, "ISFitnessAction") and rawget(_G, "FitnessExercises")) then return U.fail(t, "unsupported: no fitness API") end
-		if o.blocked then return U.fail(t, "not allowed now: " .. o.blocked) end
+		-- the option's own fields are in o.data (o is { verb, info, data })
+		if o.data.blocked then return U.fail(t, "not allowed now: " .. o.data.blocked) end
 		t.end0 = endurance(p)
 		local fit = try(function() return p:getFitness() end)
 		if not fit then return U.fail(t, "unsupported: no Fitness object") end
 		pcall(function() fit:init() end) -- the screen does this when it opens
 		-- Constructor (ISFitnessAction.lua:204): (character, exercise, timeToExe, exeData, exeDataType). The fifth
 		-- argument is what sets Fitness' current exercise; omitting it left it nil.
-		local ok, act = pcall(function() return ISFitnessAction:new(p, o.data.name, o.minutes, o.data.data, o.data.data.type) end)
+		local ok, act = pcall(function() return ISFitnessAction:new(p, o.data.name, o.data.minutes, o.data.data, o.data.data.type) end)
 		if not ok or not act then return U.fail(t, "unsupported: ISFitnessAction:new failed") end
 		-- equipment hand-off (ISFitnessUI:equipItems) is NOT done here yet: exercises with a prop item need it in hand
 		Q(act)
@@ -154,7 +155,10 @@ local function nearVehicles(p, radius)
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
 	for dx = -radius, radius do
 		for dy = -radius, radius do
-			local v = try(function() return sqAt(px + dx, py + dy, pz):getVehicleContainer() end)
+			-- squares at the edge may not be loaded; test for nil rather than let try() catch it (Kahlua still
+			-- logs every caught exception with a stack dump: twice in the 2026-10-11 console log)
+			local sq = sqAt(px + dx, py + dy, pz)
+			local v = sq and try(function() return sq:getVehicleContainer() end)
 			if v and not seen[v] then
 				seen[v] = true
 				out[#out + 1] = { v = v, d = math.sqrt((v:getX() - p:getX()) ^ 2 + (v:getY() - p:getY()) ^ 2) }
