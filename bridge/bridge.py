@@ -81,6 +81,57 @@ def explain(plan):
     return " > ".join(f"{g.replace('_', ' ')} {v:.0f}" for g, v in top)
 
 
+class RulesLives:
+    """The rules baseline's lives, appended to logs/lives-rules.jsonl in the form of the agent's lives.jsonl
+    (policy "rules") so the Learning page can compare rules, random and network play. The percept carries no
+    gym observation, so there is no reward, and no item or building counts: those are null."""
+
+    def __init__(self, log_dir):
+        self.path = Path(log_dir) / "lives-rules.jsonl"
+        self.number = 0
+        try:
+            self.number = sum(1 for line in self.path.read_text(encoding="utf-8").splitlines() if line.strip())
+        except OSError:
+            pass
+        self.cur = None
+
+    def _end(self, how):
+        c, self.cur = self.cur, None
+        age = c["age"]
+        rec = {"life": c["number"], "who": c["name"], "save": c["save"], "ended": how, "born_age": c["born"],
+               "end_age": age, "hours": round(max(0.0, age - c["born"]), 2), "kills": c["kills"], "reward": None,
+               "parts": {}, "decisions": c["decisions"], "real_minutes": round(c["real_s"] / 60, 1),
+               "items_seen": None, "buildings": None, "last_choice": c["goal"], "policy": "rules",
+               "policies": {"rules": c["decisions"]}, "finished": datetime.now().isoformat(timespec="seconds")}
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return rec
+
+    def observe(self, raw, goal=None, decisions=0):
+        """Fold in a percept. Returns the finished life's record when this percept ended one."""
+        who = raw.get("who") or {}
+        age = (raw.get("time") or {}).get("age")
+        if age is None or not who.get("name"):
+            return None
+        now = time.time()
+        done = None
+        c = self.cur
+        if c and (c["name"], c["save"]) != (who.get("name"), who.get("save")):
+            done, c = self._end("left"), None
+        if c is None and not raw.get("dead"):
+            self.number += 1
+            c = self.cur = {"number": self.number, "name": who.get("name"), "save": who.get("save"), "born": age,
+                            "age": age, "kills": 0, "decisions": 0, "real_s": 0.0, "seen": now, "goal": None}
+        if c is None:
+            return done
+        c["real_s"] += min(30.0, max(0.0, now - c["seen"]))
+        c["seen"], c["age"] = now, age
+        c["kills"] = raw.get("kills", c["kills"])
+        c["decisions"] = decisions or c["decisions"]
+        c["goal"] = goal or c["goal"]
+        return self._end("died") if raw.get("dead") else done
+
+
 class Bridge:
     def __init__(self, args):
         self.lua_dir = Path(args.lua_dir)
@@ -100,6 +151,7 @@ class Bridge:
         self.decisions = deque(maxlen=40)
         self.status = "waiting for the game"
         self.dead_logged = False
+        self.lives = RulesLives(self.log_dir)
         self.cooldown = {}   # goal -> time.time() until which it isn't offered
         self.ended_seq = 0   # last task seq whose end was handled
 
@@ -153,6 +205,7 @@ class Bridge:
         with self.lock:
             self.raw, self.raw_at = raw, time.time()
             self.seq = max(self.seq, int(raw.get("ack") or 0))
+            self.lives.observe(raw, self.current and self.current["goal"], self.seq)
             if raw.get("dead"):
                 if not self.dead_logged:
                     self.dead_logged = True

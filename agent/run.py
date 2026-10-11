@@ -225,6 +225,17 @@ class Agent:
                 "lives": self.lives.history[-60:], "recent": list(self.recent),
             }
 
+    def _rules_lives(self):
+        """Lives the rules baseline played (written by the bridge to logs/lives-rules.jsonl), for comparison."""
+        try:
+            lines = (self.log_dir / "lives-rules.jsonl").read_text(encoding="utf-8").splitlines()
+            recs = [json.loads(x) for x in lines[-400:] if x.strip()]
+        except (OSError, ValueError):
+            return []
+        return [{"life": x.get("life"), "policy": "rules", "hours": x.get("hours", 0), "reward": x.get("reward"),
+                 "kills": x.get("kills", 0), "items": x.get("items_seen"), "buildings": x.get("buildings"),
+                 "decisions": x.get("decisions", 0)} for x in recs if x.get("ended") == "died"]
+
     def learning(self):
         """The Learning page's data: training rounds, and lives compared by the policy that played them."""
         hist = []
@@ -237,6 +248,7 @@ class Agent:
                   "reward": x.get("reward", 0), "kills": x.get("kills", 0), "items": x.get("items_seen", 0),
                   "buildings": x.get("buildings", 0), "decisions": x.get("decisions", 0)}
                  for x in self.lives.history if x.get("ended") == "died"]
+        lives += self._rules_lives()
         return {"history": hist, "lives": lives[-400:], "trainer": self.trainer.status() if self.trainer else None,
                 "policy": self.policy.name}
 

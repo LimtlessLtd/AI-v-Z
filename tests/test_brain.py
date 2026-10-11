@@ -4,6 +4,7 @@ Run from the repo root:  python -m unittest discover -s tests
 """
 
 import copy
+import json
 import random
 import sys
 import unittest
@@ -156,6 +157,23 @@ class BridgeTests(unittest.TestCase):
 
     def intent(self, b):
         return (b.intent_path.read_text(encoding="utf-8").split("|")[:2])
+
+    def test_rules_lives_are_logged_with_policy_rules(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            b = self.make_bridge(tmp)
+            raw = copy.deepcopy(RAW)
+            raw["who"], raw["kills"] = {"name": "A B", "save": "w"}, 2
+            raw["time"] = {**raw.get("time", {}), "age": 10.0}
+            b.on_percept(raw)
+            raw = copy.deepcopy(raw)
+            raw["time"]["age"], raw["dead"] = 12.5, True
+            b.on_percept(raw)
+            b.on_percept(raw)   # a repeated dead percept must not log a second life
+            lines = (Path(tmp) / "lives-rules.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 1)
+            rec = json.loads(lines[0])
+            self.assertEqual((rec["policy"], rec["ended"], rec["hours"], rec["kills"]), ("rules", "died", 2.5, 2))
 
     def test_finished_task_is_restarted_or_replaced(self):
         import tempfile
