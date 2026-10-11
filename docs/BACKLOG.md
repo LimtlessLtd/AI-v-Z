@@ -300,7 +300,7 @@ Each line is open. Details, APIs and file references are in [GAP_LIST.md](GAP_LI
 * L4 time without a watch or alarm clock; date and temperature without a digital one; `weather.temp` is
   not the temperature the clock shows
 * L5 objects behind walls within 1.5 tiles (`perceivable`)
-* L6 poison used to classify drinks (`isPoisonous()` in `U.waterIn`)
+* ~~L6 poison used to classify drinks~~ fixed in gym 0.4.12 for the gym (rules baseline keeps it)
 * L7 window `locked`
 * L8 vehicles within 4 tiles regardless of sight
 * L9 zombie identity kept across occlusion (`closing`)

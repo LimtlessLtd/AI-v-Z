@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.11"
+G.VERSION = "0.4.12"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -108,7 +108,7 @@ end
 ---------------------------------------------------------------- what an item is, for the agent
 local function category(it)
 	if instanceof(it, "Food") then return "food" end
-	if U.waterIn(it) then return "drink" end
+	if U.waterIn(it, true) then return "drink" end
 	if U.medKind(it) then return "medical" end
 	if instanceof(it, "HandWeapon") then return "weapon" end
 	if instanceof(it, "InventoryContainer") then return "bag" end
@@ -188,7 +188,7 @@ function G.itemInfo(p, it)
 		i.raw = (try(function() return it:isbDangerousUncooked() end) == true) and not i.cooked
 		i.sealed = U.sealedCan(it) or (try(function() return it:getScriptItem():isCantEat() end) == true)
 	end
-	local water = U.waterIn(it)
+	local water = U.waterIn(it, true)
 	if water then i.water = r2(water) end
 	local fc = try(function() return it:getFluidContainer() end)
 	local amount = fc and try(function() return fc:getAmount() end)
