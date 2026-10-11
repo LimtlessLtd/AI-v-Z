@@ -207,7 +207,7 @@ G.X.engine_on, G.X.engine_off = engine(true), engine(false)
 -- enforces its own point budget and exclusions: an add that doesn't take effect is reported as failed.
 -- Written from the vanilla CharacterCreationProfession (listboxTrait, listboxTraitSelected, addTraitBtn,
 -- removeTraitBtn); NOT yet run in Build 42.21. If the screen differs, it returns false and Next is pressed.
-local MAX_STEPS, WAIT_MS = 12, 20000   -- at most 12 trait changes per character, then Next
+local MAX_STEPS, WAIT_MS = 12, 20000   -- after 12 trait changes, finishing is the only way on (once the points allow)
 
 local function traitLabel(item)
 	local t = item and item.item
@@ -221,7 +221,21 @@ local function selectedTraits(prof)
 	return out
 end
 
-local function creationOptions(prof)
+-- Points left to spend, as the game counts them. The game's own number when the screen exposes one
+-- (pointToSpend); otherwise a conservative stand-in: 0 if the chosen traits cost nothing net, else negative,
+-- so an unknown balance can never let a build that may be overdrawn start. A character may start only
+-- with 0 or more points left; below 0 the game's rules say it can't.
+function G.creationPoints(prof)
+	local p = rawget(prof, "pointToSpend") or try(function() return prof.pointToSpend end)
+	if type(p) == "number" then return p, true end
+	local net = 0
+	for _, it in ipairs(prof.listboxTraitSelected and prof.listboxTraitSelected.items or {}) do
+		net = net + (select(2, traitLabel(it)) or 0)
+	end
+	return (net <= 0) and 0 or -net, false
+end
+
+local function creationOptions(prof, points)
 	local opts = {}
 	for i, it in ipairs(prof.listboxTrait and prof.listboxTrait.items or {}) do
 		local label, cost, ty = traitLabel(it)
@@ -231,15 +245,36 @@ local function creationOptions(prof)
 		local label, cost, ty = traitLabel(it)
 		opts[#opts + 1] = { verb = "remove_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i }
 	end
-	opts[#opts + 1] = { verb = "finish_creation" }
+	if points >= 0 then opts[#opts + 1] = { verb = "finish_creation" } end   -- not offered while overdrawn
 	return opts
+end
+
+local function click(prof, o)
+	local lb = o.verb == "add_trait" and prof.listboxTrait or prof.listboxTraitSelected
+	lb.selected = o.idx
+	prof:onOptionMouseDown(o.verb == "add_trait" and prof.addTraitBtn or prof.removeTraitBtn, 0, 0)
+end
+
+-- Used when the agent isn't answering or isn't playing, just before Next is pressed for it: if the traits
+-- overdraw the points, take them off again (most expensive first) so the game's rule is never broken.
+function G.creationRepair(prof)
+	if not (prof.listboxTraitSelected and prof.removeTraitBtn) then return end
+	for _ = 1, 40 do
+		if G.creationPoints(prof) >= 0 then return end
+		local best, bi = nil, nil
+		for i, it in ipairs(prof.listboxTraitSelected.items or {}) do
+			local c = select(2, traitLabel(it)) or 0
+			if not best or c > best then best, bi = c, i end
+		end
+		if not bi then return end
+		click(prof, { verb = "remove_trait", idx = bi })
+	end
 end
 
 function G.creation(prof)
 	if not (prof.listboxTrait and prof.listboxTraitSelected and prof.addTraitBtn and prof.removeTraitBtn) then return false end
 	local c = G.s.creation
 	if not c then c = { steps = 0 }; G.s.creation = c end
-	if c.steps >= MAX_STEPS then return false end
 	local now = getTimestampMs()
 	if c.asked then
 		local line = U.readFirstLine("act.txt")
@@ -247,26 +282,31 @@ function G.creation(prof)
 		if parts and tonumber(parts[1]) == c.id then
 			local o = c.opts[(tonumber(parts[2]) or -1) + 1]
 			c.asked = false
-			if not o or o.verb == "finish_creation" then return false end
+			if not o then return true end   -- not a valid choice: ask again
+			if o.verb == "finish_creation" then
+				if G.creationPoints(prof) < 0 then return true end   -- never start overdrawn
+				return false
+			end
 			c.steps = c.steps + 1
 			local before = #selectedTraits(prof)
-			local lb = o.verb == "add_trait" and prof.listboxTrait or prof.listboxTraitSelected
-			lb.selected = o.idx
-			prof:onOptionMouseDown(o.verb == "add_trait" and prof.addTraitBtn or prof.removeTraitBtn, 0, 0)
+			click(prof, o)
 			local after = #selectedTraits(prof)
 			local want = o.verb == "add_trait" and before + 1 or before - 1
 			c.last = { verb = o.verb, name = o.name, status = after == want and "done" or "failed",
 				msg = after == want and "" or "the game didn't accept it (points or exclusions)" }
 			return true
 		end
-		if now - c.askedAt > WAIT_MS then return false end   -- the agent isn't answering: carry on with Next
+		if now - c.askedAt > WAIT_MS then G.creationRepair(prof); return false end   -- no answer: carry on with Next
 		return true
 	end
+	local points, known = G.creationPoints(prof)
+	if c.steps >= MAX_STEPS and points >= 0 then return false end
 	G.s.id = G.s.id + 1
-	c.id, c.opts, c.asked, c.askedAt = G.s.id, creationOptions(prof), true, now
+	c.id, c.opts, c.asked, c.askedAt = G.s.id, creationOptions(prof, points), true, now
 	local out = {}
 	for i, o in ipairs(c.opts) do out[i] = o end
 	U.writeFile("obs.json", A.json({ id = c.id, reason = "creation", creation = true, gym = G.VERSION,
-		obs = { selected = selectedTraits(prof) }, options = out, last = c.last }))
+		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, may_finish = points >= 0 },
+		options = out, last = c.last }))
 	return true
 end
