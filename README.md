@@ -195,7 +195,7 @@ training experience in `logs/experience/`. It uses the same port as the agent an
 a time. The probe does not create practice scenarios; it uses whatever the current game offers.
 The executor results are in [Phase 3 verification](docs/PHASE3_VERIFICATION.md). Broader action,
 perception and hearing requirements are in [Phase 3 coverage](docs/PHASE3_COVERAGE.md). Passing the
-executor probe does not establish full player action coverage. Check in before starting Phase 4.
+executor probe does not establish full player action coverage. Check in before starting Phase 4. Raised-but-unfinished items are in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/reload-mod.ps1
