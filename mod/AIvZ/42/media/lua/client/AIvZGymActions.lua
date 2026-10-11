@@ -207,7 +207,8 @@ G.X.engine_on, G.X.engine_off = engine(true), engine(false)
 -- enforces its own point budget and exclusions: an add that doesn't take effect is reported as failed.
 -- Written from the vanilla CharacterCreationProfession (listboxTrait, listboxTraitSelected, addTraitBtn,
 -- removeTraitBtn); NOT yet run in Build 42.21. If the screen differs, it returns false and Next is pressed.
-local MAX_STEPS, WAIT_MS = 12, 20000   -- after 12 trait changes, finishing is the only way on (once the points allow)
+local MAX_STEPS, WAIT_MS = 12, 20000   -- after 12 trait changes in the spend stage, finishing is the only option
+local MAX_FAILS = 6                    -- repay stage: this many refused/unavailable picks, then traits are taken off
 
 local function traitLabel(item)
 	local t = item and item.item
@@ -235,21 +236,27 @@ function G.creationPoints(prof)
 	return (net <= 0) and 0 or -net, false
 end
 
-local function creationOptions(prof, points)
+-- The trait choice runs in three stages, so the screen can never be a dead end:
+--   spend  (never overdrawn so far): add traits that cost points, or finish (finish is allowed at 0 or more)
+--   repay  (points went below 0):    add only traits that give points back, until points are 0 or more
+--   done   (repaid):                 the only option is to start the game
+-- No trait is ever removed by the agent; `c.repaying` remembers that points went negative.
+local function creationOptions(prof, points, c)
 	local opts = {}
-	-- vanilla keeps good traits in listboxTrait and negative ones in listboxBadTrait (when the screen has it)
-	for _, key in ipairs({ "listboxTrait", "listboxBadTrait" }) do
-		for i, it in ipairs(prof[key] and prof[key].items or {}) do
-			local label, cost, ty = traitLabel(it)
-			opts[#opts + 1] = { verb = "add_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i, list = key }
+	local stage = c.repaying and (points >= 0 and "done" or "repay") or "spend"
+	if stage ~= "done" then
+		for _, key in ipairs({ "listboxTrait", "listboxBadTrait" }) do
+			for i, it in ipairs(prof[key] and prof[key].items or {}) do
+				local label, cost, ty = traitLabel(it)
+				cost = cost or 0
+				if (stage == "spend" and cost >= 0 and not (c.steps >= MAX_STEPS)) or (stage == "repay" and cost < 0) then
+					opts[#opts + 1] = { verb = "add_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i, list = key }
+				end
+			end
 		end
 	end
-	for i, it in ipairs(prof.listboxTraitSelected and prof.listboxTraitSelected.items or {}) do
-		local label, cost, ty = traitLabel(it)
-		opts[#opts + 1] = { verb = "remove_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i }
-	end
-	if points >= 0 then opts[#opts + 1] = { verb = "finish_creation" } end   -- not offered while overdrawn
-	return opts
+	if points >= 0 then opts[#opts + 1] = { verb = "finish_creation" } end
+	return opts, stage
 end
 
 local function click(prof, o)
@@ -296,22 +303,27 @@ function G.creation(prof)
 			local before = #selectedTraits(prof)
 			click(prof, o)
 			local after = #selectedTraits(prof)
-			local want = o.verb == "add_trait" and before + 1 or before - 1
-			c.last = { verb = o.verb, name = o.name, status = after == want and "done" or "failed",
-				msg = after == want and "" or "the game didn't accept it (points or exclusions)" }
+			local ok = after == before + 1
+			if not ok then c.fails = (c.fails or 0) + 1 end
+			if G.creationPoints(prof) < 0 then c.repaying = true end
+			c.last = { verb = o.verb, name = o.name, status = ok and "done" or "failed",
+				msg = ok and "" or "the game didn't accept it (points or exclusions)" }
 			return true
 		end
 		if now - c.askedAt > WAIT_MS then G.creationRepair(prof); return false end   -- no answer: carry on with Next
 		return true
 	end
 	local points, known = G.creationPoints(prof)
-	if c.steps >= MAX_STEPS and points >= 0 then return false end
+	if points < 0 then c.repaying = true end
+	local opts, stage = creationOptions(prof, points, c)
+	-- a repay stage with nothing to pick, or that keeps being refused, would be a dead end: undo and go on
+	if stage == "repay" and (#opts == 0 or (c.fails or 0) >= MAX_FAILS) then G.creationRepair(prof); return false end
 	G.s.id = G.s.id + 1
-	c.id, c.opts, c.asked, c.askedAt = G.s.id, creationOptions(prof, points), true, now
+	c.id, c.opts, c.asked, c.askedAt = G.s.id, opts, true, now
 	local out = {}
 	for i, o in ipairs(c.opts) do out[i] = o end
 	U.writeFile("obs.json", A.json({ id = c.id, reason = "creation", creation = true, gym = G.VERSION,
-		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, may_finish = points >= 0,
+		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, may_finish = points >= 0, stage = stage,
 			bad_list = prof.listboxBadTrait ~= nil, bad_button = prof.addBadTraitBtn ~= nil },
 		options = out, last = c.last }))
 	return true
