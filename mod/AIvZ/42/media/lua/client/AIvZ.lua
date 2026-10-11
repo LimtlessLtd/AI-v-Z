@@ -46,6 +46,10 @@ local S, H = A.s, A.hud
 ---------------------------------------------------------------- helpers
 local function try(f, ...) local ok, v = pcall(f, ...); if ok then return v end return nil end
 local function P() return getSpecificPlayer(0) end
+
+-- Speech bubbles are never shown: the character must not say anything the network did not choose
+-- (BACKLOG item 5). Kept as one switch so the rules baseline can be given its voice back deliberately.
+local function speak(p, text) end
 local function sqAt(x, y, z) return getCell():getGridSquare(x, y, z) end
 local function r1(v) return math.floor((tonumber(v) or 0) * 10 + 0.5) / 10 end
 local function r2(v) return math.floor((tonumber(v) or 0) * 100 + 0.5) / 100 end
@@ -618,7 +622,7 @@ function A.maybeSetHome(p, b, info)
 	local moved = m.home ~= nil
 	m.home = { id = id, x = sq:getX(), y = sq:getY(), z = sq:getZ() }
 	A.event(moved and "moved my home base here" or "made this place my home base")
-	pcall(function() p:Say(moved and "I'll make this my new home." or "This place will do. Home.") end)
+	speak(p, moved and "I'll make this my new home." or "This place will do. Home.")
 end
 
 local function roomNames(def)
@@ -864,7 +868,7 @@ function A.reflex(p)
 				Q(ISPathFindAction:pathToLocationF(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ()))
 				S.reflexTick, S.reflexAct = S.tick, "broke away from " .. close
 				A.event("reflex: broke away from " .. close .. " zombies")
-				pcall(function() p:Say("Too many of them!") end)
+				speak(p, "Too many of them!")
 			end
 		end
 		return true
@@ -1758,7 +1762,7 @@ function A.pollIntent(p)
 	S.lastSeq = seq
 	local goal = parts[2] or "wait"
 	local say, why, src = parts[6] or "", parts[7] or "", parts[8] or ""
-	if say ~= "" then pcall(function() p:Say(say) end) end
+	if say ~= "" then speak(p, say) end
 	-- a new goal clears the old reason (Qwen's line for it follows a second later)
 	if why ~= "" or goal ~= H.goal then H.why = why end
 	H.goal, H.source, H.lastIntent = goal, src, S.tick
@@ -1859,7 +1863,7 @@ function A.onTick()
 		if S.tick - S.lastMove > MANUAL_IDLE and S.tick - S.lastHumanKey > MANUAL_IDLE and qlen(p) == 0 then
 			S.manual = false
 			if S.task then S.task.phase = S.task.resume or "start" end
-			pcall(function() p:Say("I've got it from here.") end)
+			speak(p, "I've got it from here.")
 		else
 			H.action = "MANUAL: you're driving"
 			if S.tick % PERCEPT_EVERY == 0 then safe("percept", A.writePercept, p) end
@@ -2079,7 +2083,7 @@ function A.onGameStart()
 	local p = P()
 	if p and not S.announced then
 		S.announced = true
-		pcall(function() p:Say("AI online. Let's survive this.") end)
+		speak(p, "AI online. Let's survive this.")
 	end
 end
 
