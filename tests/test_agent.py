@@ -354,3 +354,22 @@ class ExerciseLuaStaticTest(unittest.TestCase):
                 code = "\n".join(l.split("--")[0] for l in block.splitlines())
                 fields = set(re.findall(r"\bo\.(\w+)", code))
                 self.assertLessEqual(fields, {"data", "info", "verb"}, f"{name}: {block.splitlines()[0]}")
+
+
+class MenuPrerequisiteStaticTest(unittest.TestCase):
+    """Gym 0.4.6: option prerequisites copied from the game's menus (code only, not run in the game)."""
+
+    def setUp(self):
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        self.src = (base / "AIvZGym.lua").read_text(encoding="utf-8")
+
+    def test_window_option_does_not_list_lock_state(self):
+        line = next(l for l in self.src.splitlines() if "local info = { d = r1(e.d), open = e.open" in l)
+        self.assertNotIn("locked", line)
+
+    def test_smash_needs_closed_window_and_clear_glass_needs_held_item(self):
+        self.assertIn("not e.smashed and not e.open and ns < 2", self.src)
+        self.assertIn("e.glass and p:getPrimaryHandItem() and ng < 1", self.src)
+
+    def test_drop_skips_favourites(self):
+        self.assertIn("isFavorite()", self.src)
