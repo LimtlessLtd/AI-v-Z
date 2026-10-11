@@ -1,5 +1,11 @@
 # Phase 3 action and hearing coverage — 2026-10-09
 
+> **2026-10-11:** a full audit against the installed 42.21.0 files is in
+> [ACTION_CATALOGUE.md](ACTION_CATALOGUE.md) (every player action, its vanilla source and the repo's status),
+> [OBSERVATION_AUDIT.md](OBSERVATION_AUDIT.md) (what a player can perceive; remaining leaks) and
+> [GAP_LIST.md](GAP_LIST.md) (ordered work with the exact APIs). It was done by reading the game's Lua and
+> disassembling the jar; nothing was run in the game.
+
 Phase 3 is not complete. The live verification covered all 27 **implemented** option types;
 it did not establish that the agent can do everything a player can do. No network is learning yet.
 This audit records current evidence and the work required before the Phase 4 check-in.
