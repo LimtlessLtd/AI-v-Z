@@ -39,6 +39,27 @@ that high speed no longer causes the previous blanket walk-to failure; it does n
 that speed itself changes pathfinding success. Directional walks still sometimes stop short,
 and containers behind walls or furniture can remain unreachable.
 
+### Controlled speed test, 2026-10-11
+
+Same save, random policy, natural play; the speed was set with the game's own buttons in alternating
+blocks: 1× 18:34-18:40, 20× 18:40-18:51, 1× 18:51-19:02, 20× 19:02-19:12, 1× 19:12-19:17. That gave 1,776
+decisions over 28 lives (592 in 1× blocks, 1,184 in 20× blocks). Outcomes by the block's speed, and by the
+speed the game was actually running when the move was chosen (the game drops to 1× by itself when a
+zombie is close):
+
+| Move | 1× blocks failed | 20× blocks failed | ran at 1× failed | ran at 20× failed |
+|---|---:|---:|---:|---:|
+| Walk in a direction | 4 / 16 | 7 / 47 | 7 / 20 | 4 / 43 |
+| Run in a direction | 0 / 6 | 9 / 22 | 6 / 9 | 3 / 19 |
+| Search a container | 2 / 8 | 2 / 6 | 4 / 9 | 0 / 5 |
+| All moves (walk, run, enter, go to room, search, take, door, window, curtain, smash, tap, sleep) | 8 / 46 (17%) | 24 / 109 (22%) | | |
+
+No clear speed effect at the block level (17% against 22%, with small samples). Split by the speed that was
+actually running, moves made at 1× failed far more often (walk 35%, run 67%) than at 20× (9%, 16%). The game
+runs at 1× when a zombie is close, so the failures go with danger, not with speed. The commonest failure in
+the 20× blocks was "no way there" (the pathfinder found no path: run 9, walk 7). Not settled: how many of
+those are targets on unwalkable squares (target choice) rather than pathfinder limits.
+
 ## Restart and automated checks
 
 A controlled restart of the live probe resumed life 16 (Ann Marquis) with its accumulated

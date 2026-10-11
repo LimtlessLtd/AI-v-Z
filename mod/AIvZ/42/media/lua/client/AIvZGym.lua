@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.5"
+G.VERSION = "0.4.6"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -151,12 +151,43 @@ function G.itemInfo(p, it)
 end
 
 ---------------------------------------------------------------- what the character perceives
+local function isClock(it) return it ~= nil and (instanceof(it, "AlarmClock") or instanceof(it, "AlarmClockClothing")) end
+
+-- What the screen's clock shows, or nil. The game shows it (zombie.ui.Clock.resize) for a watch or alarm
+-- clock that is worn, or one in the main inventory that is worn or in a hand. A digital one (ItemTag.DIGITAL)
+-- also shows the date and the temperature; an analogue one, the time.
+function G.clock(p)
+	local seen, digital = false, false
+	local function look(it)
+		seen = true
+		if try(function() return it:hasTag(ItemTag.DIGITAL) end) then digital = true end
+	end
+	local worn = p:getWornItems()
+	for i = 0, worn:size() - 1 do
+		local it = worn:getItemByIndex(i)
+		if isClock(it) then look(it) end
+	end
+	U.eachItem(p:getInventory(), function(it)
+		if isClock(it) and (it:isWorn() or it:isEquipped()) then look(it) end
+	end, 1)
+	if not seen then return nil end
+	local gt = getGameTime()
+	local c = { hour = gt:getHour(), min = gt:getMinutes(), digital = digital }
+	if digital then
+		c.day, c.month = gt:getDay() + 1, gt:getMonth() + 1
+		c.temp = r1(try(function() return getClimateManager():getTemperature() end) or 0)
+	end
+	return c
+end
+
 function G.observe(p, dead)
 	local o = {}
 	local gt, cm = getGameTime(), getClimateManager()
 	local d = p:getDescriptor()
 	local m = U.mem(p)
 	o.who = { name = d:getForename() .. " " .. d:getSurname(), save = tostring(getWorld():getWorld()) }
+	-- o.t is bookkeeping for the reward and the logs: a player sees the time only on a watch or clock
+	-- (o.clock), and the darkness ("dark") always
 	o.t = { age = r2(gt:getWorldAgeHours()), day = gt:getNightsSurvived() + 1, hour = gt:getHour(), min = gt:getMinutes(),
 		dark = r2(try(function() return cm:getNightStrength() end) or 0) }
 	o.kills = m.kills or 0
@@ -173,6 +204,7 @@ function G.observe(p, dead)
 		if v > 0 then o.moodles[k:lower()] = v end
 	end
 	o.speed = try(function() return gt:getTrueMultiplier() end) or try(function() return gt:getMultiplier() end)   -- read only
+	o.clock = G.clock(p)
 	o.body = A.wounds(p)
 	local l = squareLight(p:getCurrentSquare(), p:getPlayerNum())
 	o.light = { known = l ~= nil, here = l and r2(l) or nil }

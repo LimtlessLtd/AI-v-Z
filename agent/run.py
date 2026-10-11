@@ -19,6 +19,7 @@ with the same character (logs/agent-state.json).
 import argparse
 import gzip
 import json
+import socket
 import sys
 import threading
 import time
@@ -37,6 +38,18 @@ from agent.lives import Lives  # noqa: E402
 from agent.policies import ProbePolicy, RandomPolicy  # noqa: E402
 
 PAGE = (Path(__file__).resolve().parent / "agent.html").read_bytes()
+
+
+class ExclusiveHTTPServer(ThreadingHTTPServer):
+    """A dashboard server that owns its port. ThreadingHTTPServer sets SO_REUSEADDR, which on Windows lets a
+    second process bind the same port without an error, so a second agent or bridge ran alongside the first."""
+
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 class ExperienceLog:
@@ -144,7 +157,8 @@ class Agent:
                 "lives": self.lives.history[-60:], "recent": list(self.recent),
             }
 
-    def serve(self):
+    def server(self):
+        """The dashboard's HTTP server, bound to 127.0.0.1 (raises OSError if the port is taken)."""
         agent = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -169,7 +183,7 @@ class Agent:
             def log_message(self, *a):
                 pass
 
-        ThreadingHTTPServer(("127.0.0.1", self.port), Handler).serve_forever()
+        return ExclusiveHTTPServer(("127.0.0.1", self.port), Handler)
 
     def run(self):
         self.link.start_heartbeat()
@@ -196,7 +210,16 @@ def main():
     ap.add_argument("--policy", choices=("random", "probe"), default="random")
     args = ap.parse_args()
     agent = Agent(args)
-    threading.Thread(target=agent.serve, daemon=True).start()
+    # The port doubles as a lock: a second agent (or the bridge) on it used to lose only its dashboard and
+    # play on, so two answered the game and appended to the same experience file, which broke its gzip
+    # stream (logs/experience/20261011-11 and -12).
+    try:
+        server = agent.server()
+    except OSError as e:
+        print(f"port {args.port} is taken ({e.strerror}): another agent or the bridge is already running. "
+              f"Stop it first.", flush=True)
+        sys.exit(1)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     cur = agent.lives.current
     print(f"AI-v-Z agent ({agent.policy.name} policy); {agent.lives.count} lives so far"
           f"{f', carrying on with life {cur.number} ({cur.name})' if cur else ''}; "
