@@ -118,7 +118,7 @@ cloud, untested on Windows).
    ```
 
 2. Open the dashboard at <http://127.0.0.1:8799/>.
-3. Load your game and take your hands off the keyboard. The character says "AI online" and starts playing.
+3. Load your game and take your hands off the keyboard. The character starts playing (it no longer speaks).
 
 Every decision is logged to `logs/decisions-YYYYMMDD.jsonl` (with the percept); deaths go to
 `logs/deaths-YYYYMMDD.jsonl`.
