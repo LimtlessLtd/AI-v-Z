@@ -66,6 +66,16 @@ class EncodingTests(unittest.TestCase):
         d = F.encode_state({"obs": {**OBS, "clock": {"hour": 22, "min": 0}}})[0]
         self.assertNotEqual(a, d)   # the time counts once a watch shows it
 
+    def test_what_the_screen_doesnt_show_stays_out(self):
+        self.assertEqual(F.encode_state({"obs": {"health": 87.3}})[0], F.encode_state({"obs": {"health": 82.0}})[0])
+        self.assertNotEqual(F.encode_state({"obs": {"health": 87.3}})[0], F.encode_state({"obs": {"health": 40.0}})[0])
+        k = list(F.OPTION_NUMBERS).index("locked")
+        self.assertEqual(F.encode_option({"verb": "window", "locked": 1})[0][k], 0.0)
+        self.assertEqual(F.encode_option({"verb": "door", "locked": 1})[0][k], 1.0)
+        e = list(F.OPTION_NUMBERS).index("endurance")
+        self.assertEqual(F.encode_option({"verb": "exercise", "endurance": 1})[0][e], 0.0)
+        self.assertEqual(len(F.encode_option({"verb": "window"})[0]), F.OPTION_DIM)
+
     def test_traits_look_the_same_at_creation_and_in_the_life(self):
         at_creation = F.encode_state({"obs": {"selected": ["Athletic"]}, "reason": "creation"})[1]
         in_life = F.encode_state({"obs": {**OBS, "traits": ["Athletic"]}})[1]
