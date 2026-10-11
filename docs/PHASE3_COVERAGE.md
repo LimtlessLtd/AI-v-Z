@@ -118,6 +118,10 @@ coordinates as a substitute for hearing.
 **Progress 2026-10-11 (gym 0.3.2, not live-tested):** zombie observations, `attack`/`shove` options,
 walk/run "zombies toward" counts, building crowd counts and the "zombie close" decision trigger now use
 only zombies the character can currently see (`visibleZombies` in `AIvZGym.lua`, based on square visibility).
+Gym 0.4.1 extends this to the scans (code only, untested live): doors, windows, curtains and containers
+within 8 tiles are offered only on squares in line of sight and lit enough (or within 1.5 tiles); taps likewise;
+distant buildings are listed only if they have been in line of sight (kept as a map memory, `m.bseen`), and
+their room names and looted/explored marks only once visited. Buildings use line of sight but not light.
 Still open: `sq:isCanSee` is a square-visibility proxy that needs checking against the real field of view
 (e.g. zombies behind the character); `scanAround`/`scanBuildings` and recipe/target caches are unaudited;
 the rules baseline (`AIvZ.lua`) still uses all-zombie data (it is not the gym). No memory of previously
