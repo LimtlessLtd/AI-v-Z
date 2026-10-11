@@ -37,7 +37,7 @@ OPTION_NUMBERS = {
     "endurance": 1, "cap": 50, "cond": 10, "dmg": 5, "range": 5, "ranged": 1, "twoHand": 1, "med": 1, "seat": 4,
 }
 OPTION_WORDS = ("name", "type", "cat", "dir", "recipe", "part", "trait", "what", "area", "from", "to", "toKind",
-                "fluidType", "item", "list")
+                "fluidType", "item", "list", "ammo", "mag", "slot", "fire")
 
 STATE_DIM = len(MOODLES) + len(WOUNDS) + len(REASONS) + len(STATUSES) + 32
 OPTION_DIM = len(OPTION_NUMBERS) + 1
@@ -82,6 +82,35 @@ def health_band(h):
 
 def _clip(x, lo=-5.0, hi=5.0):
     return lo if x < lo else hi if x > hi else x
+
+
+def _bin(x, edges=(0.25, 0.5, 0.75)):
+    return sum(x > e for e in edges)
+
+
+def item_status_tokens(it, prefix):
+    """Hashed tokens for what an item's tooltip shows (gym 0.4.11): ammo and magazine types are the item types
+    themselves, so which round fits which weapon is learned from the names. Numbers are binned."""
+    it = _d(it)
+    toks = []
+    for k in ("ammo", "mag", "slot", "fire"):
+        if it.get(k) is not None:
+            toks.append(f"{prefix}:{k}:{it[k]}")
+    for k in ("clip", "chambered", "jammed"):
+        if it.get(k):
+            toks.append(f"{prefix}:{k}")
+    if it.get("maxAmmo"):
+        toks.append(f"{prefix}:ammo_level:{_bin(_num(it.get('loaded')) / _num(it.get('maxAmmo'), 1.0) or 1.0)}")
+    if it.get("holes"):
+        toks.append(f"{prefix}:holes:{min(int(_num(it['holes'])), 4)}")
+    if it.get("patches"):
+        toks.append(f"{prefix}:patched")
+    for k in ("cond", "head", "sharp", "blood", "dirt", "wet"):
+        if it.get(k) is not None and (it.get("cat") == "clothing" or k in ("cond", "head", "sharp")):
+            toks.append(f"{prefix}:{k}:{_bin(_num(it[k]))}")
+    if it.get("bite") or it.get("scratch"):
+        toks.append(f"{prefix}:defence:{_bin(_num(it.get('bite')) + _num(it.get('scratch')), (5, 20, 50))}")
+    return toks
 
 
 def encode_state(msg):
@@ -138,9 +167,11 @@ def encode_state(msg):
         toks.append(f"inv:{it.get('type') or it.get('name')}")
         if it.get("worn"):
             toks.append(f"worn:{it.get('type') or it.get('name')}")
+        toks += item_status_tokens(it, "inv")
     held = obs.get("held")
     if isinstance(held, dict):
         toks.append(f"held:{held.get('type') or held.get('name')}")
+        toks += item_status_tokens(held, "held")
     if where.get("room"):
         toks.append(f"room:{where['room']}")
     for s in _l(obs.get("selected")) + _l(obs.get("traits")):   # chosen at creation, then carried through the life

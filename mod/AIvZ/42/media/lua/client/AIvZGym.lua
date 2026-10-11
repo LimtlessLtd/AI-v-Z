@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.10"
+G.VERSION = "0.4.11"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -117,6 +117,65 @@ local function category(it)
 	return "other"
 end
 
+-- Item status a player reads off the tooltip (backlog O1-O3). Every call is wrapped: a method that fails leaves
+-- its field out. Item types are given the same way on weapon and ammo sides ("ammo", "mag") so that what fits
+-- what is learned from them, not handed over as a flag. Method names are from the 42.21 jar; not run in game.
+local function status(i, key, f)
+	local v = try(f)
+	if type(v) == "number" then v = r2(v) end
+	if v ~= nil then i[key] = v end
+end
+
+function G.weaponStatus(i, it)
+	status(i, "minDmg", function() return it:getMinDamage() end)
+	status(i, "sharp", function() return it:hasSharpness() and it:getSharpness() / math.max(0.01, it:getMaxSharpness()) or nil end)
+	status(i, "head", function()
+		local m = it:getHeadConditionMax()
+		return m and m > 0 and it:getHeadCondition() / m or nil
+	end)
+	if i.ranged then
+		status(i, "ammo", function() local a = it:getAmmoType(); return a and a:getItemKey() end)
+		status(i, "mag", function() return it:getMagazineType() end)
+		status(i, "loaded", function() return it:getCurrentAmmoCount() end)
+		status(i, "maxAmmo", function() return it:getMaxAmmo() end)
+		status(i, "clip", function() return it:isContainsClip() and 1 or 0 end)
+		status(i, "chambered", function() return it:isRoundChambered() and 1 or 0 end)
+		status(i, "jammed", function() return it:isJammed() and 1 or 0 end)
+		status(i, "spent", function() return it:getSpentRoundCount() end)
+		status(i, "fire", function() return it:getFireMode() end)
+	end
+end
+
+-- rounds and magazines: their own type, and how many rounds a magazine holds
+function G.ammoStatus(i, it)
+	if instanceof(it, "HandWeapon") then return end
+	local a = try(function() return it:getAmmoType() end)
+	if a then
+		status(i, "ammo", function() return a:getItemKey() end)
+		status(i, "loaded", function() return it:getCurrentAmmoCount() end)
+		status(i, "maxAmmo", function() return it:getMaxAmmo() end)
+	end
+end
+
+function G.clothingStatus(i, it)
+	status(i, "cond", function()
+		local m = it:getConditionMax()
+		return m and m > 0 and it:getCondition() / m or nil
+	end)
+	status(i, "insul", function() return it:getInsulation() end)
+	status(i, "wind", function() return it:getWindresistance() end)
+	status(i, "waterRes", function() return it:getWaterResistance() end)
+	status(i, "blood", function() return it:getBloodLevel() end)
+	status(i, "dirt", function() return it:getDirtiness() end)
+	status(i, "wet", function() return it:getWetness() end)
+	status(i, "holes", function() return it:getHolesNumber() end)
+	status(i, "patches", function() return it:getPatchesNumber() end)
+	status(i, "bite", function() return it:getBiteDefense() end)
+	status(i, "scratch", function() return it:getScratchDefense() end)
+	status(i, "bullet", function() return it:getBulletDefense() end)
+	status(i, "slot", function() return tostring(it:getBodyLocation()) end)
+end
+
 function G.itemInfo(p, it)
 	local i = { name = it:getDisplayName(), type = it:getType(), cat = category(it),
 		w = r2(try(function() return it:getUnequippedWeight() end) or 0) }
@@ -146,7 +205,10 @@ function G.itemInfo(p, it)
 		i.range = r2(it:getMaxRange())
 		i.ranged = it:isRanged() == true
 		i.twoHand = it:isTwoHandWeapon() == true
+		G.weaponStatus(i, it)
 	end
+	G.ammoStatus(i, it)
+	if instanceof(it, "Clothing") then G.clothingStatus(i, it) end
 	if instanceof(it, "InventoryContainer") then i.cap = U.bagCapacity(it) end
 	if instanceof(it, "Clothing") or instanceof(it, "InventoryContainer") then
 		i.worn = try(function() return p:isEquipped(it) end) == true
