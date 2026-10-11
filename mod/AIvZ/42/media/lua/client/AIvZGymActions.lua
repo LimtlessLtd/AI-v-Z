@@ -230,10 +230,11 @@ G.X.engine_on, G.X.engine_off = engine(true), engine(false)
 ---------------------------------------------------------------- character creation: choosing traits
 -- Called from G.respawnStep on the profession/traits screen while the agent plays. Each call (every 1.5 s)
 -- either asks the agent (obs.json {creation = true}), reads its answer from act.txt, or gives up waiting.
--- Options: add one trait (with its point cost as the game states it), or finish (Next). The game enforces
--- its own exclusions: an add that doesn't take effect is reported as failed.
+-- Options: add one trait (with its point cost as the game states it), or stop buying. The game enforces its
+-- own exclusions: an add that doesn't take effect is reported as failed.
 local WAIT_MS = 20000
-local MAX_FAILS = 6   -- this many refused picks in a row, then the stage moves on (or traits are taken off)
+local MAX_FAILS = 6      -- this many refused picks in a row, then the stage moves on (or traits are taken off)
+local DEBT_LIMIT = -12   -- buying good traits may take the points down to this; bad traits then pay it back
 
 local function traitLabel(item)
 	local t = item and item.item
@@ -261,11 +262,14 @@ function G.creationPoints(prof)
 	return (net <= 0) and 0 or -net, false
 end
 
--- The owner's rule (2026-10-11), in two stages:
---   buy:  while the points are above 0, add any number of traits that cost points (good traits), nothing else
---   pay:  once they reach 0 or below, add only traits that give points (bad traits); at 0 or above, Continue
---         (start the game) is offered too
--- No trait is ever removed by the agent; `c.paying` remembers that the points reached 0 or below.
+-- The owner's rule (option B, 2026-10-11), in two stages:
+--   buy:  add any number of good traits (they cost points), each only if it leaves the points at DEBT_LIMIT or
+--         above, or stop buying. Buying also ends when no good trait fits any more.
+--   pay:  while the points are below 0, add only bad traits (they give points). At 0 or above the game starts
+--         by itself: no more bad traits than the debt needs, and none at all if buying stayed at 0 or above.
+-- Like a player banking points with weaknesses to afford strengths. No trait is ever removed by the agent.
+-- (The first rule, buy until 0 then pay, kept bad traits on offer next to Continue once the points were back
+-- to 0, and the agent piled them up: up to 7 bad against 2 good.)
 local function creationOptions(prof, points, c)
 	local opts = {}
 	local stage = c.paying and "pay" or "buy"
@@ -273,12 +277,12 @@ local function creationOptions(prof, points, c)
 		for i, it in ipairs(prof[key] and prof[key].items or {}) do
 			local label, cost, ty = traitLabel(it)
 			cost = cost or 0
-			if (stage == "buy" and cost > 0) or (stage == "pay" and cost < 0) then
+			if (stage == "buy" and cost > 0 and points - cost >= DEBT_LIMIT) or (stage == "pay" and cost < 0) then
 				opts[#opts + 1] = { verb = "add_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i, list = key }
 			end
 		end
 	end
-	if stage == "pay" and points >= 0 then opts[#opts + 1] = { verb = "finish_creation" } end
+	if stage == "buy" and #opts > 0 then opts[#opts + 1] = { verb = "done_buying" } end
 	return opts, stage
 end
 
@@ -318,9 +322,10 @@ function G.creation(prof)
 			local o = c.opts[(tonumber(parts[2]) or -1) + 1]
 			c.asked = false
 			if not o then return true end   -- not a valid choice: ask again
-			if o.verb == "finish_creation" then
-				if G.creationPoints(prof) < 0 then return true end   -- never start overdrawn
-				return false
+			if o.verb == "done_buying" then
+				c.paying, c.fails = true, 0
+				c.last = { verb = o.verb, status = "done", msg = "" }
+				return true
 			end
 			c.steps = c.steps + 1
 			local before = #selectedTraits(prof)
@@ -335,21 +340,23 @@ function G.creation(prof)
 		return true
 	end
 	local points, known = G.creationPoints(prof)
-	if points <= 0 then c.paying = true end
 	local opts, stage = creationOptions(prof, points, c)
-	-- buying with nothing left to buy (or every pick refused) ends the buying; paying with nothing left to
-	-- pay with would be a dead end, so the traits come off again and the game starts with what it can
+	-- buying with nothing left that fits (or every pick refused) ends the buying
 	if stage == "buy" and (#opts == 0 or c.fails >= MAX_FAILS) then
 		c.paying, c.fails = true, 0
 		opts, stage = creationOptions(prof, points, c)
 	end
-	if stage == "pay" and (#opts == 0 or c.fails >= MAX_FAILS) then G.creationRepair(prof); return false end
+	if stage == "pay" then
+		if points >= 0 then return false end   -- paid back, or never in debt: Next starts the game
+		-- nothing left to pay with would be a dead end: the traits come off again and the game starts
+		if #opts == 0 or c.fails >= MAX_FAILS then G.creationRepair(prof); return false end
+	end
 	G.s.id = G.s.id + 1
 	c.id, c.opts, c.asked, c.askedAt = G.s.id, opts, true, now
 	local out = {}
 	for i, o in ipairs(c.opts) do out[i] = o end
 	U.writeFile("obs.json", A.json({ id = c.id, reason = "creation", creation = true, gym = G.VERSION,
-		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, may_finish = stage == "pay" and points >= 0,
+		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, debt_limit = DEBT_LIMIT,
 			stage = stage, bad_list = prof.listboxBadTrait ~= nil, bad_button = prof.addBadTraitBtn ~= nil },
 		options = out, last = c.last }))
 	return true

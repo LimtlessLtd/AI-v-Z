@@ -170,12 +170,16 @@ class NetPolicyTests(unittest.TestCase):
 
 
 class TraitRuleLuaTest(unittest.TestCase):
-    def test_trait_choice_follows_the_owners_rule(self):
+    def test_trait_choice_follows_the_owners_option_b(self):
         src = (ROOT / "mod/AIvZ/42/media/lua/client/AIvZGymActions.lua").read_text(encoding="utf-8")
         self.assertIn("prof:PointToSpend()", src)   # the number the screen shows, not the raw pointToSpend
-        self.assertNotIn("MAX_STEPS", src)           # any number of good traits
-        self.assertIn('if points <= 0 then c.paying = true end', src)
-        self.assertIn('if stage == "pay" and points >= 0 then opts[#opts + 1] = { verb = "finish_creation" } end', src)
+        self.assertNotIn("MAX_STEPS", src)           # any number of good traits...
+        self.assertIn("local DEBT_LIMIT = -12", src)
+        self.assertIn('cost > 0 and points - cost >= DEBT_LIMIT', src)   # ...as long as each fits the debt limit
+        self.assertIn('if points >= 0 then return false end', src)        # paid back: the game starts, no more bad traits
+        self.assertNotIn('verb = "finish_creation"', src)
+        gym = (ROOT / "mod/AIvZ/42/media/lua/client/AIvZGym.lua").read_text(encoding="utf-8")
+        self.assertIn("G.CHOOSE_TRAITS = true", gym)
 
 
 if __name__ == "__main__":

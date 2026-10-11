@@ -18,12 +18,11 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.8"
--- Trait picking at character creation (AIvZGymActions.lua, G.creation). Off since 2026-10-11 at the owner's
--- request: under the buy-then-pay rule it piled up bad traits (up to 7 against 2 good ones), because bad
--- traits stayed on offer once the points were back to 0 and the network can't yet value a trait. While
--- off, the trait screen's Next is pressed with no traits chosen. A better rule is being worked out.
-G.CHOOSE_TRAITS = false
+G.VERSION = "0.4.9"
+-- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
+-- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
+-- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
+G.CHOOSE_TRAITS = true
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
