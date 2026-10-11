@@ -248,6 +248,15 @@ class AgentLoopTests(unittest.TestCase):
             self.assertIsNone(snap["life"])
 
 
+
+class SleepGateStaticTest(unittest.TestCase):
+    def test_sleep_options_follow_game_menu_conditions(self):
+        src = (Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client/AIvZGym.lua").read_text(encoding="utf-8")
+        self.assertIn("local function sleepBlock(p)", src)
+        self.assertIn("CharacterStat.FATIGUE", src)
+        self.assertIn("getLastHourSleeped", src)
+        self.assertIn("if p:getSquare() and not noSleep then", src)
+
 if __name__ == "__main__":
     unittest.main()
 

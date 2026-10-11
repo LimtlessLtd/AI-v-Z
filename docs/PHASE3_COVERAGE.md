@@ -69,6 +69,12 @@ Build 42 crafting system.
   (`G.recipes` evaluates recipes against containers the player may not have looked in), no memory of
   previously seen zombies.
 
+## Progress 2026-10-11 (sleep gate, code only, not run in the game)
+
+* `sleep` options are offered only when the game's Sleep menu entry would be enabled (fatigue > 0.3, no zombies
+  visible/chasing/very close, more than an hour since last sleep, pain/panic limits unless a sleeping tablet is
+  active); the failure reason comes from the same check. Needs a live test against the real menu.
+
 ## Action interface to build
 
 1. Enumerate the game's available inventory/world context-menu trees and their normal prerequisites.

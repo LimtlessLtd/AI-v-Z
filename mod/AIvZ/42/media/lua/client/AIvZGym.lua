@@ -285,6 +285,26 @@ local function zombiesToward(zs, dname)
 	return n
 end
 
+-- Why the game's Sleep menu entry would be unavailable (J:ISWorldObjectContextMenuLogic.doSleepOption), as the
+-- reason text the player sees; nil when sleeping is allowed. Only things on screen: tiredness moodle-style stat,
+-- zombies in sight, recent sleep, pain and panic.
+local function sleepBlock(p)
+	local fatigue = try(function() return p:getStats():get(CharacterStat.FATIGUE) end)
+	if fatigue and fatigue <= 0.3 then return "not tired enough" end
+	local st = try(function() return p:getStats() end)
+	if st then
+		if (try(function() return st:getNumVisibleZombies() end) or 0) > 0 or (try(function() return st:getNumChasingZombies() end) or 0) > 0
+			or (try(function() return st:getNumVeryCloseZombies() end) or 0) > 0 then return "not safe, zombies in sight" end
+	end
+	local since = try(function() return p:getHoursSurvived() - p:getLastHourSleeped() end)
+	if since and since <= 1 then return "slept too recently" end
+	if (try(function() return p:getSleepingTabletEffect() end) or 0) < 2000 then
+		if U.moodle(p, "PAIN") >= 2 and (fatigue or 0) <= 0.85 then return "too much pain" end
+		if U.moodle(p, "PANIC") >= 1 then return "too panicked" end
+	end
+	return nil
+end
+
 function G.options(p)
 	local list = {}
 	local pn = p:getPlayerNum()
@@ -464,13 +484,14 @@ function G.options(p)
 			end
 		end
 	end
-	-- sleep: in the nearest bed here, or on the floor
-	if b then
+	-- sleep: in the nearest bed here, or on the floor; only when the game's Sleep menu entry would be enabled
+	local noSleep = sleepBlock(p)
+	if b and not noSleep then
 		local bed = A.beds(p, b)[1]
 		if bed then add(list, "sleep", { bed = true, d = bed.d }, { bed = bed.o }) end
 	end
 	-- the game's floor-sleep check reads the square (an error once, with none, mid-climb)
-	if p:getSquare() then add(list, "sleep", { bed = false }, {}) end
+	if p:getSquare() and not noSleep then add(list, "sleep", { bed = false }, {}) end
 	-- further families (AIvZGymActions.lua) register here; one failing must not take the others down
 	local names = {}
 	for name in pairs(G.hooks) do names[#names + 1] = name end
@@ -818,11 +839,7 @@ G.X.sleep = {
 		end
 		if qlen(p) == 0 and tick() - t.t1 > 90 then
 			-- the game's own reasons, as it shows them over the character's head
-			local why = "couldn't fall asleep"
-			if (try(function() return p:getStats():getNumVisibleZombies() end) or 0) > 0 then why = "not safe, zombies in sight"
-			elseif U.moodle(p, "PANIC") >= 1 then why = "too panicked"
-			elseif U.moodle(p, "PAIN") >= 2 then why = "too much pain" end
-			U.fail(t, why)
+			U.fail(t, sleepBlock(p) or "couldn't fall asleep")
 		end
 	end,
 }

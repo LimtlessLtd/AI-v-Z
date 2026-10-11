@@ -53,7 +53,7 @@ Details and the field list are in OBSERVATION_AUDIT.md sections 2-5. APIs (all e
   `player:getFitness():init()` when it opens (`ISFitnessUI:new`).
 * Live test: the console must show no `Fitness.incRegularity` exception and endurance must fall.
 
-### 3. Make `sleep` respect the game's conditions (AIvZGym.lua:467-473, 808-827; AIvZ.lua:1646-1657)
+### 3. Make `sleep` respect the game's conditions (**code done 2026-10-11, gym `sleepBlock`; not run in game**) (AIvZGym.lua:467-473, 808-827; AIvZ.lua:1646-1657)
 The menu marks Sleep unavailable (`J:ISWorldObjectContextMenuLogic.doSleepOption`) when:
 `Stats:get(CharacterStat.FATIGUE)` ≤ 0.3 ("Not tired enough"); `Stats:getNumVisibleZombies()`,
 `getNumChasingZombies()` or `getNumVeryCloseZombies()` > 0; `p:getHoursSurvived() - p:getLastHourSleeped()`
