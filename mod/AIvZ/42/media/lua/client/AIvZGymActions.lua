@@ -237,9 +237,12 @@ end
 
 local function creationOptions(prof, points)
 	local opts = {}
-	for i, it in ipairs(prof.listboxTrait and prof.listboxTrait.items or {}) do
-		local label, cost, ty = traitLabel(it)
-		opts[#opts + 1] = { verb = "add_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i }
+	-- vanilla keeps good traits in listboxTrait and negative ones in listboxBadTrait (when the screen has it)
+	for _, key in ipairs({ "listboxTrait", "listboxBadTrait" }) do
+		for i, it in ipairs(prof[key] and prof[key].items or {}) do
+			local label, cost, ty = traitLabel(it)
+			opts[#opts + 1] = { verb = "add_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i, list = key }
+		end
 	end
 	for i, it in ipairs(prof.listboxTraitSelected and prof.listboxTraitSelected.items or {}) do
 		local label, cost, ty = traitLabel(it)
@@ -250,9 +253,11 @@ local function creationOptions(prof, points)
 end
 
 local function click(prof, o)
-	local lb = o.verb == "add_trait" and prof.listboxTrait or prof.listboxTraitSelected
+	local lb = o.verb == "add_trait" and prof[o.list or "listboxTrait"] or prof.listboxTraitSelected
 	lb.selected = o.idx
-	prof:onOptionMouseDown(o.verb == "add_trait" and prof.addTraitBtn or prof.removeTraitBtn, 0, 0)
+	local btn = o.verb == "add_trait" and ((o.list == "listboxBadTrait" and prof.addBadTraitBtn) or prof.addTraitBtn)
+		or prof.removeTraitBtn
+	prof:onOptionMouseDown(btn, 0, 0)
 end
 
 -- Used when the agent isn't answering or isn't playing, just before Next is pressed for it: if the traits
@@ -306,7 +311,8 @@ function G.creation(prof)
 	local out = {}
 	for i, o in ipairs(c.opts) do out[i] = o end
 	U.writeFile("obs.json", A.json({ id = c.id, reason = "creation", creation = true, gym = G.VERSION,
-		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, may_finish = points >= 0 },
+		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, may_finish = points >= 0,
+			bad_list = prof.listboxBadTrait ~= nil, bad_button = prof.addBadTraitBtn ~= nil },
 		options = out, last = c.last }))
 	return true
 end
