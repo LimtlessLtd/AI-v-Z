@@ -99,13 +99,15 @@ class Agent:
             self.recent.appendleft(f"life {life.number} begins: {life.name}")
         if self.lives.resumed:
             self.recent.appendleft(f"life {life.number} ({life.name}) carries on after a restart")
-        if not msg.get("dead") and life:
+        if not msg.get("dead") and (life or msg.get("creation")):
             i, probs, note = self.policy.choose(msg)
             if i is not None:
-                self.link.act(msg["id"], i, f"life {life.number}: {note}")
-                life.decisions += 1
+                self.link.act(msg["id"], i, f"life {life.number}: {note}" if life else f"creation: {note}")
+                if life:
+                    life.decisions += 1
                 opt = msg["options"][i]
-                life.last_choice = opt.get("verb")
+                if life:
+                    life.last_choice = opt.get("verb")
                 rec.update(choice=i, probs=[round(p, 4) for p in probs], policy=self.policy.name)
                 if opt.get("verb") != "continue":
                     self.recent.appendleft(f"#{msg['id']} {msg.get('reason')}: {opt.get('verb')} "

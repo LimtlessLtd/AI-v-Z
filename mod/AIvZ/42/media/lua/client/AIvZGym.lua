@@ -891,14 +891,16 @@ function G.respawnStep()
 		if #towns > 0 then lb.selected = towns[ZombRand(#towns) + 1] end
 		w.mapSpawnSelect:clickNext()
 	elseif w.charCreationProfession and w.charCreationProfession:isVisible() then
-		w.charCreationProfession:onOptionMouseDown({ internal = "NEXT" }, 0, 0)
+		-- with the agent playing, it picks traits here (AIvZGymActions.lua); otherwise, or if that fails, Next
+		local handled = G.creation and G.active() and select(2, pcall(G.creation, w.charCreationProfession))
+		if not handled then w.charCreationProfession:onOptionMouseDown({ internal = "NEXT" }, 0, 0) end
 	elseif w.charCreationMain and w.charCreationMain:isVisible() then
 		w.charCreationMain:onOptionMouseDown({ internal = "NEXT" }, 0, 0)
 	end
 end
 
 function G.newLife()
-	GS.deadSent, GS.respawn, GS.cur, GS.waiting, GS.opts = false, nil, nil, false, nil
+	GS.deadSent, GS.respawn, GS.cur, GS.waiting, GS.opts, GS.creation = false, nil, nil, false, nil, nil
 	GS.blds, GS.water, GS.around, GS.rcache, GS.lastHp, GS.lastClose = nil, nil, nil, nil, nil, nil
 	A.event("a new life begins")
 end

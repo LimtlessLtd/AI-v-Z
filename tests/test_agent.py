@@ -288,3 +288,17 @@ class HearingTests(unittest.TestCase):
         self.assertGreater(ws[1]["d_db"], 10)
         self.assertTrue(ws[2].get("gap"))
         self.assertEqual(snap["gaps"], 1)
+
+
+class CreationTests(unittest.TestCase):
+    def test_trait_choices_are_logged_without_starting_a_life(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = argparse.Namespace(lua_dir=tmp, log_dir=tmp, policy="random", port=0)
+            from agent.run import Agent
+            agent = Agent(args)
+            msg = {"id": 5, "creation": True, "reason": "creation", "obs": {"selected": []},
+                   "options": [{"verb": "add_trait", "name": "Lucky", "cost": 4}, {"verb": "finish_creation"}]}
+            agent.handle(msg)
+            self.assertEqual(agent.lives.count, 0)
+            self.assertIsNone(agent.lives.current)
+            self.assertTrue((Path(tmp) / "act.txt").exists())
