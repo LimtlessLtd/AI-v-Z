@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.3.2"
+G.VERSION = "0.3.3"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -39,10 +39,23 @@ local function tick() return A.s.tick end
 local function dist(p, x, y) return math.sqrt((x - p:getX()) ^ 2 + (y - p:getY()) ^ 2) end
 -- zombies the character can see right now. Unseen ones (behind walls, out of sight) are hidden world
 -- state: they appear in no observation, option, direction count or decision trigger.
+-- Light: a lit-enough square only. A human can't pick out a zombie standing in the dark, so a zombie on an
+-- unlit square is not offered either, unless it is right next to the character. LIGHT_MIN is a guess for the
+-- 0..1 square light level and has not been calibrated in game. If the light API isn't there, light is
+-- unknown and only line of sight applies (obs.light.known = false says so).
+local LIGHT_MIN, NEAR = 0.2, 1.5
+
+local function squareLight(sq, pn)
+	return sq and try(function() return sq:getLightLevel(pn) end)
+end
+
 local function visibleZombies(p, R)
-	local out = {}
+	local out, pn = {}, p:getPlayerNum()
 	for _, e in ipairs(A.zombies(p, R)) do
-		if e.seen then out[#out + 1] = e end
+		if e.seen then
+			local l = squareLight(e.z:getCurrentSquare(), pn)
+			if e.d <= NEAR or l == nil or l >= LIGHT_MIN then out[#out + 1] = e end
+		end
 	end
 	return out
 end
@@ -136,6 +149,8 @@ function G.observe(p, dead)
 		if v > 0 then o.moodles[k:lower()] = v end
 	end
 	o.body = A.wounds(p)
+	local l = squareLight(p:getCurrentSquare(), p:getPlayerNum())
+	o.light = { known = l ~= nil, here = l and r2(l) or nil }
 	o.asleep = try(function() return p:isAsleep() end) == true
 	o.weather = { rain = r2(try(function() return cm:getRainIntensity() end) or 0), temp = r1(try(function() return cm:getTemperature() end) or 20) }
 	o.weight, o.maxWeight = r1(p:getInventory():getCapacityWeight()), r1(p:getMaxWeight())
