@@ -183,7 +183,7 @@ perceivable now), **gap** (perceivable but missing).
 7. **Window `locked`.** Fix: drop until a failed attempt; doors: `couldBeOpen(p)`.
 8. **Vehicles within 4 tiles regardless of sight.** Fix: `getTargetAlpha(pn)` (needs live check) or square
    `isCanSee(pn)`.
-9. **Zombie identity across occlusion** in `closing`. Fix: forget a zombie when it leaves the spotted list.
+9. **Zombie identity across occlusion** in `closing` (fixed in gym 0.4.10, not yet seen in game). Fix: forget a zombie when it leaves the spotted list.
 10. **Exact health, exact position, exact endurance in `exercise`, world age, glass under a bandage.**
     Fix: bands and coarse or no values as listed in section 2; wound flags with the health panel's
     conditions.

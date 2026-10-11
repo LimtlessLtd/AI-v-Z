@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.9"
+G.VERSION = "0.4.10"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -241,6 +241,8 @@ function G.observe(p, dead)
 		if i > 40 then break end
 		o.zombies[#o.zombies + 1] = zombieView(e)
 	end
+	-- a zombie that left view is forgotten: a player can't tell a look-alike that comes back from the same one
+	for z, m in pairs(GS.zprev) do if m.at ~= tick() then GS.zprev[z] = nil end end
 	local sq = p:getCurrentSquare()
 	local room = sq and sq:getRoom()
 	o.where = { outside = p:isOutside(), room = room and try(function() return room:getName() end) or nil }
