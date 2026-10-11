@@ -419,13 +419,16 @@ function G.options(p)
 	local nw, nc, ns, ng = 0, 0, 0, 0
 	for _, e in ipairs(ar.windows) do
 		if not e.barricaded then
-			local info = { d = r1(e.d), open = e.open, locked = e.locked, exterior = e.exterior, smashed = e.smashed, glass = e.glass }
+			-- the lock state is not shown for a window (the game tells you only when you try it), so it is not listed
+			local info = { d = r1(e.d), open = e.open, exterior = e.exterior, smashed = e.smashed, glass = e.glass }
 			if not e.smashed and nw < 4 then nw = nw + 1; add(list, "window", info, e) end
 			if e.d < 2.5 and nc < 2 and try(function() return e.o:canClimbThrough(p) end) then
 				nc = nc + 1; add(list, "climb", { d = info.d, exterior = e.exterior, glass = e.glass }, e)
 			end
-			if e.d < 2.5 and not e.smashed and ns < 2 then ns = ns + 1; add(list, "smash", { d = info.d, exterior = e.exterior }, e) end
-			if e.d < 2.5 and e.glass and ng < 1 then ng = ng + 1; add(list, "clear_glass", { d = info.d }, e) end
+			-- the Smash entry exists only for a closed, unbroken window (ISWorldObjectContextMenuLogic.doWindowMenu)
+			if e.d < 2.5 and not e.smashed and not e.open and ns < 2 then ns = ns + 1; add(list, "smash", { d = info.d, exterior = e.exterior }, e) end
+			-- Remove Glass Shards needs something in the primary hand (the menu greys it out otherwise)
+			if e.d < 2.5 and e.glass and p:getPrimaryHandItem() and ng < 1 then ng = ng + 1; add(list, "clear_glass", { d = info.d }, e) end
 		end
 	end
 	for i = 1, math.min(3, #ar.curtains) do
@@ -478,7 +481,7 @@ function G.options(p)
 		if instanceof(it, "HandWeapon") and count(list, "equip") < 3 then add(list, "equip", info, { it = it }) end
 		if (instanceof(it, "Clothing") or U.isBackBag(it)) and not worn and count(list, "wear") < 3 then add(list, "wear", info, { it = it }) end
 		if worn and count(list, "take_off") < 4 then add(list, "take_off", info, { it = it }) end
-		if not worn and count(list, "drop") < 6 then add(list, "drop", info, { it = it }) end
+		if not worn and not try(function() return it:isFavorite() end) and count(list, "drop") < 6 then add(list, "drop", info, { it = it }) end
 		if crafts < 5 then
 			for _, r in ipairs(G.recipes(p, it)) do
 				if crafts < 5 then
