@@ -178,7 +178,7 @@ perceivable now), **gap** (perceivable but missing).
    clock does.
 5. **Through-wall objects within 1.5 tiles** (`perceivable`). Fix: `IsoGridSquare:canReachTo` /
    `isCouldSee(pn)`.
-6. **Poison in the drink category** (`FluidContainer:isPoisonous()` in `U.waterIn`). Fix: classify from
+6. **Poison in the drink category** (`FluidContainer:isPoisonous()` in `U.waterIn`). Fixed in gym 0.4.12 (the gym calls `U.waterIn(it, true)`, which skips the poison test; the rules baseline keeps it; untested in game). Original fix note: classify from
    visible fluid type only.
 7. **Window `locked`.** Fix: drop until a failed attempt; doors: `couldBeOpen(p)`.
 8. **Vehicles within 4 tiles regardless of sight.** Fix: `getTargetAlpha(pn)` (needs live check) or square

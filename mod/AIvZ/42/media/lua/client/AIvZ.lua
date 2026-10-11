@@ -223,13 +223,14 @@ local function foodValue(it)
 	return -h
 end
 
--- litres of clean drinking water in this item, and its capacity
-local function waterIn(it)
+-- litres of clean drinking water in this item, and its capacity. `asSeen` (the gym) leaves out the poison test:
+-- no tooltip shows it, so the rules baseline may use it and the network must not be handed it (audit leak 6).
+local function waterIn(it, asSeen)
 	local fc = try(function() return it:getFluidContainer() end)
 	if not fc then return nil end
 	local amt = try(function() return fc:getAmount() end) or 0
 	if amt < 0.05 then return nil end
-	if try(function() return fc:isPoisonous() end) then return nil end
+	if not asSeen and try(function() return fc:isPoisonous() end) then return nil end
 	if not try(function() return fc:contains(Fluid.Water) and not fc:contains(Fluid.TaintedWater) end) then return nil end
 	return amt, (try(function() return fc:getCapacity() end) or amt)
 end
