@@ -33,11 +33,11 @@ local function fitnessTypes(p)
 	local out = {}
 	local ex = rawget(_G, "FitnessExercises")
 	if not ex or not ex.exercisesType then return out end
-	local have = {}
-	U.eachItem(p:getInventory(), function(it) have[it:getType()] = true end)
+	local inv = p:getInventory()
 	for name, d in pairs(ex.exercisesType) do
+		-- d.item is a full type ("Base.BarBell"); the fitness screen tests it with contains(type, true)
 		local need = d.item
-		if not need or have[need] then out[#out + 1] = { name = name, data = d, needs = need } end
+		if not need or try(function() return inv:contains(need, true) end) then out[#out + 1] = { name = name, data = d, needs = need } end
 	end
 	table.sort(out, function(a, b) return a.name < b.name end)
 	return out
@@ -46,26 +46,44 @@ end
 -- Build 42 reads stats through CharacterStat (Stats:getEndurance() no longer exists: it logged an error per call)
 local function endurance(p) return U.stat(p, "ENDURANCE") end
 
+-- ISFitnessUI:updateButtons: the screen disables Start with these; the same limits apply here
+-- (ISFitnessUI.enduranceLevelThreshold = 2, heavy load <= 2, pain <= 3, not sitting, not climbing).
+local function fitnessBlocked(p)
+	if p:isAsleep() or try(function() return p:getVehicle() end) then return "in a vehicle or asleep" end
+	if (U.moodle(p, "ENDURANCE") or 0) > 2 then return "too tired" end
+	if (U.moodle(p, "HEAVY_LOAD") or 0) > 2 then return "load too heavy" end
+	if (U.moodle(p, "PAIN") or 0) > 3 then return "in too much pain" end
+	if try(function() return p:isSitOnGround() end) or try(function() return p:isSittingOnFurniture() end) then return "sitting" end
+	if try(function() return p:isClimbing() end) then return "climbing" end
+end
+
+-- the screen offers 10..60 game minutes in steps of 10 (ISFitnessUI:onClickTime); duration is an option parameter
+local EXERCISE_MINUTES = { 10, 20, 30, 40, 50, 60 }
+
 G.hooks.exercise = function(p, list, add)
-	if p:isAsleep() or try(function() return p:getVehicle() end) then return end
-	local tired = (U.moodle(p, "ENDURANCE") or 0) >= 2
+	local why = fitnessBlocked(p)
 	for _, e in ipairs(fitnessTypes(p)) do
-		add(list, "exercise", { type = e.name, equipment = e.needs, tired = tired, endurance = r2(endurance(p) or 0) },
-			{ name = e.name, data = e.data })
+		for _, m in ipairs(EXERCISE_MINUTES) do
+			add(list, "exercise", { type = e.name, minutes = m, equipment = e.needs, unavailable = why, endurance = r2(endurance(p) or 0) },
+				{ name = e.name, data = e.data, minutes = m, blocked = why })
+		end
 	end
 end
 
 G.X.exercise = {
 	start = function(p, t, o)
 		if not (rawget(_G, "ISFitnessAction") and rawget(_G, "FitnessExercises")) then return U.fail(t, "unsupported: no fitness API") end
+		if o.blocked then return U.fail(t, "not allowed now: " .. o.blocked) end
 		t.end0 = endurance(p)
-		-- the fitness screen selects the exercise on the character's Fitness object before queueing the action;
-		-- without it Fitness.incRegularity hit a null currentExe (seen in the 2026-10-11 console log)
 		local fit = try(function() return p:getFitness() end)
 		if not fit then return U.fail(t, "unsupported: no Fitness object") end
-		pcall(function() fit:setCurrentExercise(o.data.name) end)
-		-- the fitness screen queues one timed action per set; reps/regularity come from its defaults
-		Q(ISFitnessAction:new(p, o.data.name, 25, o.data.data))
+		pcall(function() fit:init() end) -- the screen does this when it opens
+		-- Constructor (ISFitnessAction.lua:204): (character, exercise, timeToExe, exeData, exeDataType). The fifth
+		-- argument is what sets Fitness' current exercise; omitting it left it nil.
+		local ok, act = pcall(function() return ISFitnessAction:new(p, o.data.name, o.minutes, o.data.data, o.data.data.type) end)
+		if not ok or not act then return U.fail(t, "unsupported: ISFitnessAction:new failed") end
+		-- equipment hand-off (ISFitnessUI:equipItems) is NOT done here yet: exercises with a prop item need it in hand
+		Q(act)
 	end,
 	step = G.queueStep(2400, function(p, t, o)
 		local e = endurance(p)
@@ -73,7 +91,7 @@ G.X.exercise = {
 	end),
 }
 
----------------------------------------------------------------- stowing items (inventory organisation)
+-------------------------------------------------------------- stowing items (inventory organisation)
 -- Move an item between containers the character can reach: worn/carried bags and searched containers
 -- within 2.5 tiles. The destination is part of the option, as in the inventory screen's transfer.
 local function destinations(p, ar)

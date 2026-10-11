@@ -217,7 +217,9 @@ bridge/             bridge.py (rules baseline decision loop, dashboard server) a
 brain/              baseline decision code: goals, rules, percept conversion, strategy
 tests/              unit tests, and the 31 benchmark situations
 scripts/            install-mod.ps1, reload-mod.ps1
-docs/               SPECS, REVIEW; BENCHMARK and DECISION_MODELS (Phase 0 record, Qwen era)
+docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; ACTION_CATALOGUE,
+                    OBSERVATION_AUDIT and GAP_LIST (audit against the installed game); BENCHMARK and
+                    DECISION_MODELS (Phase 0 record, Qwen era)
 ```
 
 ## Known issues (agent and gym)
@@ -225,12 +227,15 @@ docs/               SPECS, REVIEW; BENCHMARK and DECISION_MODELS (Phase 0 record
 - **Player action coverage is incomplete.** Clothing wear/remove exists; crafting only covers some
   item recipes. Exercise, disassembly, driving, vehicle maintenance, repairs, transfers between chosen
   inventory containers and many other systems are missing. Existing per-verb caps also hide some legal
-  choices. See [coverage audit](docs/PHASE3_COVERAGE.md).
+  choices. See [coverage audit](docs/PHASE3_COVERAGE.md) and the per-action
+  [catalogue](docs/ACTION_CATALOGUE.md); `sleep`, `drink`, `exercise`, `engine_on` and the trait points
+  disagree with the installed game ([gap list](docs/GAP_LIST.md)).
 - **There is no hearing input.** Helicopter audio, alarms, engines, horns, zombie banging and other
   audible cues do not currently reach the agent. The proposed audio path is not implemented.
 - **Perception needs an information audit.** The gym currently includes coordinates and target flags
   for unseen zombies. These must not substitute for hearing; the learner should get only visible or
-  otherwise player-perceivable evidence.
+  otherwise player-perceivable evidence. Leaks still present are listed in
+  [OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md).
 - **It doesn't learn yet.** The random policy dies within a few game hours most lives (15 lives in the
   first 40 minutes). That's expected until Phase 4.
 - **Some targets remain unreachable.** The live probe after the 0.4.2 mod / 0.3.0 gym reload on 2026-10-09

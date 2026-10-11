@@ -1,5 +1,11 @@
 # Phase 3 action and hearing coverage — 2026-10-09
 
+> **2026-10-11:** a full audit against the installed 42.21.0 files is in
+> [ACTION_CATALOGUE.md](ACTION_CATALOGUE.md) (every player action, its vanilla source and the repo's status),
+> [OBSERVATION_AUDIT.md](OBSERVATION_AUDIT.md) (what a player can perceive; remaining leaks) and
+> [GAP_LIST.md](GAP_LIST.md) (ordered work with the exact APIs). It was done by reading the game's Lua and
+> disassembling the jar; nothing was run in the game.
+
 Phase 3 is not complete. The live verification covered all 27 **implemented** option types;
 it did not establish that the agent can do everything a player can do. No network is learning yet.
 This audit records current evidence and the work required before the Phase 4 check-in.
@@ -151,3 +157,13 @@ executor outcomes. Unit checks and live evidence must distinguish implemented co
 player actions. Natural play remains the source of live evidence; do not stage practice scenarios.
 Do not start Phase 4 before a user check-in. Its earlier DRRN proposal must account for temporal
 audio and continuous controls, once this environment work is validated.
+
+## Progress 2026-10-11 (gym 0.4.4, code only, not run in the game)
+
+* `exercise` fixed per GAP_LIST item 2: `ISFitnessAction:new` now gets its fifth argument (the exercise type),
+  equipment is matched by full item type with `contains(type, true)` (the old short-type comparison never matched
+  `Base.BarBell`/`Base.DumbBell`), `Fitness:init()` is called first, the fitness screen's limits (endurance,
+  heavy load, pain, sitting, climbing, vehicle) are reported as `unavailable` and refused at start, and the duration
+  (10-60 game minutes) is an explicit option parameter. **Not done:** moving the equipment into hand
+  (`ISFitnessUI:equipItems`), so prop exercises may still fail. Needs a live test: no `Fitness.incRegularity`
+  exception and endurance must fall.

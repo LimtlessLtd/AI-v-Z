@@ -28,3 +28,19 @@ against the installed Lua/Java before trusting any API name.
    AI overdrew its points and still started. Points rule now enforced (gym 0.4.2).
 4. Hidden-information leaks (unseen zombies, unvisited building interiors, unlit objects) were in the observations;
    fixes in gym 0.3.2-0.4.1 are untested, and `isCanSee`/`getLightLevel` semantics and the 0.2 light threshold are unverified.
+
+Checked against the installed 42.21.0 files on 2026-10-11 (read only, nothing run; details in
+[ACTION_CATALOGUE.md](ACTION_CATALOGUE.md), [OBSERVATION_AUDIT.md](OBSERVATION_AUDIT.md),
+[GAP_LIST.md](GAP_LIST.md)):
+
+* Lesson 2's fix cannot work: `ISFitnessAction:new` takes a fifth argument `exeDataType` and calls
+  `setCurrentExercise(exeDataType)` itself, so the call without it resets the exercise to nil. Weight
+  exercises are also never offered (`getType()` vs `"Base.BarBell"`).
+* Lesson 3: `listboxBadTrait` and `addBadTraitBtn` do exist. The points shown and enforced by the game come
+  from the method `PointToSpend()` (profession cost, free points, negative-trait offset), not the field
+  `pointToSpend` the gym reads.
+* Lesson 4: `getLightLevel(pn)` is `max(r, g, b)` of the square's light for that player; `isCanSee` is a
+  native flag computed with the player's view cone, which already narrows in the dark. The game's own
+  "this zombie is visible" result is readable as `IsoPlayer:getSpottedList()` or `getTargetAlpha(pn)`.
+* Also wrong from memory: `sleep` skips the game's "not tired enough" and "too soon" checks; `drink` lacks
+  the thirst and beverage rules; `engine_on` lacks the key/hotwire check.
