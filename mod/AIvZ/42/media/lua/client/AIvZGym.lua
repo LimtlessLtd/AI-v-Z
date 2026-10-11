@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.1"
+G.VERSION = "0.4.2"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -921,7 +921,10 @@ function G.respawnStep()
 	elseif w.charCreationProfession and w.charCreationProfession:isVisible() then
 		-- with the agent playing, it picks traits here (AIvZGymActions.lua); otherwise, or if that fails, Next
 		local handled = G.creation and G.active() and select(2, pcall(G.creation, w.charCreationProfession))
-		if not handled then w.charCreationProfession:onOptionMouseDown({ internal = "NEXT" }, 0, 0) end
+		if not handled then
+			if G.creationRepair then pcall(G.creationRepair, w.charCreationProfession) end   -- never start overdrawn
+			w.charCreationProfession:onOptionMouseDown({ internal = "NEXT" }, 0, 0)
+		end
 	elseif w.charCreationMain and w.charCreationMain:isVisible() then
 		w.charCreationMain:onOptionMouseDown({ internal = "NEXT" }, 0, 0)
 	end
