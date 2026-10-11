@@ -62,3 +62,5 @@ The hot reload cleanup no longer calls `GameTime:setMultiplier`. The live loader
 
 Gym 0.3.2 (2026-10-11) hides unseen zombies from gym observations and options. This was checked only by
 reading the code and the Python test suite; it has **not** been validated in the live game.
+
+Gym 0.3.3 (2026-10-11) also hides zombies on unlit squares (threshold 0.2 is a guess) and adds `obs.light`; code-read only, not live-validated.
