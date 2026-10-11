@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.4.3"
+A.VERSION = "0.5.0"
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -1894,7 +1894,11 @@ local MOVE_KEYS = {
 }
 
 function A.onKeyPressed(key)
-	if key == KEY_HUD then H.visible = not H.visible; return end
+	if key == KEY_HUD then
+		H.visible = not H.visible
+		if A.hudUI then pcall(function() A.hudUI:setVisible(H.visible) end) end
+		return
+	end
 	if isSpeedKey(key) then S.speed.keyAt = S.tick; return end
 	if MOVE_KEYS[key] then
 		S.lastHumanKey = S.tick
@@ -1907,35 +1911,80 @@ function A.onKeyPressed(key)
 end
 
 ---------------------------------------------------------------- HUD (layout from ClaudeSurvivor)
-AIvZHUD = ISUIElement:derive("AIvZHUD")
+-- A draggable, resizable panel. Text is measured, not positioned by guesswork: the font steps up with the
+-- panel's size (Small/Medium/Large), lines are placed by the font's real height, and long text is wrapped
+-- or cut to the width, so it follows the game's own font-size setting too. Position and size are kept in
+-- Lua\aivz\hud.txt. Drag anywhere on the panel; resize from the bottom-right corner. F7 hides it.
+AIvZHUD = ISPanel:derive("AIvZHUD")
+local HUD_MIN_W, HUD_MIN_H = 280, 170
+
+local function textW(font, t) return getTextManager():MeasureStringX(font, t) end
+local function fontH(font) return getTextManager():getFontHeight(font) end
+
+local function hudRect()
+	local sw = try(function() return getCore():getScreenWidth() end) or 1920
+	local sh = try(function() return getCore():getScreenHeight() end) or 1080
+	local lh = fontH(UIFont.Small)
+	local r = { x = 90, y = 40, w = math.floor(400 * lh / 15), h = lh * 14 }   -- clear of the map and sidebar icons
+	local line = readFirstLine("hud.txt")
+	if line then
+		local x, y, w, h = line:match("^(%-?%d+),(%-?%d+),(%d+),(%d+)")
+		if x then r = { x = tonumber(x), y = tonumber(y), w = tonumber(w), h = tonumber(h) } end
+	end
+	r.w, r.h = math.max(HUD_MIN_W, math.min(r.w, sw)), math.max(HUD_MIN_H, math.min(r.h, sh))
+	r.x, r.y = math.max(0, math.min(r.x, sw - r.w)), math.max(0, math.min(r.y, sh - r.h))
+	return r
+end
 
 function AIvZHUD:new()
-	local sh = try(function() return getCore():getScreenHeight() end) or 1080
-	local h = 214
-	local o = ISUIElement:new(14, sh - h - 48, 400, h)
+	local r = hudRect()
+	local o = ISPanel:new(r.x, r.y, r.w, r.h)
 	setmetatable(o, self)
 	self.__index = self
+	o.backgroundColor = { r = 0.04, g = 0.06, b = 0.08, a = 0.62 }
+	o.borderColor = { r = 0.5, g = 0.82, b = 0.72, a = 0.7 }
+	o.moveWithMouse = true
 	return o
 end
 
-function AIvZHUD:wrap(text, n)
+function AIvZHUD:createChildren()
+	ISPanel.createChildren(self)
+	self.resizer = ISResizeWidget:new(self.width - 12, self.height - 12, 12, 12, self)
+	self.resizer:initialise()
+	self.resizer.anchorLeft, self.resizer.anchorTop = false, false
+	self:addChild(self.resizer)
+end
+
+-- keep the corner handle in place, stay on screen, and remember where the panel is (when it stops changing)
+function AIvZHUD:prerender()
+	if self.width < HUD_MIN_W then self:setWidth(HUD_MIN_W) end
+	if self.height < HUD_MIN_H then self:setHeight(HUD_MIN_H) end
+	if self.resizer then self.resizer:setX(self.width - 12); self.resizer:setY(self.height - 12) end
+	local key = self:getX() .. "," .. self:getY() .. "," .. self.width .. "," .. self.height
+	if key ~= self.lastKey then self.lastKey, self.keyAt = key, getTimestampMs()
+	elseif self.keyAt and getTimestampMs() - self.keyAt > 1000 and key ~= self.savedKey then
+		self.savedKey = key
+		pcall(writeFile, "hud.txt", key)
+	end
+	ISPanel.prerender(self)
+end
+
+-- the text cut to fit maxw pixels, ending in ".." when shortened
+local function fit(font, text, maxw)
+	text = tostring(text)
+	if textW(font, text) <= maxw then return text end
+	while #text > 1 and textW(font, text .. "..") > maxw do text = text:sub(1, -2) end
+	return text .. ".."
+end
+
+local function wrapPx(font, text, maxw)
 	local out, line = {}, ""
 	for word in string.gmatch(tostring(text), "%S+") do
-		if #line + #word + 1 > n then out[#out + 1] = line; line = word
-		else line = (line == "") and word or (line .. " " .. word) end
+		local try_ = line == "" and word or (line .. " " .. word)
+		if textW(font, try_) > maxw and line ~= "" then out[#out + 1] = line; line = word else line = try_ end
 	end
 	if line ~= "" then out[#out + 1] = line end
 	return out
-end
-
-function AIvZHUD:bar(label, v, x, y, bad)
-	v = math.max(0, math.min(1, v or 0))
-	self:drawText(label, x, y - 1, 0.6, 0.66, 0.72, 1, UIFont.Small)
-	local bx, bw = x + 32, 46
-	self:drawRect(bx, y + 2, bw, 8, 0.5, 0.15, 0.19, 0.23)
-	local r, g, b = 0.5, 0.82, 0.72
-	if bad(v) then r, g, b = 0.9, 0.33, 0.33 end
-	self:drawRect(bx, y + 2, bw * v, 8, 0.95, r, g, b)
 end
 
 function AIvZHUD:render()
@@ -1943,34 +1992,60 @@ function AIvZHUD:render()
 	local p = P()
 	if not p then return end
 	local w, h = self.width, self.height
-	self:drawRect(0, 0, w, h, 0.62, 0.04, 0.06, 0.08)
-	self:drawRectBorder(0, 0, w, h, 0.7, 0.5, 0.82, 0.72)
-	self:drawText("AI", 12, 8, 0.5, 0.82, 0.72, 1, UIFont.Medium)
+	local scale = math.min(w / 400, h / 214)
+	local font = scale >= 2.0 and UIFont.Large or (scale >= 1.35 and UIFont.Medium or UIFont.Small)
+	local lh = fontH(font) + 2
+	local pad = math.max(8, math.floor(8 * scale))
+	local inner = w - 2 * pad
+	local y = pad
+	local function line(text, x, r, g, b, right)
+		local t = fit(font, text, inner - (x - pad))
+		if right then self:drawTextRight(t, w - pad, y, r, g, b, 1, font) else self:drawText(t, x, y, r, g, b, 1, font) end
+	end
 	local status = S.manual and "MANUAL" or ((S.tick - S.reflexTick < 60) and ("REFLEX: " .. S.reflexAct) or
 		((H.lastIntent and S.tick - H.lastIntent < 60) and "NEW PLAN" or (S.task and S.task.status or "waiting")))
-	self:drawTextRight(status, w - 12, 11, 1, 0.83, 0.28, 1, UIFont.Small)
+	self:drawText("AI", pad, y, 0.5, 0.82, 0.72, 1, font)
+	local sx = pad + textW(font, "AI") + pad
+	self:drawTextRight(fit(font, status, w - pad - sx), w - pad, y, 1, 0.83, 0.28, 1, font)
+	y = y + lh + 2
 	local goal = H.goal ~= "" and (H.goal .. (H.source ~= "" and ("  (" .. H.source .. ")") or "")) or "no goal yet"
-	self:drawText("GOAL: " .. goal, 12, 30, 1, 0.83, 0.28, 1, UIFont.Small)
-	self:drawText("NOW: " .. tostring(H.action), 12, 46, 0.9, 0.95, 1, 1, UIFont.Small)
-	local ty = 64
-	for _, line in ipairs(self:wrap(H.why, 60)) do
-		if ty > 94 then break end
-		self:drawText(line, 12, ty, 0.74, 0.79, 0.85, 1, UIFont.Small)
-		ty = ty + 15
+	line("GOAL: " .. goal, pad, 1, 0.83, 0.28); y = y + lh
+	line("NOW: " .. tostring(H.action), pad, 0.9, 0.95, 1); y = y + lh
+	-- the bottom block: bars, zombies, kills, home and weight, time and speed
+	local barH = lh
+	local bottom = barH + 4 * lh + pad
+	for _, l in ipairs(wrapPx(font, H.why, inner)) do
+		if y + lh > h - bottom then break end
+		line(l, pad, 0.74, 0.79, 0.85); y = y + lh
 	end
-	local by = 118
+	y = h - bottom + 2
 	local hp = try(function() return p:getBodyDamage():getOverallBodyHealth() end) or 0
-	self:bar("HP", hp / 100, 12, by, function(v) return v < 0.3 end)
-	self:bar("HUN", stat(p, "HUNGER"), 104, by, function(v) return v > 0.7 end)
-	self:bar("THI", stat(p, "THIRST"), 196, by, function(v) return v > 0.7 end)
-	self:bar("END", stat(p, "ENDURANCE"), 288, by, function(v) return v < 0.3 end)
+	local cell = inner / 4
+	local function bar(i, label, v, bad)
+		v = math.max(0, math.min(1, v or 0))
+		local x = pad + (i - 1) * cell
+		self:drawText(label, x, y, 0.6, 0.66, 0.72, 1, font)
+		local bx = x + textW(font, "HUN") + 4
+		local bw = math.max(6, cell - (bx - x) - 8)
+		local bh = math.max(6, math.floor(lh * 0.5))
+		local by = y + math.floor((lh - bh) / 2)
+		self:drawRect(bx, by, bw, bh, 0.5, 0.15, 0.19, 0.23)
+		local r, g, b = 0.5, 0.82, 0.72
+		if bad(v) then r, g, b = 0.9, 0.33, 0.33 end
+		self:drawRect(bx, by, bw * v, bh, 0.95, r, g, b)
+	end
+	bar(1, "HP", hp / 100, function(v) return v < 0.3 end)
+	bar(2, "HUN", stat(p, "HUNGER"), function(v) return v > 0.7 end)
+	bar(3, "THI", stat(p, "THIRST"), function(v) return v > 0.7 end)
+	bar(4, "END", stat(p, "ENDURANCE"), function(v) return v < 0.3 end)
+	y = y + barH + 2
 	local zs = A.zombies(p, 30)
 	local near = 0
 	for _, e in ipairs(zs) do if e.d <= 10 then near = near + 1 end end
 	local zt = zs[1] and (math.floor(zs[1].d) .. " tiles " .. dir8(zs[1].dx, zs[1].dy)) or "none in 30 tiles"
-	self:drawText("Zombies  " .. near .. " within 10 / " .. #zs .. " within 30  (nearest " .. zt .. ")", 12, by + 22, 0.9, 0.62, 0.62, 1, UIFont.Small)
+	line("Zombies  " .. near .. " within 10 / " .. #zs .. " within 30  (nearest " .. zt .. ")", pad, 0.9, 0.62, 0.62); y = y + lh
 	local wpn = p:getPrimaryHandItem()
-	self:drawText("Kills " .. tostring(mem(p).kills or 0) .. "  |  " .. (wpn and wpn:getDisplayName() or "no weapon"), 12, by + 38, 0.7, 0.86, 0.7, 1, UIFont.Small)
+	line("Kills " .. tostring(mem(p).kills or 0) .. "  |  " .. (wpn and wpn:getDisplayName() or "no weapon"), pad, 0.7, 0.86, 0.7); y = y + lh
 	local home = mem(p).home
 	local ht = "no home yet"
 	if home then
@@ -1979,14 +2054,14 @@ function AIvZHUD:render()
 		if b and bkey(b:getDef()) == home.id then ht = "at home"
 		else ht = "home " .. math.floor(math.sqrt((home.x - p:getX()) ^ 2 + (home.y - p:getY()) ^ 2)) .. " tiles " .. dir8(home.x - p:getX(), home.y - p:getY()) end
 	end
-	self:drawText(string.format("%s  |  %.1f/%.0f kg", ht, p:getInventory():getCapacityWeight(), p:getMaxWeight()), 12, by + 56, 0.55, 0.6, 0.66, 1, UIFont.Small)
+	line(string.format("%s  |  %.1f/%.0f kg", ht, p:getInventory():getCapacityWeight(), p:getMaxWeight()), pad, 0.55, 0.6, 0.66); y = y + lh
 	local gt = getGameTime()
 	-- the speed, and the one it goes back to when the game has dropped to 1x for a close zombie
 	local sp = getSpeed()
 	local st = sp == 0 and "paused" or (sp and ("speed " .. sp .. "x") or "")
 	if sp and sp > 0 and S.speed.held > 1 and S.speed.seen == 1 then st = st .. " (" .. SPEED_X[S.speed.held] .. "x when clear)" end
-	self:drawTextRight(string.format("day %d  %02d:%02d   %s   F7 hide", gt:getNightsSurvived() + 1, gt:getHour(),
-		gt:getMinutes(), st), w - 12, by + 74, 0.55, 0.6, 0.66, 1, UIFont.Small)
+	line(string.format("day %d  %02d:%02d   %s   F7 hide", gt:getNightsSurvived() + 1, gt:getHour(), gt:getMinutes(), st),
+		pad, 0.55, 0.6, 0.66, true)
 end
 
 function A.startHUD()
@@ -1994,6 +2069,8 @@ function A.startHUD()
 	local ui = AIvZHUD:new()
 	ui:initialise()
 	ui:addToUIManager()
+	pcall(function() ui:setAlwaysOnTop(true) end)   -- above the map and sidebar icons
+	pcall(function() ui:bringToTop() end)
 	A.hudUI = ui
 end
 
