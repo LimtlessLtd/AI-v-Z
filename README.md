@@ -96,6 +96,19 @@ Needs Python 3.10+ and Project Zomboid Build 42.
    `mods.txt` does the same.) The game log says `loading AIvZ` and `Lua\aivz\loader.txt` says `OK`
    when it's on.
 
+## One-click start (Windows)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start.ps1
+```
+
+Pulls the latest `main` (skipped if you have local changes), links the mod if needed, launches Project
+Zomboid through Steam and runs the self-taught agent (`-NoPull`, `-NoGame`, `-Policy` available). The agent
+polls for the game, so start order doesn't matter: once a singleplayer game with AI-v-Z enabled is loaded,
+it takes over. Still manual: enable the mod once per save, and load/start the save. The agent currently picks
+at random; **no network is learning yet** (Phase 4). Not yet run end to end from this script (written in the
+cloud, untested on Windows).
+
 ## Run (rules baseline)
 
 1. Start the bridge from the repo root:
