@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.0"
+G.VERSION = "0.4.1"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -58,6 +58,15 @@ local function visibleZombies(p, R)
 		end
 	end
 	return out
+end
+
+-- a square the character can make things out on right now: in line of sight and lit enough, or right next to it
+local function perceivable(p, sq, d)
+	if not sq then return false end
+	if d <= NEAR then return true end
+	if try(function() return sq:isCanSee(p:getPlayerNum()) end) ~= true then return false end
+	local l = squareLight(sq, p:getPlayerNum())
+	return l == nil or l >= LIGHT_MIN
 end
 
 local function seen(p)
@@ -204,8 +213,8 @@ function G.scanAround(p)
 	for dx = -8, 8 do
 		for dy = -8, 8 do
 			local sq = sqAt(px + dx, py + dy, pz)
-			if sq then
-				local d = math.sqrt(dx * dx + dy * dy)
+			local d = math.sqrt(dx * dx + dy * dy)
+			if sq and perceivable(p, sq, d) then   -- not through walls or in the dark
 				local n = 0
 				for _, c in ipairs(U.containersOn(sq)) do
 					n = n + 1
@@ -276,10 +285,23 @@ function G.options(p)
 		add(list, "run", { dir = d[1], dx = d[2], dy = d[3], zombies = n }, { dx = d[2], dy = d[3] })
 	end
 	-- buildings around (the nearest 5 apart from this one)
-	if not GS.blds or tick() - GS.blds.at > 240 then GS.blds = { at = tick(), list = A.scanBuildings(p, 60) } end
-	local here = A.buildingInfo(p, false)
 	local m = U.mem(p)
 	m.visited = m.visited or {}
+	m.bseen = m.bseen or {}   -- buildings the character has had in line of sight, kept like a map memory
+	if not GS.blds or tick() - GS.blds.at > 240 then
+		-- only buildings in sight now or remembered; what is inside (room names, looted/explored marks) is
+		-- known only once visited
+		local known = {}
+		for _, b in ipairs(A.scanBuildings(p, 60)) do
+			if try(function() return sqAt(b.tx, b.ty, b.tz):isCanSee(p:getPlayerNum()) end) == true then m.bseen[b.id] = true end
+			if m.bseen[b.id] or m.visited[b.id] then
+				if not m.visited[b.id] then b.rooms, b.looted, b.explored = nil, nil, nil end
+				known[#known + 1] = b
+			end
+		end
+		GS.blds = { at = tick(), list = known }
+	end
+	local here = A.buildingInfo(p, false)
 	local nb = 0
 	for _, b in ipairs(GS.blds.list) do
 		if nb >= 5 then break end
@@ -404,7 +426,13 @@ function G.options(p)
 		end
 	end)
 	-- taps and sinks
-	if not GS.water or tick() - GS.water.at > 120 then GS.water = { at = tick(), list = A.scanWater(p, 10) } end
+	if not GS.water or tick() - GS.water.at > 120 then
+		local seenWater = {}
+		for _, w in ipairs(A.scanWater(p, 10)) do
+			if perceivable(p, sqAt(w.x, w.y, w.z), w.d) then seenWater[#seenWater + 1] = w end
+		end
+		GS.water = { at = tick(), list = seenWater }
+	end
 	for i = 1, math.min(2, #GS.water.list) do
 		local w = GS.water.list[i]
 		add(list, "drink_tap", { d = w.d, tainted = w.tainted, name = w.name }, { x = w.x, y = w.y, z = w.z })
