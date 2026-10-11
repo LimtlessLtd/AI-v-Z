@@ -99,6 +99,14 @@ coordinates as a substitute for hearing.
 
 ## Perception audit and completion gates
 
+**Progress 2026-10-11 (gym 0.3.2, not live-tested):** zombie observations, `attack`/`shove` options,
+walk/run "zombies toward" counts, building crowd counts and the "zombie close" decision trigger now use
+only zombies the character can currently see (`visibleZombies` in `AIvZGym.lua`, based on square visibility).
+Still open: `sq:isCanSee` is a square-visibility proxy that needs checking against the real field of view
+(e.g. zombies behind the character); `scanAround`/`scanBuildings` and recipe/target caches are unaudited;
+the rules baseline (`AIvZ.lua`) still uses all-zombie data (it is not the gym). No memory of previously
+seen zombies is kept yet.
+
 The current gym serialises all nearby zombies from `A.zombies`, including `seen=false`, with positions
 and hidden chase-target flags; those records also affect direction and building crowd annotations.
 World scans and cached recipe/target metadata need the same visibility/knowledge audit. Fix this
