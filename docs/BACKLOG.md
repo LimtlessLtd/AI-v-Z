@@ -16,3 +16,15 @@ check-in; the rest are noted so they are not lost. Nothing here is live-tested u
 
 Exercise, full crafting, disassembly, vehicles, repairs, inventory organisation, hearing, remaining
 hidden-information audit (scans and caches).
+
+## Lessons: things written from memory that were wrong (2026-10-11)
+
+Everything in `AIvZGymActions.lua` and the light/visibility code was written without the game's files; verify
+against the installed Lua/Java before trusting any API name.
+
+1. `Stats:getEndurance()` doesn't exist in Build 42 (use `getStats():get(CharacterStat.X)`): ~500 console errors.
+2. `ISFitnessAction` needs `Fitness:setCurrentExercise` first, else a NullPointerException in `Fitness.incRegularity`.
+3. Character creation only offered good traits; negative ones are probably in `listboxBadTrait` (unverified), so the
+   AI overdrew its points and still started. Points rule now enforced (gym 0.4.2).
+4. Hidden-information leaks (unseen zombies, unvisited building interiors, unlit objects) were in the observations;
+   fixes in gym 0.3.2-0.4.1 are untested, and `isCanSee`/`getLightLevel` semantics and the 0.2 light threshold are unverified.
