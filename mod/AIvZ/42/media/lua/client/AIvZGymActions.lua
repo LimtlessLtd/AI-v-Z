@@ -43,7 +43,8 @@ local function fitnessTypes(p)
 	return out
 end
 
-local function endurance(p) return try(function() return p:getStats():getEndurance() end) end
+-- Build 42 reads stats through CharacterStat (Stats:getEndurance() no longer exists: it logged an error per call)
+local function endurance(p) return U.stat(p, "ENDURANCE") end
 
 G.hooks.exercise = function(p, list, add)
 	if p:isAsleep() or try(function() return p:getVehicle() end) then return end
@@ -57,7 +58,12 @@ end
 G.X.exercise = {
 	start = function(p, t, o)
 		if not (rawget(_G, "ISFitnessAction") and rawget(_G, "FitnessExercises")) then return U.fail(t, "unsupported: no fitness API") end
-		t.end0, t.xp0 = endurance(p), try(function() return p:getXp():getXP(Perks.Fitness) end)
+		t.end0 = endurance(p)
+		-- the fitness screen selects the exercise on the character's Fitness object before queueing the action;
+		-- without it Fitness.incRegularity hit a null currentExe (seen in the 2026-10-11 console log)
+		local fit = try(function() return p:getFitness() end)
+		if not fit then return U.fail(t, "unsupported: no Fitness object") end
+		pcall(function() fit:setCurrentExercise(o.data.name) end)
 		-- the fitness screen queues one timed action per set; reps/regularity come from its defaults
 		Q(ISFitnessAction:new(p, o.data.name, 25, o.data.data))
 	end,
