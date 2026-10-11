@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.6"
+G.VERSION = "0.4.7"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -151,6 +151,20 @@ function G.itemInfo(p, it)
 end
 
 ---------------------------------------------------------------- what the character perceives
+-- The character's traits, as the character screen lists them (ISCharacterScreen reads them the same way), with
+-- the labels the trait screen used: what the agent picked at creation, plus any its profession gave
+function G.traits(p)
+	local out = {}
+	try(function()
+		local known = p:getCharacterTraits():getKnownTraits()
+		for i = 0, known:size() - 1 do
+			local def = CharacterTraitDefinition.getCharacterTraitDefinition(known:get(i))
+			out[#out + 1] = def and def:getLabel() or tostring(known:get(i))
+		end
+	end)
+	return out
+end
+
 local function isClock(it) return it ~= nil and (instanceof(it, "AlarmClock") or instanceof(it, "AlarmClockClothing")) end
 
 -- What the screen's clock shows, or nil. The game shows it (zombie.ui.Clock.resize) for a watch or alarm
@@ -205,6 +219,7 @@ function G.observe(p, dead)
 	end
 	o.speed = try(function() return gt:getTrueMultiplier() end) or try(function() return gt:getMultiplier() end)   -- read only
 	o.clock = G.clock(p)
+	o.traits = G.traits(p)
 	o.body = A.wounds(p)
 	local l = squareLight(p:getCurrentSquare(), p:getPlayerNum())
 	o.light = { known = l ~= nil, here = l and r2(l) or nil }

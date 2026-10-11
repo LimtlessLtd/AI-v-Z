@@ -1,7 +1,7 @@
 """Policies choose one of the options the gym offers.
 
-Phase 3 has the random policy: it checks the gym end to end and gives the learner (Phase 4) its first
-experience. A random agent that changed its mind at every interruption would never finish anything, so it
+The net policy (Phase 4) plays by the network's scores (net.py), trained from experience by learn.py. The
+random policy checks the gym end to end and gave the network its first experience. A random agent that changed its mind at every interruption would never finish anything, so it
 keeps the running option ("continue") four times as often as any other single option.
 
 The probe policy is a test tool, not a player: it checks that each kind of option does what it says in the
@@ -11,6 +11,7 @@ from the experience the agent learns from.
 """
 
 import collections
+import math
 import random
 
 
@@ -31,6 +32,58 @@ class RandomPolicy:
         probs = [w / total for w in weights]
         i = self.rng.choices(range(len(options)), weights=weights)[0]
         return i, probs, f"random pick, 1 of {len(options)}"
+
+
+class NetPolicy:
+    """Picks by the network's Q scores: softmax(Q / (temperature x the spread of this decision's scores)), mixed
+    with the random policy's choices a share `explore` of the time so it keeps trying what it rates low. Scaling
+    by the spread keeps it as decisive early on, when scores sit close together, as later. Picks up a newly trained network
+    (logs/model/qnet.pt) at the next decision. Until there is one, it plays like the random policy."""
+
+    name = "net"
+
+    def __init__(self, model_path, rng=None, temperature=0.5, explore=0.1):
+        self.model_path = model_path
+        self.rng = rng or random.Random()
+        self.random = RandomPolicy(self.rng)
+        self.temperature, self.explore = temperature, explore
+        self.net, self.meta, self.mtime = None, None, None
+        self.last_q = None
+
+    def _refresh(self):
+        try:
+            m = self.model_path.stat().st_mtime_ns
+        except OSError:
+            return
+        if m != self.mtime:
+            from . import net as N   # torch is only needed once there is a network to load
+            net, meta = N.load(self.model_path)
+            self.mtime = m
+            if net is not None:
+                self.net, self.meta = net, meta
+
+    def choose(self, msg):
+        self._refresh()
+        self.last_q = None
+        options = msg.get("options") or []
+        if not options:
+            return None, [], ""
+        if self.net is None:
+            i, probs, note = self.random.choose(msg)
+            return i, probs, f"no network yet: {note}"
+        from . import net as N
+        q = N.q_values(self.net, msg)
+        top = max(q)
+        mean = sum(q) / len(q)
+        spread = max(0.05, math.sqrt(sum((x - mean) ** 2 for x in q) / len(q)))
+        ex = [math.exp(max(-50.0, (x - top) / (self.temperature * spread))) for x in q]
+        tot = sum(ex)
+        rp = self.random.choose(msg)[1]
+        probs = [(1 - self.explore) * e / tot + self.explore * r for e, r in zip(ex, rp)]
+        i = self.rng.choices(range(len(options)), weights=probs)[0]
+        self.last_q = q
+        best = q.index(top)
+        return i, probs, f"net r{self.meta.get('round')}: " + ("its top pick" if i == best else f"tries one rated {q[i] - top:+.1f}")
 
 
 def _bag(obs):

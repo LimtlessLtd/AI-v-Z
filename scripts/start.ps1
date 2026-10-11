@@ -1,7 +1,7 @@
 # One-click start: get the latest from GitHub, make sure the mod is linked, launch Project Zomboid (Steam)
 # and run the self-taught agent. The agent takes over the character once a game is loaded.
-# Usage: powershell -ExecutionPolicy Bypass -File scripts/start.ps1 [-NoPull] [-NoGame] [-Policy random|probe]
-param([switch]$NoPull, [switch]$NoGame, [string]$Policy = 'random')
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/start.ps1 [-NoPull] [-NoGame] [-Policy net|random|probe]
+param([switch]$NoPull, [switch]$NoGame, [string]$Policy = 'net')
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $repo

@@ -31,7 +31,7 @@
 </head>
 <body>
 <main>
-  <header><h1>AI-v-Z: the self-taught agent</h1><span id="status" class="muted">connecting…</span></header>
+  <header><h1>AI-v-Z: the self-taught agent <a href="/learning" style="color:var(--muted);font-size:13px;font-weight:400;margin-left:10px">learning →</a></h1><span id="status" class="muted">connecting…</span></header>
 
   <section>
     <h2>This life</h2>
@@ -105,7 +105,8 @@ async function tick() {
   let s;
   try { s = await (await fetch("/api/agent")).json(); } catch { $("status").textContent = "agent not reachable"; return; }
   const sp = (s.obs || {}).speed;   // set with the game's own speed buttons
-  $("status").textContent = `${s.connected ? "playing" : "waiting for the game"} · ${s.policy} policy · ${s.decisions} decisions this session` +
+  $("status").textContent = `${s.connected ? "playing" : "waiting for the game"} · ${s.policy} policy` +
+    (s.model ? ` (network round ${s.model.round})` : s.policy === "net" ? " (no network yet: random)" : "") + ` · ${s.decisions} decisions this session` +
     (sp === 0 ? " · paused" : sp ? ` · game speed ${sp}×` : "");
   const l = s.life;
   $("who").textContent = l ? `Life ${l.number}: ${l.who}` : "–";
@@ -119,10 +120,10 @@ async function tick() {
     holding: o.held ? o.held.name : "nothing", zombies: `${o.zombies} within 30 tiles`,
     where: o.where ? (o.where.outside ? "outside" : `inside, ${o.where.room || "a room"}`) : "",
     "known nearby": o.near ? `${o.near.food} food, ${o.near.drink} drinks, ${o.near.weapon} weapons, ${o.near.medical} medical` : ""});
-  $("reason").textContent = s.reason ? `(asked because: ${s.reason})` : "";
-  $("options").innerHTML = `<tr><th>option</th><th></th><th>detail</th><th class="n">p</th></tr>` +
+  $("reason").textContent = (s.reason ? `(asked because: ${s.reason})` : "") + (s.note ? ` · ${s.note}` : "");
+  $("options").innerHTML = `<tr><th>option</th><th></th><th>detail</th><th class="n">Q</th><th class="n">p</th></tr>` +
     (s.options || []).map((op, i) => `<tr class="${i === s.choice ? "chosen" : ""}"><td>${esc(op.verb.replace(/_/g, " "))}</td>` +
-      `<td>${esc(what(op))}</td><td class="muted">${esc(detail(op))}</td><td class="n">${op.p == null ? "" : op.p.toFixed(2)}</td></tr>`).join("");
+      `<td>${esc(what(op))}</td><td class="muted">${esc(detail(op))}</td><td class="n">${op.q == null ? "" : op.q.toFixed(2)}</td><td class="n">${op.p == null ? "" : op.p.toFixed(2)}</td></tr>`).join("");
   $("reward").innerHTML = s.parts && Object.keys(s.parts).length ? kv(Object.fromEntries(Object.entries(s.parts).map(([k, v]) => [k, sign(v)]))) : '<span class="muted">–</span>';
   $("recent").innerHTML = (s.recent || []).map(esc).join("<br>") || "–";
   chart(s.lives || []);

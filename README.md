@@ -11,7 +11,9 @@ yet. No cloud services, no language model, no multiplayer.
 > The agent (`agent/`) picks from the implemented options and every decision is logged with its reward.
 > Live probes check each option against what actually happened in the game and keep their logs separate
 > from the agent's experience.
-> **Nothing is learning yet**: the agent picks at random, which collects experience for Phase 4. With
+> **It learns now (Phase 4, started 2026-10-11)**: a small network scores every option the game offers and
+> the agent plays by those scores, retraining every 15 minutes from everything it has lived through. It
+> starts from the random policy's experience, so expect clumsy play that improves over hours. With
 > the agent off, a hand-written **rules baseline** plays instead: it loots, fights, flees, gets into
 > locked houses through windows, keeps a home base, sleeps, bandages wounds with torn clothes and opens
 > cans. That baseline is the score the self-taught agent has to beat. The earlier Qwen language model
@@ -25,7 +27,7 @@ yet. No cloud services, no language model, no multiplayer.
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
 | **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | In progress: 27 implemented action types exercised; full action and hearing coverage missing. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
-| 4. Learning | A small network scores every option; rewards come from the body (hunger, thirst, pain, panic, bleeding), progress (places, items, kills, time alive) and death. It trains on the CPU while the game runs. A Learning page on the dashboard. | |
+| **4. Learning** | A small network scores every option; rewards come from the body (hunger, thirst, pain, panic, bleeding), progress (places, items, kills, time alive) and death. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 15 min (see [Run (self-taught agent)](#run-self-taught-agent)). Comparison with the rules baseline still to do. |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
 
@@ -105,9 +107,9 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 Pulls the latest `main` (skipped if you have local changes), links the mod if needed, launches Project
 Zomboid through Steam and runs the self-taught agent (`-NoPull`, `-NoGame`, `-Policy` available). The agent
 polls for the game, so start order doesn't matter: once a singleplayer game with AI-v-Z enabled is loaded,
-it takes over. Still manual: enable the mod once per save, and load/start the save. The agent currently picks
-at random; **no network is learning yet** (Phase 4). Not yet run end to end from this script (written in the
-cloud, untested on Windows).
+it takes over. Still manual: enable the mod once per save, and load/start the save. The agent plays with the
+network and trains it (`-Policy random` for the Phase 3 random player). Not yet run end to end from this
+script (written in the cloud, untested on Windows).
 
 ## Run (rules baseline)
 
@@ -132,8 +134,27 @@ python -m agent.run
 ```
 
 Its dashboard is at <http://127.0.0.1:8799/>. Load your game. Within a few seconds the agent takes over from the baseline; when the character dies it
-starts a new one in a random town by itself. Stopping the agent (Ctrl+C) hands the character back to the
+starts a new one in a random town by itself, choosing its traits. Stopping the agent (Ctrl+C) hands the character back to the
 baseline within ~6 s.
+
+**How it learns.** The network (`agent/net.py`, about 0.7 M weights, PyTorch on the CPU) gives every option
+on offer a score, Q: the reward it expects to follow from picking that option now. It sees what a player
+sees: the moodles first, then wounds, health, zombies in view, light, what it carries and holds, the
+place, the time only when it wears a watch, and how its last action went (`agent/features.py` lists every
+input, and what's kept out). It mostly picks the top-rated options (`--temperature`, default 0.5) and one
+pick in ten at random (`--explore 0.1`), so it keeps trying things it rates low. Every 15 minutes
+(`--train-every`) a separate low-priority process (`python -m agent.learn`, 4 CPU threads, about a minute)
+retrains it from all the experience so far, carrying on from the last network, and the agent switches to
+the new one at its next decision. Until the first network exists it plays at random. The reward is in
+`agent/reward.py`. Character creation is learned the same way: picking traits leads into the life they
+make.
+
+The dashboard shows each option's Q and the chance it had of being picked. The **Learning** page,
+<http://127.0.0.1:8799/learning>, compares lives by who played them (random policy vs network), charts game
+hours survived per life, lists the training rounds and shows which kinds of option it currently rates
+highest.
+
+`python -m agent.run --policy random` plays at random without training (Phase 3 behaviour).
 
 What it writes, all under `logs/`:
 
@@ -142,6 +163,9 @@ What it writes, all under `logs/`:
 | `experience/YYYYMMDD-HH.jsonl.gz` | Every decision: what it saw, the options, its choice and the reward since the last one. This is what Phase 4 learns from. |
 | `lives.jsonl` | One line per life: game hours survived, kills, total reward and its parts, cause of the end |
 | `agent-state.json` | The life count and current life, saved after each decision so the same character carries on across agent restarts |
+| `model/qnet.pt` | The current network; delete it (and `model/cache/`) to start learning from scratch |
+| `model/history.jsonl`, `model/train.log` | One line per training round (loss, mean Q, what it rates highest); the trainer's output |
+| `model/cache/` | Encoded experience per hour, so a round doesn't re-read finished hours |
 
 If you stop and restart the agent during a life, it resumes that character's number, reward and progress.
 The first observation after the restart earns no reward for the time the agent was off; later decisions
@@ -195,7 +219,7 @@ training experience in `logs/experience/`. It uses the same port as the agent an
 a time. The probe does not create practice scenarios; it uses whatever the current game offers.
 The executor results are in [Phase 3 verification](docs/PHASE3_VERIFICATION.md). Broader action,
 perception and hearing requirements are in [Phase 3 coverage](docs/PHASE3_COVERAGE.md). Passing the
-executor probe does not establish full player action coverage. Check in before starting Phase 4. Raised-but-unfinished items are in [docs/BACKLOG.md](docs/BACKLOG.md).
+executor probe does not establish full player action coverage. Raised-but-unfinished items are in [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/reload-mod.ps1
@@ -211,8 +235,9 @@ pick a sensible goal in all of them.
 ```
 mod/AIvZ/           the Build 42 Lua mod (AIvZ.lua: reflex, tactics, HUD; AIvZGym.lua: the agent's options,
                     observations and respawns; AIvZLoader.lua: events, hot reload)
-agent/              the self-taught agent: run.py (loop, logs, dashboard), link.py (the files), reward.py,
-                    lives.py, policies.py (random for now), agent.html
+agent/              the self-taught agent: run.py (loop, logs, dashboard, trainer), link.py (the files), reward.py,
+                    lives.py, policies.py (net, random, probe), features.py (what the network sees),
+                    net.py (the network), learn.py (a training round), agent.html, learning.html
 bridge/             bridge.py (rules baseline decision loop, dashboard server) and mind.html
 brain/              baseline decision code: goals, rules, percept conversion, strategy
 tests/              unit tests, and the 31 benchmark situations
@@ -236,8 +261,17 @@ docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; A
   for unseen zombies. These must not substitute for hearing; the learner should get only visible or
   otherwise player-perceivable evidence. Leaks still present are listed in
   [OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md).
-- **It doesn't learn yet.** The random policy dies within a few game hours most lives (15 lives in the
-  first 40 minutes). That's expected until Phase 4.
+- **Learning has only just started.** The first networks learn from about 260 random lives that mostly ended
+  within a few game hours, so early play is close to random. Watch the Learning page over hours, not
+  minutes.
+- **Traits are learned slowly.** Each life's observations list the character's traits (gym 0.4.7, as the
+  character screen shows them), so the network can link them to how the life goes; but a trait's effect
+  is spread over a whole life, and the discount makes that link weak.
+- **No comparison with the rules baseline yet.** The baseline's lives aren't logged in the agent's format,
+  so the Learning page compares the network with the random policy only.
+- **Old experience is lopsided.** Before mod 0.5.1, every decision offered up to 24 exercise options (half
+  of all options logged). Two hour files (2026-10-11 11h and 12h) were damaged by two agents running at once;
+  training reads what's left of them.
 - **Some targets remain unreachable.** The live probe after the 0.4.2 mod / 0.3.0 gym reload on 2026-10-09
   completed 122 of 128 searches and 831 of 842 room walks; the rest failed with a path or arrival reason.
   Long directional walks and runs can stop short or have no path. These failures are reported as failures

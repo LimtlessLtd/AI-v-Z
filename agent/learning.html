@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-v-Z learning</title>
+<style>
+  :root { --bg:#0f1317; --panel:#161c22; --line:#26303a; --text:#dde3ea; --muted:#8899aa; --accent:#7fd1b9; --warn:#ffd479; --bad:#e05555; --good:#7fd17f; --rand:#8899aa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1150px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+  header { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 18px; color: var(--accent); }
+  h1 a, header a { color: var(--muted); font-size: 13px; font-weight: 400; margin-left: 10px; }
+  h2 { margin: 0 0 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+  .wide { grid-column: 1 / -1; }
+  .muted { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td, th { padding: 3px 6px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .pos { color: var(--good); } .neg { color: var(--bad); }
+  svg { width: 100%; display: block; }
+  .legend span { margin-right: 14px; font-size: 12px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+  .bar { height: 10px; background: var(--accent); border-radius: 2px; }
+  .bar.neg { background: var(--bad); }
+  .scroll { max-height: 330px; overflow: auto; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>AI-v-Z: learning <a href="/">← the agent</a></h1><span id="status" class="muted">connecting…</span></header>
+
+  <section class="wide">
+    <h2>Lives by who played them</h2>
+    <table id="compare"></table>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">"random" is Phase 3's random policy: the experience the network first learned from.
+      "net" is the network (with 10% random picks to keep exploring). The rules baseline's lives aren't logged in this form yet.</p>
+  </section>
+
+  <section class="wide">
+    <h2>Game hours survived per life <span class="muted" id="avg" style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class="legend"><span><i class="dot" style="background:var(--rand)"></i>random</span><span><i class="dot" style="background:var(--accent)"></i>net</span><span><i class="dot" style="background:var(--warn)"></i>average of the last 20</span></div>
+    <svg id="hours" viewBox="0 0 1000 170" preserveAspectRatio="none" style="height:170px"></svg>
+  </section>
+
+  <section>
+    <h2>Training rounds</h2>
+    <div id="trainer" class="muted" style="font-size:12px;margin-bottom:6px"></div>
+    <div class="scroll"><table id="rounds"></table></div>
+  </section>
+
+  <section>
+    <h2>What it rates highest <span class="muted" style="text-transform:none;letter-spacing:0">(average Q of each kind of option, latest round)</span></h2>
+    <div class="scroll"><table id="verbs"></table></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+const median = a => { if (!a.length) return 0; const s = a.slice().sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+const f1 = x => (Math.round(x * 10) / 10).toFixed(1);
+function compare(lives) {
+  const groups = {};
+  for (const l of lives) (groups[l.policy] = groups[l.policy] || []).push(l);
+  const rows = [];
+  for (const [p, ls] of Object.entries(groups)) {
+    rows.push([p + " (all)", ls]);
+    if (ls.length > 20) rows.push([p + " (last 20)", ls.slice(-20)]);
+  }
+  $("compare").innerHTML = `<tr><th>played by</th><th class="n">lives</th><th class="n">median hours</th><th class="n">mean hours</th><th class="n">best hours</th>` +
+    `<th class="n">mean reward</th><th class="n">mean kills</th><th class="n">item kinds</th><th class="n">buildings</th></tr>` +
+    rows.map(([name, ls]) => `<tr><td>${esc(name)}</td><td class="n">${ls.length}</td><td class="n">${f1(median(ls.map(l => l.hours)))}</td>` +
+      `<td class="n">${f1(mean(ls.map(l => l.hours)))}</td><td class="n">${f1(Math.max(...ls.map(l => l.hours)))}</td>` +
+      `<td class="n">${f1(mean(ls.map(l => l.reward)))}</td><td class="n">${f1(mean(ls.map(l => l.kills)))}</td>` +
+      `<td class="n">${f1(mean(ls.map(l => l.items)))}</td><td class="n">${f1(mean(ls.map(l => l.buildings)))}</td></tr>`).join("");
+}
+function hours(lives) {
+  const svg = $("hours");
+  if (!lives.length) { svg.innerHTML = ""; return; }
+  const max = Math.max(1, ...lives.map(l => l.hours)), w = 1000 / lives.length;
+  const y = h => 165 - 158 * Math.sqrt(h / max);   // square-root scale: short lives stay visible next to long ones
+  let bars = lives.map((l, i) => `<rect x="${i * w}" y="${y(l.hours)}" width="${Math.max(1, w - 1)}" height="${165 - y(l.hours)}" ` +
+    `fill="${l.policy === "net" ? "#7fd1b9" : "#8899aa"}"><title>life ${l.life} (${l.policy}): ${l.hours} h, reward ${l.reward}</title></rect>`).join("");
+  const pts = lives.map((l, i) => { const s = lives.slice(Math.max(0, i - 19), i + 1); return `${(i + .5) * w},${y(mean(s.map(x => x.hours)))}`; });
+  bars += `<polyline points="${pts.join(" ")}" fill="none" stroke="#ffd479" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+  svg.innerHTML = bars;
+  $("avg").textContent = `(${lives.length} lives; scale is square-root; longest ${f1(max)} h)`;
+}
+async function tick() {
+  let s;
+  try { s = await (await fetch("/api/learning")).json(); } catch { $("status").textContent = "agent not reachable"; return; }
+  const h = s.history || [], last = h[h.length - 1];
+  $("status").textContent = `${s.policy} policy · ` + (last ? `network round ${last.round}, trained ${last.trained_at.replace("T", " ")}` : "no network trained yet");
+  const t = s.trainer;
+  $("trainer").textContent = !t ? "training is off for this policy" : t.running ? `training now (${t.running_s} s so far)…` :
+    `trains every ${t.every_min} min in a low-priority process` + (t.last_code !== null && t.last_code !== 0 ? ` · last run failed (${t.last_code}), see logs/model/train.log` : "");
+  compare(s.lives || []);
+  hours(s.lives || []);
+  $("rounds").innerHTML = `<tr><th>round</th><th>trained</th><th class="n">decisions</th><th class="n">loss</th><th class="n">mean Q</th><th class="n">s</th></tr>` +
+    h.slice().reverse().map(r => `<tr><td>${r.round}</td><td class="muted">${esc((r.trained_at || "").slice(5).replace("T", " "))}</td><td class="n">${r.decisions}</td>` +
+      `<td class="n">${r.loss_first} → ${r.loss}</td><td class="n">${r.q_mean}</td><td class="n">${r.seconds}</td></tr>`).join("");
+  const v = Object.entries((last || {}).verbs || {});
+  const big = Math.max(0.01, ...v.map(([, q]) => Math.abs(q)));
+  $("verbs").innerHTML = v.map(([verb, q]) => `<tr><td>${esc(verb.replace(/_/g, " "))}</td><td class="n" style="width:60px">${q.toFixed(2)}</td>` +
+    `<td style="width:55%"><div class="bar ${q < 0 ? "neg" : ""}" style="width:${100 * Math.abs(q) / big}%"></div></td></tr>`).join("") || '<tr><td class="muted">no network yet</td></tr>';
+}
+setInterval(tick, 5000);
+tick();
+</script>
+</body>
+</html>

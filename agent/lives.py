@@ -34,6 +34,7 @@ class Life:
         reward.start_life(obs, self.progress)
         self.last_obs = obs
         self.last_choice = None
+        self.policies = {}     # decisions made by each policy (random, net) in this life
         self.resumed = False   # restored from agent-state.json; cleared by the first observation after it
 
     def hours(self):
@@ -55,12 +56,17 @@ class Life:
                 "reward": round(self.reward, 2), "parts": self.parts, "decisions": self.decisions,
                 "real_minutes": round(self.real_s / 60, 1),
                 "items_seen": len(self.progress.items), "buildings": len(self.progress.buildings),
-                "last_choice": self.last_choice, "finished": datetime.now().isoformat(timespec="seconds")}
+                "last_choice": self.last_choice, "policy": self.policy(), "policies": self.policies,
+                "finished": datetime.now().isoformat(timespec="seconds")}
+
+    def policy(self):
+        """The policy that made most of this life's decisions (lives before Phase 4 were all random)."""
+        return max(self.policies, key=self.policies.get) if self.policies else None
 
     def state(self):
         return {"number": self.number, "name": self.name, "save": self.save, "born": self.born, "age": self.age,
                 "real_s": round(self.real_s, 1), "decisions": self.decisions, "reward": round(self.reward, 4),
-                "parts": self.parts, "kills": self.kills, "last_choice": self.last_choice,
+                "parts": self.parts, "kills": self.kills, "last_choice": self.last_choice, "policies": self.policies,
                 "items": sorted(self.progress.items), "buildings": sorted(self.progress.buildings),
                 "containers": self.progress.containers, "last_obs": self.last_obs}
 
@@ -72,6 +78,7 @@ class Life:
         life.real_s = float(st.get("real_s", 0))
         life.decisions, life.reward = int(st.get("decisions", 0)), float(st.get("reward", 0))
         life.parts, life.kills, life.last_choice = dict(st.get("parts") or {}), st.get("kills", 0), st.get("last_choice")
+        life.policies = dict(st.get("policies") or {})
         life.progress.items, life.progress.buildings = set(st.get("items") or []), set(st.get("buildings") or [])
         life.progress.containers = int(st.get("containers", 0))
         life.resumed = True
