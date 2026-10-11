@@ -129,6 +129,9 @@ class Lives:
 
         The first observation after a restart (life.resumed) earns nothing: the time since the last decision
         includes the agent being off, and whatever the baseline did meanwhile isn't the agent's doing."""
+        if msg.get("creation"):   # character creation: a choice with no life yet
+            self.resumed = False
+            return self.current, 0.0, {}, False, None
         obs = msg.get("obs") or {}
         who = obs.get("who") or {}
         finished = None

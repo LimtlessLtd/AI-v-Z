@@ -193,3 +193,74 @@ local function engine(on)
 	}
 end
 G.X.engine_on, G.X.engine_off = engine(true), engine(false)
+
+---------------------------------------------------------------- character creation: choosing traits
+-- Called from G.respawnStep on the profession/traits screen while the agent plays. Each call (every 1.5 s)
+-- either asks the agent (obs.json {creation = true}), reads its answer from act.txt, or gives up waiting.
+-- Options: add or remove one trait (with its point cost as the game states it), or finish (Next). The game
+-- enforces its own point budget and exclusions: an add that doesn't take effect is reported as failed.
+-- Written from the vanilla CharacterCreationProfession (listboxTrait, listboxTraitSelected, addTraitBtn,
+-- removeTraitBtn); NOT yet run in Build 42.21. If the screen differs, it returns false and Next is pressed.
+local MAX_STEPS, WAIT_MS = 12, 20000   -- at most 12 trait changes per character, then Next
+
+local function traitLabel(item)
+	local t = item and item.item
+	return try(function() return t:getLabel() end) or tostring(item and item.text or "?"),
+		try(function() return t:getCost() end), try(function() return t:getType() end)
+end
+
+local function selectedTraits(prof)
+	local out = {}
+	for _, it in ipairs(prof.listboxTraitSelected and prof.listboxTraitSelected.items or {}) do out[#out + 1] = (traitLabel(it)) end
+	return out
+end
+
+local function creationOptions(prof)
+	local opts = {}
+	for i, it in ipairs(prof.listboxTrait and prof.listboxTrait.items or {}) do
+		local label, cost, ty = traitLabel(it)
+		opts[#opts + 1] = { verb = "add_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i }
+	end
+	for i, it in ipairs(prof.listboxTraitSelected and prof.listboxTraitSelected.items or {}) do
+		local label, cost, ty = traitLabel(it)
+		opts[#opts + 1] = { verb = "remove_trait", name = label, cost = cost, trait = ty and tostring(ty), idx = i }
+	end
+	opts[#opts + 1] = { verb = "finish_creation" }
+	return opts
+end
+
+function G.creation(prof)
+	if not (prof.listboxTrait and prof.listboxTraitSelected and prof.addTraitBtn and prof.removeTraitBtn) then return false end
+	local c = G.s.creation
+	if not c then c = { steps = 0 }; G.s.creation = c end
+	if c.steps >= MAX_STEPS then return false end
+	local now = getTimestampMs()
+	if c.asked then
+		local line = U.readFirstLine("act.txt")
+		local parts = line and U.split(tostring(line), "|")
+		if parts and tonumber(parts[1]) == c.id then
+			local o = c.opts[(tonumber(parts[2]) or -1) + 1]
+			c.asked = false
+			if not o or o.verb == "finish_creation" then return false end
+			c.steps = c.steps + 1
+			local before = #selectedTraits(prof)
+			local lb = o.verb == "add_trait" and prof.listboxTrait or prof.listboxTraitSelected
+			lb.selected = o.idx
+			prof:onOptionMouseDown(o.verb == "add_trait" and prof.addTraitBtn or prof.removeTraitBtn, 0, 0)
+			local after = #selectedTraits(prof)
+			local want = o.verb == "add_trait" and before + 1 or before - 1
+			c.last = { verb = o.verb, name = o.name, status = after == want and "done" or "failed",
+				msg = after == want and "" or "the game didn't accept it (points or exclusions)" }
+			return true
+		end
+		if now - c.askedAt > WAIT_MS then return false end   -- the agent isn't answering: carry on with Next
+		return true
+	end
+	G.s.id = G.s.id + 1
+	c.id, c.opts, c.asked, c.askedAt = G.s.id, creationOptions(prof), true, now
+	local out = {}
+	for i, o in ipairs(c.opts) do out[i] = o end
+	U.writeFile("obs.json", A.json({ id = c.id, reason = "creation", creation = true, gym = G.VERSION,
+		obs = { selected = selectedTraits(prof) }, options = out, last = c.last }))
+	return true
+end
