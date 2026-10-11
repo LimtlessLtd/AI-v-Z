@@ -313,3 +313,12 @@ class GymLeakageTests(unittest.TestCase):
             code = "\n".join(l.split("--")[0] for l in (base / name).read_text(encoding="utf-8").splitlines())
             self.assertNotIn("getTarget", code, name)
             self.assertNotIn("chasing", code, name)
+
+
+class ExerciseLuaStaticTest(unittest.TestCase):
+    def test_fitness_action_gets_exercise_type_and_duration(self):
+        import pathlib
+        src = pathlib.Path(__file__).resolve().parents[1].joinpath(
+            "mod/AIvZ/42/media/lua/client/AIvZGymActions.lua").read_text()
+        self.assertIn("ISFitnessAction:new(p, o.data.name, o.minutes, o.data.data, o.data.data.type)", src)
+        self.assertIn("contains(need, true)", src)
