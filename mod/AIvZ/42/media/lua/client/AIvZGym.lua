@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.12"
+G.VERSION = "0.4.13"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -357,7 +357,11 @@ function G.scanAround(p)
 						local ext = (sq:getBuilding() ~= nil) ~= (other ~= nil and other:getBuilding() ~= nil)
 						local e = { o = o, sq = sq, d = d, exterior = ext, open = try(function() return o:IsOpen() end) == true,
 							locked = U.winIs(o, "isLocked") }
-						if U.isDoor(o) then out.doors[#out.doors + 1] = e
+						if U.isDoor(o) then
+							-- the menu says "Door Is Locked" when couldBeOpen(player) is false, which counts keys (observation audit, leak 7)
+							local cbo = try(function() return o:couldBeOpen(p) end)
+							if cbo ~= nil then e.locked = cbo ~= true end
+							out.doors[#out.doors + 1] = e
 						else
 							e.smashed = U.winIs(o, "isSmashed")
 							e.glass = e.smashed and not U.winIs(o, "isGlassRemoved")
