@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.2"
+G.VERSION = "0.4.3"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -58,6 +58,21 @@ local function visibleZombies(p, R)
 		end
 	end
 	return out
+end
+
+-- What a player can tell about a zombie they see: where it is, whether it is down, whether a wall is in the
+-- way, and (from watching it) how far it has closed in since the last decision that saw it. The game's own
+-- chase target (z:getTarget()) is hidden AI state and is deliberately not exposed to the agent.
+GS.zprev = GS.zprev or setmetatable({}, { __mode = "k" })
+local function zombieView(e)
+	local now, prev = tick(), GS.zprev[e.z]
+	if prev and prev.at == now then return prev.view end   -- observe and options share one view per tick
+	local closing
+	if prev and now - prev.at <= 900 then closing = r1(prev.d - e.d) end
+	local view = { dx = r1(e.dx), dy = r1(e.dy), d = r1(e.d), closing = closing, blocked = e.blocked,
+		down = try(function() return e.z:isOnFloor() end) == true }
+	GS.zprev[e.z] = { d = e.d, at = now, view = view }
+	return view
 end
 
 -- a square the character can make things out on right now: in line of sight and lit enough, or right next to it
@@ -173,8 +188,7 @@ function G.observe(p, dead)
 	o.zombies = {}
 	for i, e in ipairs(visibleZombies(p, 30)) do
 		if i > 40 then break end
-		o.zombies[#o.zombies + 1] = { dx = r1(e.dx), dy = r1(e.dy), d = r1(e.d), seen = e.seen, chasing = e.chasing,
-			blocked = e.blocked, down = try(function() return e.z:isOnFloor() end) == true }
+		o.zombies[#o.zombies + 1] = zombieView(e)
 	end
 	local sq = p:getCurrentSquare()
 	local room = sq and sq:getRoom()
@@ -340,8 +354,7 @@ function G.options(p)
 	-- zombies
 	for _, e in ipairs(zs) do
 		if e.d > 8 or count(list, "attack") >= 4 then break end
-		local info = { d = r1(e.d), dx = r1(e.dx), dy = r1(e.dy), seen = e.seen, chasing = e.chasing, blocked = e.blocked,
-			down = try(function() return e.z:isOnFloor() end) == true }
+		local info = zombieView(e)
 		add(list, "attack", info, { z = e.z })
 		if e.d < 1.6 and count(list, "shove") < 2 then add(list, "shove", info, { z = e.z }) end
 	end

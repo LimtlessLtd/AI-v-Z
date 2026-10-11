@@ -302,3 +302,14 @@ class CreationTests(unittest.TestCase):
             self.assertEqual(agent.lives.count, 0)
             self.assertIsNone(agent.lives.current)
             self.assertTrue((Path(tmp) / "act.txt").exists())
+
+
+class GymLeakageTests(unittest.TestCase):
+    """Static guard (the Lua is not run here): the gym must not hand the agent hidden zombie AI state."""
+
+    def test_gym_does_not_expose_chase_target(self):
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        for name in ("AIvZGym.lua", "AIvZGymActions.lua"):
+            code = "\n".join(l.split("--")[0] for l in (base / name).read_text(encoding="utf-8").splitlines())
+            self.assertNotIn("getTarget", code, name)
+            self.assertNotIn("chasing", code, name)
