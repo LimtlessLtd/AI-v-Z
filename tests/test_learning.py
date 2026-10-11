@@ -6,6 +6,7 @@ Run from the repo root:  python -m unittest discover -s tests
 import argparse
 import copy
 import gzip
+import importlib.util
 import json
 import random
 import sys
@@ -19,6 +20,9 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from agent import features as F  # noqa: E402
 from test_agent import OBS, OPTIONS, later  # noqa: E402
+
+# the encoding tests need nothing extra; the network's need PyTorch (on the owner's PC, not always in the cloud)
+needs_torch = unittest.skipUnless(importlib.util.find_spec("torch"), "PyTorch isn't installed here")
 
 
 def life_records(life, n, start_id=1, die=True):
@@ -97,6 +101,7 @@ class EncodingTests(unittest.TestCase):
         self.assertIn((1, 2), tr)
 
 
+@needs_torch
 class NetworkTests(unittest.TestCase):
     def test_one_score_per_option_and_it_survives_saving(self):
         from agent import net as N
@@ -136,6 +141,7 @@ class NetworkTests(unittest.TestCase):
             self.assertEqual(rec2["round"], 2)
 
 
+@needs_torch
 class NetPolicyTests(unittest.TestCase):
     def test_plays_at_random_until_a_network_exists_then_by_its_scores(self):
         from agent import net as N
