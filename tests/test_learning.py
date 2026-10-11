@@ -197,6 +197,23 @@ class TraitRuleLuaTest(unittest.TestCase):
         gym = (ROOT / "mod/AIvZ/42/media/lua/client/AIvZGym.lua").read_text(encoding="utf-8")
         self.assertIn("G.CHOOSE_TRAITS = true", gym)
 
+    def test_item_status_reaches_the_network_as_tokens_only(self):
+        gun = {"type": "Base.Pistol", "name": "Pistol", "cat": "weapon", "ranged": True, "ammo": "Base.Bullets9mm",
+               "mag": "Base.9mmClip", "loaded": 3, "maxAmmo": 15, "jammed": True, "cond": 0.9}
+        vest = {"type": "Base.Vest", "name": "Vest", "cat": "clothing", "holes": 2, "cond": 0.2, "bite": 40}
+        toks = F.item_status_tokens(gun, "inv")
+        self.assertIn("inv:ammo:Base.Bullets9mm", toks)
+        self.assertIn("inv:mag:Base.9mmClip", toks)
+        self.assertIn("inv:jammed", toks)
+        self.assertIn("inv:holes:2", F.item_status_tokens(vest, "inv"))
+        self.assertEqual(F.item_status_tokens({"type": "Base.Axe"}, "held"), [])
+        base = {"obs": dict(OBS, inv=[gun, vest])}
+        v0, _ = F.encode_state({"obs": dict(OBS, inv=[])})
+        v1, t1 = F.encode_state(base)
+        self.assertEqual(len(v1), F.STATE_DIM)
+        self.assertGreater(len(t1), 2)
+        self.assertEqual(F.VERSION, 1)   # token additions keep the layout and the trained network
+
 
 if __name__ == "__main__":
     unittest.main()
