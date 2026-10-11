@@ -18,7 +18,12 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.7"
+G.VERSION = "0.4.8"
+-- Trait picking at character creation (AIvZGymActions.lua, G.creation). Off since 2026-10-11 at the owner's
+-- request: under the buy-then-pay rule it piled up bad traits (up to 7 against 2 good ones), because bad
+-- traits stayed on offer once the points were back to 0 and the network can't yet value a trait. While
+-- off, the trait screen's Next is pressed with no traits chosen. A better rule is being worked out.
+G.CHOOSE_TRAITS = false
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -996,8 +1001,8 @@ function G.respawnStep()
 		if #towns > 0 then lb.selected = towns[ZombRand(#towns) + 1] end
 		w.mapSpawnSelect:clickNext()
 	elseif w.charCreationProfession and w.charCreationProfession:isVisible() then
-		-- with the agent playing, it picks traits here (AIvZGymActions.lua); otherwise, or if that fails, Next
-		local handled = G.creation and G.active() and select(2, pcall(G.creation, w.charCreationProfession))
+		-- with the agent playing and G.CHOOSE_TRAITS on, it picks traits here (AIvZGymActions.lua); otherwise, or if that fails, Next
+		local handled = G.CHOOSE_TRAITS and G.creation and G.active() and select(2, pcall(G.creation, w.charCreationProfession))
 		if not handled then
 			if G.creationRepair then pcall(G.creationRepair, w.charCreationProfession) end   -- never start overdrawn
 			w.charCreationProfession:onOptionMouseDown({ internal = "NEXT" }, 0, 0)
