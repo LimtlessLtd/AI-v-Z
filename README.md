@@ -7,7 +7,7 @@ yet. No cloud services, no language model, no multiplayer.
 
 > **Status (2026-10-09):** Phase 3 is **in progress**. Its decision/execution/logging loop works end to
 > end for 27 implemented action types, but this is only a subset of player actions. Exercise,
-> disassembly, vehicles, repairs, full crafting, inventory organisation and hearing remain unfinished.
+> inventory transfers and vehicle entry/engine verbs are written but untested in game; disassembly, driving, repairs, full crafting and hearing capture remain unfinished.
 > The agent (`agent/`) picks from the implemented options and every decision is logged with its reward.
 > Live probes check each option against what actually happened in the game and keep their logs separate
 > from the agent's experience.

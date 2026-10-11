@@ -7,6 +7,7 @@ import argparse
 import copy
 import gzip
 import json
+import math
 import random
 import sys
 import tempfile
@@ -249,3 +250,41 @@ class AgentLoopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HearingTests(unittest.TestCase):
+    def tone(self, freq, amp, n=2000, rate=8000):
+        return [amp * math.sin(2 * math.pi * freq * i / rate) for i in range(n)]
+
+    def test_features_are_absolute_and_stereo_aware(self):
+        from agent import hearing
+        loud = hearing.analyse(self.tone(1000, 0.5), [0.0] * 2000, 8000)
+        quiet = hearing.analyse(self.tone(1000, 0.05), [0.0] * 2000, 8000)
+        self.assertLess(loud["balance"], -0.9)   # all on the left
+        self.assertAlmostEqual(loud["db_l"] - quiet["db_l"], 20.0, delta=0.5)   # not normalised
+        band = hearing.BANDS_HZ.index(1000)
+        self.assertEqual(max(range(len(loud["bands_db"])), key=loud["bands_db"].__getitem__), band)
+
+    def test_without_a_source_hearing_says_unavailable(self):
+        from agent.hearing import Hearing
+        snap = Hearing().snapshot(decision_id=7, game_age=3.5, speed=1)
+        self.assertFalse(snap["available"])
+        self.assertIn("reason", snap)
+        self.assertNotIn("windows", snap)
+
+    def test_history_marks_gaps_and_level_changes(self):
+        from agent.hearing import Hearing
+
+        class Src:
+            available = True
+            def __init__(s, w): s.w = w
+            def read(s): w, s.w = s.w, []; return w
+        tone = self.tone(500, 0.1, 800)
+        loud = self.tone(500, 0.4, 800)
+        dur = 0.1
+        h = Hearing(Src([(1.0, tone, tone, 8000), (1.1, loud, loud, 8000), (2.0, tone, tone, 8000)]))
+        snap = h.snapshot(1)
+        ws = snap["windows"]
+        self.assertGreater(ws[1]["d_db"], 10)
+        self.assertTrue(ws[2].get("gap"))
+        self.assertEqual(snap["gaps"], 1)

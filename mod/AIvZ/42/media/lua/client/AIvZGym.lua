@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.3.3"
+G.VERSION = "0.4.0"
 G.s = G.s or { id = 0, waiting = false, cur = nil, beat = nil, beatAt = 0, beatCheck = 0, lastReq = -99999 }
 local GS = G.s
 GS.gt = GS.gt or 0
@@ -148,6 +148,7 @@ function G.observe(p, dead)
 		local v = U.moodle(p, k)
 		if v > 0 then o.moodles[k:lower()] = v end
 	end
+	o.speed = try(function() return gt:getTrueMultiplier() end) or try(function() return gt:getMultiplier() end)   -- read only
 	o.body = A.wounds(p)
 	local l = squareLight(p:getCurrentSquare(), p:getPlayerNum())
 	o.light = { known = l ~= nil, here = l and r2(l) or nil }
@@ -429,6 +430,14 @@ function G.options(p)
 	end
 	-- the game's floor-sleep check reads the square (an error once, with none, mid-climb)
 	if p:getSquare() then add(list, "sleep", { bed = false }, {}) end
+	-- further families (AIvZGymActions.lua) register here; one failing must not take the others down
+	local names = {}
+	for name in pairs(G.hooks) do names[#names + 1] = name end
+	table.sort(names)
+	for _, name in ipairs(names) do
+		local ok, e = pcall(G.hooks[name], p, list, add, count)
+		if not ok then A.s.err = "option hook " .. name .. ": " .. tostring(e) end
+	end
 	return list
 end
 
@@ -543,6 +552,8 @@ local function has(p, it) return try(function() return p:getInventory():contains
 local function worn(p, it) return try(function() return p:isEquipped(it) end) == true end
 
 G.X = {}
+G.hooks = G.hooks or {}   -- name -> function(p, list, add, count) adding options
+G.queueStep, G.has, G.worn = queueStep, has, worn
 G.X.wait = { start = function() end, step = function(p, t) if tick() - t.t0 > 120 then U.done(t) end end }
 G.X.rest = {
 	start = function(p) pcall(function() p:reportEvent("EventSitOnGround") end) end,
