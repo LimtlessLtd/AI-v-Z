@@ -32,6 +32,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agent.link import DEFAULT_LUA_DIR, GameLink  # noqa: E402
+from agent.hearing import Hearing  # noqa: E402
 from agent.lives import Lives  # noqa: E402
 from agent.policies import ProbePolicy, RandomPolicy  # noqa: E402
 
@@ -75,6 +76,7 @@ class Agent:
         self.lives = Lives(self.log_dir)
         self.exp = ExperienceLog(self.log_dir / "experience")
         self.policy = ProbePolicy() if probe else RandomPolicy()
+        self.hearing = Hearing()   # no capture source yet: records 'unavailable' rather than inventing input
         self.port = args.port
         self.lock = threading.Lock()
         self.last = None            # the latest request and choice, for the dashboard
@@ -88,6 +90,8 @@ class Agent:
                "id": msg.get("id"), "reason": msg.get("reason"), "obs": msg.get("obs"), "options": msg.get("options"),
                "last": msg.get("last"), "reward": r, "parts": parts, "dead": bool(msg.get("dead")), "new_life": new,
                "resumed": self.lives.resumed}
+        obs = msg.get("obs") or {}
+        rec["hearing"] = self.hearing.snapshot(msg.get("id"), (obs.get("t") or {}).get("age"), obs.get("speed"))
         if finished:
             self.recent.appendleft(f"life {finished['life']} ({finished['who']}) {finished['ended']} after "
                                    f"{finished['hours']} game hours, {finished['kills']} kills, reward {finished['reward']}")

@@ -25,7 +25,7 @@ local function status(msg)
 end
 
 -- the mod's own files, and only those: AIvZ.lua (baseline, motor skills) and AIvZGym.lua (the agent's side)
-L.FILES = { "AIvZ.lua", "AIvZGym.lua" }
+L.FILES = { "AIvZ.lua", "AIvZGym.lua", "AIvZGymActions.lua" }
 
 function L.path(name)
 	local info = getModInfoByID("AIvZ")

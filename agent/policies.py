@@ -51,7 +51,8 @@ class ProbePolicy:
 
     name = "probe"
     TEST = ("bandage", "eat", "drink", "craft", "take", "climb", "smash", "clear_glass", "drink_tap", "wear",
-            "take_off", "equip", "unequip", "drop", "door", "window", "curtain", "search", "go_room", "enter")
+            "take_off", "equip", "unequip", "drop", "door", "window", "curtain", "search", "go_room", "enter",
+            "stow", "exercise", "enter_vehicle", "exit_vehicle", "engine_on", "engine_off")
     LATE = ("walk", "run", "attack", "shove", "rest", "wait", "sleep")   # now and then: they cost lives or time
     EXPLORE = ("search", "enter", "go_room", "walk")
 

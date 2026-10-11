@@ -36,6 +36,22 @@ is skipped by the general inventory option loop. Even implemented families omit 
 `G.recipes` relies on item-linked recipes plus three named fallback recipes; it is not the complete
 Build 42 crafting system.
 
+## Progress 2026-10-11 (gym 0.4.0; code written, **none of it run in the game**)
+
+* `AIvZGymActions.lua` (new, loaded after the gym through `G.hooks`) adds verbs `exercise` (every entry of
+  `FitnessExercises.exercisesType` whose equipment is carried; outcome = endurance actually spent), `stow`
+  (any item to any carried bag, the main inventory or a searched container within 2.5 tiles; a window of 12
+  moves that rotates each decision so every item/destination pair stays reachable), and `enter_vehicle`,
+  `exit_vehicle`, `engine_on`, `engine_off`. Each guards its API calls and fails with "unsupported: ..." if
+  Build 42.21 differs from the vanilla signatures they were written from (`ISFitnessAction:new`,
+  `ISVehicleMenu.onEnter/onExit/onStartEngine/onShutOff`). Driving (steering/throttle), seats other than
+  entering, repairs, disassembly and the fitness screen's reps/duration choices are **not** covered.
+* `agent/hearing.py` computes stereo level, level change, balance and band energies per window, keeps a
+  rolling history with capture-gap marking, and adds a `hearing` record to every decision. There is **no
+  capture source yet**, so every record says `available: false` with the reason. Windows process-loopback
+  capture needs a library that isn't installed; ask before installing.
+* `obs.speed` records the game's speed multiplier (read only).
+
 ## Action interface to build
 
 1. Enumerate the game's available inventory/world context-menu trees and their normal prerequisites.
