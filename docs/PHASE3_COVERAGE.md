@@ -181,3 +181,13 @@ audio and continuous controls, once this environment work is validated.
   A unit test checks that no executor reads option fields outside `o.data` / `o.info` / `o.verb`.
 * Vehicle scan: a nil (unloaded) square is now checked before it is indexed. Twice in the 2026-10-11
   console log (BACKLOG item 8, C2).
+
+## Progress 2026-10-11 (scheduled run: menu prerequisites, code only, not run in the game)
+
+* Gym option fixes from GAP_LIST items 1 and 7: window options no longer list `locked` (the game shows a
+  window's lock only when you try it; the outcome text still says "it's locked" after a failed try);
+  `smash` is offered only for a closed, unbroken window; `clear_glass` only with an item in the primary hand;
+  `drop` skips favourited items. A static test guards each. **Live test needed:** that the Smash and Remove
+  Glass entries match the real window menu, and `isFavorite` exists on every item class.
+* Still open: everything else in GAP_LIST (hearing capture source, driving, repairs, disassembly, full
+  crafting, medical, floor items, the generic menu adapter, `enter` macro leak). No Phase 4 work.
