@@ -27,7 +27,7 @@ yet. No cloud services, no language model, no multiplayer.
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
 | **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | In progress: 27 implemented action types exercised; full action and hearing coverage missing. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
-| **4. Learning** | A small network scores every option; rewards come from the body (hunger, thirst, pain, panic, bleeding), progress (places, items, kills, time alive) and death. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 15 min (see [Run (self-taught agent)](#run-self-taught-agent)). Comparison with the rules baseline still to do. |
+| **4. Learning** | A small network scores every option; rewards come from the body (hunger, thirst, pain, panic, bleeding), progress (places, items, kills, time alive) and death. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 15 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
 
@@ -162,6 +162,7 @@ What it writes, all under `logs/`:
 |---|---|
 | `experience/YYYYMMDD-HH.jsonl.gz` | Every decision: what it saw, the options, its choice and the reward since the last one. This is what Phase 4 learns from. |
 | `lives.jsonl` | One line per life: game hours survived, kills, total reward and its parts, cause of the end |
+| `lives-rules.jsonl` | The same per life played by the rules baseline (the bridge writes it, `policy: "rules"`; no reward, item or building counts, they are null) |
 | `agent-state.json` | The life count and current life, saved after each decision so the same character carries on across agent restarts |
 | `model/qnet.pt` | The current network; delete it (and `model/cache/`) to start learning from scratch |
 | `model/history.jsonl`, `model/train.log` | One line per training round (loss, mean Q, what it rates highest); the trainer's output |
@@ -267,8 +268,9 @@ docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; A
 - **Traits are learned slowly.** Each life's observations list the character's traits (gym 0.4.7, as the
   character screen shows them), so the network can link them to how the life goes; but a trait's effect
   is spread over a whole life, and the discount makes that link weak.
-- **No comparison with the rules baseline yet.** The baseline's lives aren't logged in the agent's format,
-  so the Learning page compares the network with the random policy only.
+- **The rules baseline's lives have no reward.** The bridge logs them (`lives-rules.jsonl`), so the Learning
+  page compares hours and kills for rules, random and network play; reward, item kinds and buildings show "–"
+  for rules (its percept isn't the gym observation). Not yet run against the real bridge.
 - **Old experience is lopsided.** Before mod 0.5.1, every decision offered up to 24 exercise options (half
   of all options logged). Two hour files (2026-10-11 11h and 12h) were damaged by two agents running at once;
   training reads what's left of them.
