@@ -27,7 +27,7 @@ yet. No cloud services, no language model, no multiplayer.
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
 | **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | In progress: 27 implemented action types exercised; full action and hearing coverage missing. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
-| **4. Learning** | A small network scores every option; rewards come from the body (hunger, thirst, pain, panic, bleeding), progress (places, items, kills, time alive) and death. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 15 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
+| **4. Learning** | A small network scores every option; the reward is a big, steady gain for time alive, costs for lost health and new wounds, small bonuses for progress (places, items, kills), and a death cost that outweighs everything else. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 15 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
 
@@ -104,7 +104,7 @@ Needs Python 3.10+ and Project Zomboid Build 42.
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-Pulls the latest `main` (skipped if you have local changes), links the mod if needed, launches Project
+Pulls the latest of the branch you have checked out (skipped if you have local changes), links the mod if needed, launches Project
 Zomboid through Steam and runs the self-taught agent (`-NoPull`, `-NoGame`, `-Policy` available). The agent
 polls for the game, so start order doesn't matter: once a singleplayer game with AI-v-Z enabled is loaded,
 it takes over. Still manual: enable the mod once per save, and load/start the save. The agent plays with the
@@ -145,9 +145,16 @@ input, and what's kept out). It mostly picks the top-rated options (`--temperatu
 pick in ten at random (`--explore 0.1`), so it keeps trying things it rates low. Every 15 minutes
 (`--train-every`) a separate low-priority process (`python -m agent.learn`, 4 CPU threads, about a minute)
 retrains it from all the experience so far, carrying on from the last network, and the agent switches to
-the new one at its next decision. Until the first network exists it plays at random. The reward is in
-`agent/reward.py`. Character creation is learned the same way: picking traits leads into the life they
-make.
+the new one at its next decision. Until the first network exists it plays at random. Character creation is
+learned the same way: picking traits leads into the life they make.
+
+**The reward** (`agent/reward.py`, version 2, the owner's rule of 2026-10-12): +1 for every game minute alive;
+-2 for every health point lost; for each new wound, -10 (scratch, glass) to -50 (bite, fracture); +10 a kill;
+small first-time bonuses for items, buildings and containers; -1000 for dying, more than a 16-hour life earns.
+Feeling bad (hunger, pain, panic and the other moodles) costs nothing in itself, only through the damage it
+leads to. Training re-scores older experience under the current reward. It discounts the future by game time
+(a reward two game hours away counts half), so a long action such as sleeping doesn't look better just
+because it lasts longer.
 
 The dashboard shows each option's Q and the chance it had of being picked. The **Learning** page,
 <http://127.0.0.1:8799/learning>, compares lives by who played them (random policy vs network), charts game
@@ -267,10 +274,13 @@ docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; A
 - **Temperature** is no longer in the observation unless a digital watch or clock is worn or held (`clock.temp`, the air temperature at the character; gym 0.4.18; not run in game, reload the mod).
 - **Unseen rooms and beds** are filtered from the options since gym 0.4.15 (`go_room` by `RoomDef:isExplored()`, beds by `isSeen`); not run in game, reload the mod.
 - **Item status is new.** Gym 0.4.11 adds weapon, ammo and clothing status to item records (not run in game; reload the mod to get it). The network sees it only as hashed tokens, and has never trained on it.
-- **The network isn't learning to survive yet.** After 32 training rounds and about 250 network lives, it
-  survives no longer than random play (median about 1.4 game hours). The likely cause is the reward:
-  discomfort costs more per minute than being alive earns, so an early death scores better than a long
-  uncomfortable life ([backlog](docs/BACKLOG.md) N1, an owner decision).
+- **The reward changed on 2026-10-12 (version 2), and the network starts over.** Under version 1 it survived
+  no longer than random play (median about 1.4 game hours over 32 rounds and about 250 network lives):
+  discomfort cost more per minute than being alive earned, so an early death scored better
+  ([backlog](docs/BACKLOG.md) N1). The first training round after the update sets the old network aside and
+  trains a new one from all the experience, re-scored. Lives that ended before the update keep their
+  version 1 reward totals in `lives.jsonl`; the Learning page shows "–" for their reward and still compares
+  their hours and kills.
 - **Run the agent in its own window** (`scripts/start.ps1`). Started as a background task of a Claude
   session, it is killed when that session shuts down: on 2026-10-12 this stopped it at 02:13 (backlog N3).
 - **Traits are learned slowly.** Each life's observations list the character's traits (gym 0.4.7, as the

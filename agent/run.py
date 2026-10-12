@@ -12,9 +12,10 @@ the dashboard port). Stopping it hands the character back to the baseline within
 with the game's own buttons (or F3-F6); the mod keeps your pick while the agent plays.
 
 Experience goes to logs/experience/YYYYMMDD-HH.jsonl.gz, one line per decision:
-    {ts, life, id, reason, obs, options, last, choice, probs, policy, reward, parts, dead, new_life, resumed}
+    {ts, life, id, reason, obs, options, last, choice, probs, policy, reward, parts, reward_v, dead, new_life, resumed}
 where reward/parts are for what happened since the previous decision of the same life ("resumed": the agent
-was restarted in between, so that stretch earns nothing). These records support later learning,
+was restarted in between, so that stretch earns nothing) and reward_v is the reward version (agent/reward.py;
+records without it are version 1, which training re-scores). These records support later learning,
 and the reward can be recomputed later from the raw observations. Action and perception coverage are
 still incomplete (docs/PHASE3_COVERAGE.md); these records have no hearing input. Restarting carries on
 with the same character (logs/agent-state.json).
@@ -41,6 +42,7 @@ if str(ROOT) not in sys.path:
 from agent.link import DEFAULT_LUA_DIR, GameLink  # noqa: E402
 from agent.hearing import Hearing  # noqa: E402
 from agent.lives import Lives  # noqa: E402
+from agent import reward  # noqa: E402
 from agent.policies import NetPolicy, ProbePolicy, RandomPolicy  # noqa: E402
 
 PAGE = (Path(__file__).resolve().parent / "agent.html").read_bytes()
@@ -159,8 +161,8 @@ class Agent:
         life, r, parts, new, finished = self.lives.observe(msg)
         rec = {"ts": datetime.now().isoformat(timespec="seconds"), "life": life.number if life else None,
                "id": msg.get("id"), "reason": msg.get("reason"), "obs": msg.get("obs"), "options": msg.get("options"),
-               "last": msg.get("last"), "reward": r, "parts": parts, "dead": bool(msg.get("dead")), "new_life": new,
-               "resumed": self.lives.resumed}
+               "last": msg.get("last"), "reward": r, "parts": parts, "reward_v": reward.VERSION,
+               "dead": bool(msg.get("dead")), "new_life": new, "resumed": self.lives.resumed}
         obs = msg.get("obs") or {}
         rec["hearing"] = self.hearing.snapshot(msg.get("id"), (obs.get("t") or {}).get("age"), obs.get("speed"))
         if finished:
@@ -244,8 +246,10 @@ class Agent:
             hist = [json.loads(x) for x in lines[-200:] if x.strip()]
         except (OSError, ValueError):
             pass
+        # a reward total is shown only in the current reward's points; older lives keep their hours and kills
         lives = [{"life": x.get("life"), "policy": x.get("policy") or "random", "hours": x.get("hours", 0),
-                  "reward": x.get("reward", 0), "kills": x.get("kills", 0), "items": x.get("items_seen", 0),
+                  "reward": x.get("reward", 0) if x.get("reward_v", 1) == reward.VERSION else None,
+                  "kills": x.get("kills", 0), "items": x.get("items_seen", 0),
                   "buildings": x.get("buildings", 0), "decisions": x.get("decisions", 0)}
                  for x in self.lives.history if x.get("ended") == "died"]
         lives += self._rules_lives()

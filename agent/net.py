@@ -16,6 +16,8 @@ from torch import nn
 from . import features as F
 
 HIDDEN, EMB, OUT = 128, 32, 64
+SCALE = 100.0   # the network's output is Q in hundreds of points (the reward reaches -1000 at a death), a range Adam's
+                # small steps reach; q_values and the training history give points
 
 
 class QNet(nn.Module):
@@ -88,7 +90,7 @@ def q_values(net, msg):
         hs = net.states(*s.rows([0]))
         ha = net.options(*a.rows(np.arange(len(options))))
         q = net.score(hs, torch.zeros(len(options), dtype=torch.long), ha)
-    return [float(x) for x in q]
+    return [SCALE * float(x) for x in q]
 
 
 def save(net, path, **meta):

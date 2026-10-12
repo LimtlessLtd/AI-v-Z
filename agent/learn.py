@@ -10,6 +10,11 @@ rarely or never tried in that situation, their arbitrary scores fed back, and th
 (round 2 of 2026-10-11 rated the average option +3 where the logged return averages -19). Each round carries on from the last saved network. Encoded hours are
 cached in logs/model/cache (the hour being written is always re-read). Rounds are logged to
 logs/model/history.jsonl, which the dashboard's Learning page shows.
+
+The reward is the current one (agent/reward.py) for every decision: older records are re-scored as they are read,
+and a network trained under another reward version is set aside for a fresh one. The future is discounted by game
+time, not by decision: being alive pays by the game minute, so with a per-decision discount an action that takes
+an hour (sleeping) would collect an hour's reward in one undiscounted step and look better just for being long.
 """
 
 import argparse
@@ -30,8 +35,11 @@ if str(ROOT) not in sys.path:
 
 from agent import features as F  # noqa: E402
 from agent import net as N  # noqa: E402
+from agent import reward as R  # noqa: E402
 
-GAMMA = 0.97          # per decision: a reward 23 decisions away counts half
+HALF_LIFE_MIN = 120   # game minutes: a reward 2 game hours away counts half
+GAMMA = 0.5 ** (1 / HALF_LIFE_MIN)   # per game minute
+MIN_STEP_MIN = 0.1    # a decision that takes no game time (character creation, a dropped item) still discounts a little
 BATCH = 256
 STEPS = 2000          # updates per round (about a minute on 4 threads); each round starts from the last network
 TARGET_EVERY = 200    # steps between copies of the network used for the bootstrapped targets
@@ -40,8 +48,9 @@ LR = 5e-4
 THREADS = 4           # CPU threads for training, leaving the rest to the game
 
 
-def _meta(r):
-    return {"choice": r.get("choice"), "reward": r.get("reward") or 0.0, "dead": bool(r.get("dead")),
+def _meta(r, prev_obs=None):
+    points, minutes = R.rescore(r, prev_obs)
+    return {"choice": r.get("choice"), "reward": points, "minutes": minutes, "dead": bool(r.get("dead")),
             "life": r.get("life"), "reason": r.get("reason"), "new_life": bool(r.get("new_life")),
             "resumed": bool(r.get("resumed")), "options": len(r.get("options") or []),
             "verbs": [o.get("verb") for o in r.get("options") or []]}
@@ -50,7 +59,7 @@ def _meta(r):
 def encode_file(path, cache_dir, live):
     """Encoded decisions of one experience file, from the cache when the file hasn't changed."""
     st = path.stat()
-    key = f"{st.st_size}-{st.st_mtime_ns}-v{F.VERSION}"
+    key = f"{st.st_size}-{st.st_mtime_ns}-v{F.VERSION}-r{R.VERSION}"
     cp = cache_dir / f"{path.name}.npz"
     if not live and cp.exists():
         try:
@@ -61,7 +70,12 @@ def encode_file(path, cache_dir, live):
         except (OSError, ValueError, KeyError):
             pass
     recs = F.read_records(path)
-    meta = [_meta(r) for r in recs]
+    meta, prev = [], {}   # prev: each life's latest observation, for new wounds in re-scored records
+    for r in recs:
+        life = r.get("life")
+        meta.append(_meta(r, prev.get(life) if life is not None else None))
+        if life is not None and not r.get("dead") and r.get("reason") != "creation" and r.get("obs"):
+            prev[life] = r["obs"]
     S = N.Pack.of([F.encode_state(r) for r in recs], F.STATE_DIM)
     O = N.Pack.of([F.encode_option(o) for r in recs for o in (r.get("options") or [])], F.OPTION_DIM)
     if not live:
@@ -100,7 +114,13 @@ class Data:
         self.start = np.zeros(len(metas) + 1, dtype=np.int64)
         self.start[1:] = np.cumsum(n_opts)
         self.n_opts = n_opts
-        self.reward = np.array([m["reward"] for m in metas], dtype=np.float32)
+        # what each decision led to, in the network's units (N.SCALE points). The minutes alive are discounted
+        # within the stretch, as if paid minute by minute; the rest counts at its end.
+        minutes = np.array([m.get("minutes", 0.0) for m in metas], dtype=np.float64)
+        points = np.array([m["reward"] for m in metas], dtype=np.float64)
+        alive = R.ALIVE_PER_MIN * (1 - GAMMA ** minutes) / (1 - GAMMA)
+        self.reward = ((points - R.ALIVE_PER_MIN * minutes + alive) / N.SCALE).astype(np.float32)
+        self.disc = (GAMMA ** np.maximum(minutes, MIN_STEP_MIN)).astype(np.float32)   # discount over each stretch
         self.terminal = np.array([m["dead"] or m["options"] == 0 for m in metas])
         self.choice = np.array([m["choice"] if m["choice"] is not None else -1 for m in metas], dtype=np.int64)
         tr = F.transitions(metas)
@@ -147,7 +167,7 @@ def step(net, target, opt, data, rng):
             sel = q_on >= best[seg] - 1e-6   # Double DQN: the online network picks, the target network values
             val = torch.full((len(Jl),), -1e9).scatter_reduce(0, seg[sel], q_tg[sel], "amax")
             boot[torch.from_numpy(live)] = val
-        y = torch.from_numpy(data.reward[J]) + GAMMA * boot
+        y = torch.from_numpy(data.reward[J]) + torch.from_numpy(data.disc[J]) * boot
     td = torch.nn.functional.smooth_l1_loss(q, y)
     # only pushes down: the logged choice is held up by its own target, so lifting it as well (standard CQL)
     # added a bias that compounded through the discount
@@ -177,7 +197,7 @@ def verb_values(net, data, last=3000):
             for v, x in zip(verbs, q):
                 sums[v] += float(x)
                 counts[v] += 1
-    return {v: round(sums[v] / counts[v], 2) for v in sorted(sums, key=lambda v: -sums[v] / counts[v])}
+    return {v: round(N.SCALE * sums[v] / counts[v], 2) for v in sorted(sums, key=lambda v: -sums[v] / counts[v])}
 
 
 def train(log_dir, steps=None, fresh=False, quiet=False):
@@ -193,6 +213,8 @@ def train(log_dir, steps=None, fresh=False, quiet=False):
         return {"skipped": msg}
     old, meta = N.load(model_path)
     rnd = (meta or {}).get("round", 0) + 1
+    if (meta or {}).get("reward_v", 1) != R.VERSION:
+        old = None   # scores of another reward: start over rather than unlearn them
     net = N.QNet() if fresh or old is None else old
     net.train()
     target = copy.deepcopy(net)
@@ -211,7 +233,8 @@ def train(log_dir, steps=None, fresh=False, quiet=False):
     rec = {"round": rnd, "trained_at": datetime.now().isoformat(timespec="seconds"), "steps": n, "fresh": bool(fresh or old is None),
            "decisions": len(data.meta), "transitions": int(len(data.ti)), "lives": len(lives),
            "loss_first": round(float(np.mean(losses[:50])), 4), "loss": round(float(np.mean(losses[-100:])), 4),
-           "q_mean": round(float(np.mean(qs[-100:])), 3), "seconds": round(time.time() - t0, 1),
+           "q_mean": round(N.SCALE * float(np.mean(qs[-100:])), 3), "reward_v": R.VERSION,
+           "seconds": round(time.time() - t0, 1),
            "verbs": verb_values(net, data)}
     N.save(net, model_path, **{k: v for k, v in rec.items() if k != "verbs"})
     with (log_dir / "model" / "history.jsonl").open("a", encoding="utf-8") as f:
