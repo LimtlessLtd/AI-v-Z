@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.5 (gym 0.4.34)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.6 (gym 0.4.35)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -342,7 +342,11 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
-- **Gym 0.4.33 is new.** It starts each life at the game's own start points of a random town again (see Lives
+- **Gym 0.4.35 (mod 0.5.6) is new** (hot-reloaded on 2026-10-12 evening). Picking up half or all of a pile on the
+  ground, looking into a bag lying on the ground and taking from it, and dragging a corpse and letting go of it
+  (backlog G8). While dragging, the game refuses every other timed action except walks. Gym 0.4.34 leaves the raw
+  stats out of `obs.json` (audit L1; the network never read them).
+- **Gym 0.4.33** starts each life at the game's own start points of a random town again (see Lives
   above), and adds climbing over fences, sheets and curtains on doors, and taking sheets down. The fence work ran
   in the game for 4 minutes on 2026-10-12 before it was merged: `climb_fence` was chosen 45 times, and each time
   the next decision replaced it before the climb, as happens to most attacks (backlog, "Policy spread").

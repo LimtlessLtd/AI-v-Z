@@ -9,8 +9,8 @@
 -- The implemented options approximate a subset of the right-click menus: wait, rest, walk or run in a
 -- direction, go into a building or another room, attack or shove a zombie, open or close a door, window or
 -- curtain, lock or unlock a door with its key, hang a sheet on a window, climb through a window, smash one,
--- clear its glass, search a container or a corpse, take an item out of one it has searched, pick an item up
--- off the ground, disassemble furniture, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
+-- clear its glass, search a container, a corpse or a bag on the ground, take an item out of one it has searched,
+-- pick an item up off the ground (one, half or all of a pile), drag a corpse and let go of it, disassemble furniture, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
 -- from a tap, bandage a wound, sleep, sneak or stand up. Nothing in here judges what's good: the agent learns
 -- that from what happens. The doing (pathfinding, swings, the game's timed actions) comes from AIvZ.lua.
 -- After a death, it starts a new character in a random town of the game's spawn screen, at that town's own
@@ -20,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.34"
+G.VERSION = "0.4.35"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -342,6 +342,7 @@ function G.observe(p, dead)
 	o.asleep = try(function() return p:isAsleep() end) == true
 	-- the character's own stance, as the player sees it (gym 0.4.25)
 	o.sneaking, o.running = p:isSneaking() == true, (p:isRunning() or p:isSprinting()) == true
+	o.dragging = p:isDraggingCorpse() == true   -- a corpse in tow (gym 0.4.35)
 	o.weather = { rain = r2(try(function() return cm:getRainIntensity() end) or 0) }   -- no temperature: only a digital clock shows it (o.clock.temp)
 	o.weight, o.maxWeight = r1(p:getInventory():getCapacityWeight()), r1(p:getMaxWeight())
 	local held = p:getPrimaryHandItem()
@@ -452,7 +453,8 @@ function G.scanAround(p)
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
 	local here = p:getCurrentSquare()
 	local hb = here and here:getBuilding()
-	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {}, fences = {} }
+	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {}, fences = {},
+		corpses = {} }
 	local known = seen(p)
 	local vis = {}
 	local function sees(dx, dy)
@@ -493,15 +495,29 @@ function G.scanAround(p)
 				for i = 0, wobs:size() - 1 do
 					local w = wobs:get(i)
 					local it = w:getItem()
-					if it then out.floor[#out.floor + 1] = { w = w, it = it, sq = sq, d = d } end
+					if it then
+						out.floor[#out.floor + 1] = { w = w, it = it, sq = sq, d = d }
+						-- a bag lying there is a container of its own, as the loot window lists it (refreshBackpacks:
+						-- getCategory() "Container", item:getInventory()) (gym 0.4.35)
+						if it:getCategory() == "Container" and instanceof(it, "InventoryContainer") then
+							local key = "bag:" .. it:getID()
+							out.containers[#out.containers + 1] = { c = it:getInventory(), sq = sq, d = d, key = key,
+								known = known[key] == true, indoors = sq:getBuilding() ~= nil, type = "bag",
+								name = it:getDisplayName(), bag = true }
+						end
+					end
 				end
 				local sobs = sq:getStaticMovingObjects()
 				for i = 0, sobs:size() - 1 do
-					local c = sobs:get(i):getContainer()
+					local so = sobs:get(i)
+					local c = so:getContainer()
 					if c then
 						local key = "body:" .. (px + dx) .. "," .. (py + dy) .. "," .. pz .. "," .. i
 						out.containers[#out.containers + 1] = { c = c, sq = sq, d = d, key = key, known = known[key] == true,
 							indoors = sq:getBuilding() ~= nil, type = "corpse" }
+					end
+					if instanceof(so, "IsoDeadBody") and not so:isAnimal() then
+						out.corpses[#out.corpses + 1] = { b = so, sq = sq, d = d }
 					end
 				end
 				for _, o in ipairs(U.objList(sq)) do
@@ -537,7 +553,7 @@ function G.scanAround(p)
 	end
 	local byD = function(a, b) return a.d < b.d end
 	table.sort(out.doors, byD); table.sort(out.windows, byD); table.sort(out.curtains, byD); table.sort(out.containers, byD)
-	table.sort(out.floor, byD); table.sort(out.scrap, byD); table.sort(out.fences, byD)
+	table.sort(out.floor, byD); table.sort(out.scrap, byD); table.sort(out.fences, byD); table.sort(out.corpses, byD)
 	out.building = hb
 	GS.around = out
 	return out
@@ -745,7 +761,7 @@ function G.options(p)
 	for _, c in ipairs(ar.containers) do
 		local here = c.sq:getBuilding() == ar.building
 		if not c.known and count(list, "search") < 6 then
-			add(list, "search", { d = r1(c.d), type = c.type, indoors = c.indoors, here = here }, c)
+			add(list, "search", { d = r1(c.d), type = c.type, name = c.name, indoors = c.indoors, here = here }, c)
 		elseif c.known and c.d < 2.5 and nt < 12 then
 			U.eachItem(c.c, function(it)
 				if nt < 12 and not it:isHidden() then
@@ -769,12 +785,42 @@ function G.options(p)
 				dx = r1(e.sq:getX() + 0.5 - p:getX()), dy = r1(e.sq:getY() + 0.5 - p:getY()), chance = chance }, e)
 		end
 	end
-	-- items on the ground in sight: pick one up (the world menu's Grab, ISWorldObjectContextMenu.onGrabWItem)
-	for i = 1, math.min(6, #ar.floor) do
-		local f = ar.floor[i]
+	-- items on the ground in sight: pick one up (the world menu's Grab, ISWorldObjectContextMenu.onGrabWItem). The menu
+	-- makes the items of one name on a square one entry, "Name (n)", with One, Half (more than 2) and All
+	-- (J:ISWorldObjectContextMenuLogic.handleGrabWorldItem; onGrabHalfWItems takes ceil(n / 2)) (piles: gym 0.4.35)
+	local piles, order = {}, {}
+	for _, f in ipairs(ar.floor) do
+		local k = f.sq:getX() .. "," .. f.sq:getY() .. "," .. tostring(f.it:getName())
+		if not piles[k] then piles[k] = {}; order[#order + 1] = piles[k] end
+		table.insert(piles[k], f)
+	end
+	for i = 1, math.min(6, #order) do
+		local pile = order[i]
+		local f, n = pile[1], #pile
 		local info = G.itemInfo(p, f.it)
 		info.d, info.dx, info.dy = r1(f.d), r1(f.sq:getX() + 0.5 - p:getX()), r1(f.sq:getY() + 0.5 - p:getY())
 		add(list, "pick_up", info, f)
+		if n > 2 then
+			info.how, info.n = "half", math.ceil(n / 2)
+			add(list, "pick_up", info, { w = f.w, it = f.it, sq = f.sq, items = { unpack(pile, 1, info.n) } })
+		end
+		if n > 1 then
+			info.how, info.n = "all", n
+			add(list, "pick_up", info, { w = f.w, it = f.it, sq = f.sq, items = pile })
+		end
+	end
+	-- corpses: drag one, or let go of the one being dragged (the world menu's Grab > Corpse and Drop Corpse,
+	-- J:ISWorldObjectContextMenuLogic.handleGrabWorldItem, ISWorldObjectContextMenu.handleGrabCorpseSubmenu: not an
+	-- animal, not from a vehicle, not while carrying a corpse, not on a burning square) (gym 0.4.35)
+	if p:isDraggingCorpse() then
+		add(list, "drop_corpse", {})
+	elseif not p:getVehicle() and inv:getItemCount("Base.CorpseMale") == 0 then
+		for i = 1, math.min(2, #ar.corpses) do
+			local e = ar.corpses[i]
+			if not e.sq:haveFire() then
+				add(list, "drag_corpse", { d = r1(e.d), dx = r1(e.b:getX() - p:getX()), dy = r1(e.b:getY() - p:getY()) }, e)
+			end
+		end
 	end
 	-- the inventory
 	local held = p:getPrimaryHandItem()
@@ -1226,8 +1272,9 @@ G.X.search = {
 		if qlen(p) > 0 and tick() - t.t0 < 900 then return end
 		if dist(p, o.data.sq:getX() + 0.5, o.data.sq:getY() + 0.5) > 2.5 then return U.fail(t, "couldn't reach it") end
 		-- looking in fills a container the first time, as the loot window does (ISInventoryPage:checkExplored,
-		-- singleplayer): a corpse's pockets, or a cupboard the loot window hasn't listed yet
-		if not o.data.c:isExplored() then
+		-- singleplayer): a corpse's pockets, or a cupboard the loot window hasn't listed yet. Not a bag on the
+		-- ground: the loot window lists those without checkExplored
+		if not o.data.bag and not o.data.c:isExplored() then
 			ItemPicker.fillContainer(o.data.c, p)
 			o.data.c:setExplored(true)
 		end
@@ -1282,6 +1329,7 @@ G.X.disassemble = {
 }
 -- ISWorldObjectContextMenu.onGrabWItem, with the mod's walk (luautils.walkAdj uses ISWalkToTimedAction, which
 -- fails at 20x and 40x): onto the item's square or next to it, then ISGrabItemAction with the game's grab time
+-- Half or all of a pile (gym 0.4.35): an ISGrabItemAction for each item, as onGrabHalfWItems and onGrabAllWItems do.
 G.X.pick_up = {
 	start = function(p, t, o)
 		local w, sq = o.data.w, o.data.sq
@@ -1292,17 +1340,45 @@ G.X.pick_up = {
 			if not to then return U.fail(t, "can't reach it") end
 			U.walkTo(p, to, t)
 		end
-		Q(ISGrabItemAction:new(p, w, ISWorldObjectContextMenu.grabItemTime(p, w)))
+		for _, f in ipairs(o.data.items or { o.data }) do
+			if f.w:getSquare() then Q(ISGrabItemAction:new(p, f.w, ISWorldObjectContextMenu.grabItemTime(p, f.w))) end
+		end
 	end,
 	step = function(p, t, o)
 		if t.pathFailed then return U.fail(t, "no way there") end
-		if qlen(p) > 0 and tick() - t.t0 < 900 then return end
-		if has(p, o.data.it) then
-			A.event("picked up " .. o.data.it:getDisplayName())
-			U.done(t)
-		else
-			U.fail(t, "didn't get it")
-		end
+		local items = o.data.items or { o.data }
+		if qlen(p) > 0 and tick() - t.t0 < 900 + 300 * (#items - 1) then return end
+		local got = 0
+		for _, f in ipairs(items) do if has(p, f.it) then got = got + 1 end end
+		if got == 0 then return U.fail(t, "didn't get it") end
+		A.event("picked up " .. (got > 1 and got .. " x " or "") .. o.data.it:getDisplayName())
+		U.done(t, got < #items and ("got " .. got .. " of " .. #items) or nil)
+	end,
+}
+-- Grab > Corpse, as ISWorldObjectContextMenu.onGrabCorpseItem queues it: the game's walk to the corpse
+-- (ISPathFindAction:pathToGrabCorpse), the hands emptied, then ISGrabCorpseAction; done once dragging it
+G.X.drag_corpse = {
+	start = function(p, t, o)
+		local b = o.data.b
+		if b:getStaticMovingObjectIndex() < 0 then return U.fail(t, "it's gone") end
+		Q(ISPathFindAction:pathToGrabCorpse(p, b))
+		local h1, h2 = p:getPrimaryHandItem(), p:getSecondaryHandItem()
+		if h1 then Q(ISUnequipAction:new(p, h1, 50)) end
+		if h2 and h2 ~= h1 then Q(ISUnequipAction:new(p, h2, 50)) end
+		Q(ISGrabCorpseAction:new(p, b))
+	end,
+	step = function(p, t, o)
+		if p:isDraggingCorpse() then return U.done(t) end
+		if qlen(p) > 0 and tick() - t.t0 < 1800 then return end
+		U.fail(t, qlen(p) > 0 and "took too long" or "didn't get hold of it")
+	end,
+}
+-- Drop Corpse: what the menu entry does (handleGrabWorldItem_onDropCorpse, setDoContinueGrapple(false))
+G.X.drop_corpse = {
+	start = function(p, t, o) p:setDoContinueGrapple(false) end,
+	step = function(p, t, o)
+		if not p:isDraggingCorpse() then return U.done(t) end
+		if tick() - t.t0 > 300 then U.fail(t, "still dragging it") end
 	end,
 }
 G.X.drop = {

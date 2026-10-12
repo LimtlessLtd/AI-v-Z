@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.5.5"   -- 0.5.5: steps off a wall line when no path starts there (gym 0.4.31); 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
+A.VERSION = "0.5.6"   -- 0.5.6: walks while dragging a corpse, to a bag on the ground (gym 0.4.35); 0.5.5: steps off a wall line when no path starts there (gym 0.4.31); 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -923,9 +923,17 @@ local function notePathFail(p)
 	else S.pathFail = { x = x, y = y, n = 1, tries = 0 } end
 end
 
+-- allowedWhileDraggingCorpses: the queue refuses other actions while a corpse is dragged, and the game's own walks
+-- set it (ISWalkToTimedAction:new, luautils.walkToContainer) (mod 0.5.6)
+local function pathAct(p, x, y, z)
+	local act = ISPathFindAction:pathToLocationF(p, x, y, z)
+	act.allowedWhileDraggingCorpses = true
+	return act
+end
+
 local function pathTo(p, t, x, y, z)
 	t.pathFailed = false
-	local act = ISPathFindAction:pathToLocationF(p, x + 0.5, y + 0.5, z)
+	local act = pathAct(p, x + 0.5, y + 0.5, z)
 	pcall(function() act:setOnFail(function() t.pathFailed = true; notePathFail(p) end) end)
 	Q(act)
 end
@@ -938,12 +946,14 @@ end
 local function walkTo(p, sq, t)
 	if sq == p:getCurrentSquare() then return true end
 	if t then pathTo(p, t, sq:getX(), sq:getY(), sq:getZ())
-	else Q(ISPathFindAction:pathToLocationF(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())) end
+	else Q(pathAct(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())) end
 	return true
 end
 
 local function walkToContainer(p, c, t)
-	local obj = c:getParent()
+	-- a bag lying on the ground is walked to like an object, at the square it lies on (mod 0.5.6)
+	local bag = c:getContainingItem()
+	local obj = bag and bag:getWorldItem() or c:getParent()
 	if c:getType() == "floor" or not obj or not obj:getSquare() or c:isInCharacterInventory(p) then return true end
 	-- a corpse is walked to like any object, next to its square (luautils.walkToContainer uses ISWalkToTimedAction,
 	-- which fails at 20x and 40x; until 0.5.3 corpses went that way)
