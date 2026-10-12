@@ -17,10 +17,13 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from agent import reward  # noqa: E402
-from agent import site  # noqa: E402
 from agent.lives import learning_data  # noqa: E402
 from test_agent import OBS, later  # noqa: E402
 from test_learning import write_experience  # noqa: E402
+
+if importlib.util.find_spec("numpy") is None:
+    raise unittest.SkipTest("numpy isn't installed here (agent/site.py needs it)")
+from agent import site  # noqa: E402
 
 needs_torch = unittest.skipUnless(importlib.util.find_spec("torch"), "PyTorch isn't installed here")
 
