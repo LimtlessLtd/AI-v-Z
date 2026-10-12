@@ -13,6 +13,7 @@ from the experience the agent learns from.
 import collections
 import math
 import random
+import statistics
 
 
 class RandomPolicy:
@@ -37,8 +38,11 @@ class RandomPolicy:
 class NetPolicy:
     """Picks by the network's Q scores: softmax(Q / (temperature x the spread of this decision's scores)), mixed
     with the random policy's choices a share `explore` of the time so it keeps trying what it rates low. Scaling
-    by the spread keeps it as decisive early on, when scores sit close together, as later. Picks up a newly trained network
-    (logs/model/qnet.pt) at the next decision. Until there is one, it plays like the random policy."""
+    by the spread keeps it as decisive early on, when scores sit close together, as later. The spread is the median
+    distance from the median score (x 1.4826, the standard deviation for normally spread scores), the owner's
+    decision of 2026-10-12: with the standard deviation, one option rated far below the rest (-6,729 against -500 to
+    -1,000) stretched it so far that the rest looked alike, and the choices were close to random. Picks up a newly
+    trained network (logs/model/qnet.pt) at the next decision. Until there is one, it plays like the random policy."""
 
     name = "net"
 
@@ -74,8 +78,7 @@ class NetPolicy:
         from . import net as N
         q = N.q_values(self.net, msg)
         top = max(q)
-        mean = sum(q) / len(q)
-        spread = max(0.05, math.sqrt(sum((x - mean) ** 2 for x in q) / len(q)))
+        spread = max(0.05, robust_spread(q))
         ex = [math.exp(max(-50.0, (x - top) / (self.temperature * spread))) for x in q]
         tot = sum(ex)
         rp = self.random.choose(msg)[1]
@@ -84,6 +87,18 @@ class NetPolicy:
         self.last_q = q
         best = q.index(top)
         return i, probs, f"net r{self.meta.get('round')}: " + ("its top pick" if i == best else f"tries one rated {q[i] - top:+.1f}")
+
+
+def robust_spread(q):
+    """How far apart a decision's scores are, not stretched by a few far off: 1.4826 x the median distance from the
+    median, or the standard deviation when most scores are equal (the median distance is then 0)."""
+    s = sorted(q)
+    med = statistics.median(s)
+    mad = 1.4826 * statistics.median(abs(x - med) for x in s)
+    if mad > 0:
+        return mad
+    mean = sum(q) / len(q)
+    return math.sqrt(sum((x - mean) ** 2 for x in q) / len(q))
 
 
 def _bag(obs):
