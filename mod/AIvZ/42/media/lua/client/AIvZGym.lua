@@ -20,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.31"
+G.VERSION = "0.4.32"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -400,6 +400,17 @@ end
 -- times a second
 GS.moveProps = GS.moveProps or setmetatable({}, { __mode = "k" })
 local SCRAP_RANGE = 3
+-- Fences: a square's north and west edges, with the flags the Interact key reads (IsoPlayer.doContextHopOverFence:
+-- HoppableN/W on the square; doContextClimbOverWall for the tall ones). `back` is the climb from the other side.
+local FENCE_RANGE = 6
+local FENCE_EDGES = nil   -- built on first use, so nothing here reads a game global while the file loads
+local function fenceEdges()
+	FENCE_EDGES = FENCE_EDGES or {
+		{ low = IsoFlagType.HoppableN, tall = IsoFlagType.TallHoppableN, dx = 0, dy = -1, north = true, dir = "N", back = "S" },
+		{ low = IsoFlagType.HoppableW, tall = IsoFlagType.TallHoppableW, dx = -1, dy = 0, north = false, dir = "W", back = "E" },
+	}
+	return FENCE_EDGES
+end
 local function scrapProps(o)
 	local mp = GS.moveProps[o]
 	if mp == nil then
@@ -423,6 +434,11 @@ local function addOpening(out, p, o, sq, d, pz)
 		local cbo = try(function() return o:couldBeOpen(p) end)
 		if cbo ~= nil then e.locked = cbo ~= true end
 		out.doors[#out.doors + 1] = e
+		-- a sheet hung on a door is its curtain (IsoDoor:HasCurtains() returns the door itself), drawn from the
+		-- sheet's side of the doorway (getSheetSquare), as the door menu does (gym 0.4.32)
+		if instanceof(o, "IsoDoor") and o:HasCurtains() then
+			out.curtains[#out.curtains + 1] = { o = o, sq = o:getSheetSquare() or sq, d = d, open = o:isCurtainOpen(), door = true }
+		end
 	else
 		e.smashed = U.winIs(o, "isSmashed")
 		e.glass = e.smashed and not U.winIs(o, "isGlassRemoved")
@@ -438,7 +454,7 @@ function G.scanAround(p)
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
 	local here = p:getCurrentSquare()
 	local hb = here and here:getBuilding()
-	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {} }
+	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {}, fences = {} }
 	local known = seen(p)
 	local vis = {}
 	local function sees(dx, dy)
@@ -497,12 +513,33 @@ function G.scanAround(p)
 					end
 					if U.isDoor(o) or U.isWindow(o) then addOpening(out, p, o, sq, d, pz) end
 				end
+				-- fences on this square's edges (gym 0.4.32). Each edge is listed once, from the side the character is on:
+				-- it stands on that square and climbs toward the other. "drop": nothing to stand on beyond
+				-- (IsoPlayer.isSafeToClimbOver: the Interact key then climbs only when held, not tapped).
+				if d <= FENCE_RANGE then
+					for _, edge in ipairs(fenceEdges()) do
+						local low, tall = sq:has(edge.low), sq:has(edge.tall)
+						if low or tall then
+							local other = sqAt(px + dx + edge.dx, py + dy + edge.dy, pz)
+							local mine = (edge.north and p:getY() >= sq:getY()) or (not edge.north and p:getX() >= sq:getX())
+							local stand, far = sq, other
+							if not mine then stand, far = other, sq end
+							if stand and far and stand:isFree(false) then
+								out.fences[#out.fences + 1] = { sq = sq, stand = stand, far = far, north = edge.north,
+									dir = mine and edge.dir or edge.back, tall = not low,
+									drop = not (far:TreatAsSolidFloor() or far:HasStairsBelow()),
+									d = dist(p, stand:getX() + 0.5, stand:getY() + 0.5),
+									ex = sq:getX() + (edge.north and 0.5 or 0), ey = sq:getY() + (edge.north and 0 or 0.5) }
+							end
+						end
+					end
+				end
 			end
 		end
 	end
 	local byD = function(a, b) return a.d < b.d end
 	table.sort(out.doors, byD); table.sort(out.windows, byD); table.sort(out.curtains, byD); table.sort(out.containers, byD)
-	table.sort(out.floor, byD); table.sort(out.scrap, byD)
+	table.sort(out.floor, byD); table.sort(out.scrap, byD); table.sort(out.fences, byD)
 	out.building = hb
 	GS.around = out
 	return out
@@ -636,10 +673,18 @@ function G.options(p)
 		return r1(e.sq:getX() + 0.5 - p:getX()), r1(e.sq:getY() + 0.5 - p:getY())
 	end
 	local inv = p:getInventory()
+	-- Add Sheet: a window with no curtain, or a door that can take one, with a sheet anywhere in the inventory
+	-- (doWindowMenu: HasCurtains() is nil; doDoorMenu: HasCurtains() is nil and canAddCurtain(); both
+	-- containsTypeRecurse("Sheet")). The curtain it makes then has its own open and close option.
+	local sheet = inv:containsTypeRecurse("Sheet")
+	local nw, nc, ns, ng, nh = 0, 0, 0, 0, 0
 	for i = 1, math.min(4, #ar.doors) do
 		local e = ar.doors[i]
 		local dx, dy = at(e)
 		add(list, "door", { d = r1(e.d), dx = dx, dy = dy, open = e.open, locked = e.locked, exterior = e.exterior }, e)
+		if sheet and nh < 2 and instanceof(e.o, "IsoDoor") and e.o:HasCurtains() == nil and e.o:canAddCurtain() then
+			nh = nh + 1; add(list, "hang_sheet", { d = r1(e.d), dx = dx, dy = dy, exterior = e.exterior, door = true }, e)
+		end
 		-- Lock or Unlock: a closed door whose key is in the inventory (J:ISWorldObjectContextMenuLogic.doDoorMenu:
 		-- not IsOpen, the door's key id, haveThisKeyId; Lock unless isLockedByKey). The key id as ISLockDoor:isValid
 		-- reads it.
@@ -651,10 +696,6 @@ function G.options(p)
 			end
 		end
 	end
-	-- Add Sheet: a window with no curtain, with a sheet anywhere in the inventory (doWindowMenu: HasCurtains() is
-	-- nil and containsTypeRecurse("Sheet")). The curtain it makes then has its own open and close option.
-	local sheet = inv:containsTypeRecurse("Sheet")
-	local nw, nc, ns, ng, nh = 0, 0, 0, 0, 0
 	for _, e in ipairs(ar.windows) do
 		if not e.barricaded then
 			-- the lock state is not shown for a window (the game tells you only when you try it), so it is not listed
@@ -673,10 +714,28 @@ function G.options(p)
 			end
 		end
 	end
+	-- curtains, on windows and (gym 0.4.32) on doors; Remove curtains takes the sheet down into the inventory, greyed
+	-- out by the menu when a sheet wouldn't fit (ISWorldObjectContextMenu.addRemoveCurtainOption)
+	local sheetItem = getScriptManager():FindItem("Base.Sheet")
+	local roomForSheet = sheetItem ~= nil and inv:hasRoomFor(p, sheetItem:getActualWeight())
 	for i = 1, math.min(3, #ar.curtains) do
 		local e = ar.curtains[i]
 		local dx, dy = at(e)
-		add(list, "curtain", { d = r1(e.d), dx = dx, dy = dy, open = e.open }, e)
+		add(list, "curtain", { d = r1(e.d), dx = dx, dy = dy, open = e.open, door = e.door }, e)
+		if roomForSheet and i <= 2 then add(list, "remove_sheet", { d = r1(e.d), dx = dx, dy = dy, door = e.door }, e) end
+	end
+	-- fences: climb over, as the Interact key does at a fence (IsoPlayer.doContextHopOverFence, doContextClimbOverWall
+	-- for tall ones); the nearest edges, at most two per direction. A tall one next to the character only when the
+	-- game would let it climb (canClimbOverWall: the Interact key does nothing otherwise).
+	local mySq, perDir, nf = p:getCurrentSquare(), {}, 0
+	for _, f in ipairs(ar.fences) do
+		if nf >= 4 or p:getVehicle() then break end
+		local can = not (f.tall and f.stand == mySq) or p:canClimbOverWall(IsoDirections[f.dir])
+		if can and (perDir[f.dir] or 0) < 2 then
+			perDir[f.dir], nf = (perDir[f.dir] or 0) + 1, nf + 1
+			add(list, "climb_fence", { d = r1(f.d), dx = r1(f.ex - p:getX()), dy = r1(f.ey - p:getY()), dir = f.dir,
+				tall = f.tall, drop = f.drop }, f)
+		end
 	end
 	-- containers: search the ones not looked into yet; take from the ones it has, when standing by them.
 	-- "here": in the building the character is in (or both outside); the rest are usually out of reach.
@@ -1021,28 +1080,106 @@ G.X.door = {
 	step = queueStep(600, toggled),
 }
 G.X.window = G.X.door
+-- a curtain's state: an IsoCurtain on a window, or a door with a sheet (both ICurtain.isCurtainOpen)
+local function curtainOpen(c) return try(function() return c:isCurtainOpen() end) == true end
+-- A door's sheet is reached from one side of the doorway (getAddSheetSquare to hang it, getSheetSquare once up), which
+-- must be free; the menu gives up otherwise. The walk through the doorway leaves the door as it was
+-- (ISWorldObjectContextMenu.restoreDoor, as the menu's walk does). The mod's walk, not ISWalkToTimedAction.
+local function walkToDoorSheet(p, door, sq, t)
+	if not (sq and sq:isFree(false)) then return false end
+	if sq ~= p:getCurrentSquare() then
+		t.pathFailed = false
+		local act = ISPathFindAction:pathToLocationF(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())
+		act:setOnFail(function() t.pathFailed = true end)
+		act:setOnComplete(ISWorldObjectContextMenu.restoreDoor, p, door, door:IsOpen())
+		Q(act)
+	end
+	return true
+end
+-- ISWorldObjectContextMenu.onOpenCloseCurtain: a window's curtain from its square (or next to the window), a door's
+-- from the sheet's side of the doorway
 G.X.curtain = {
 	start = function(p, t, o)
-		t.wasOpen = isOpen(o.data.o)
-		if not U.closeCurtain(p, o.data, t) then U.fail(t, "can't reach it") end
+		t.wasOpen = curtainOpen(o.data.o)
+		local ok
+		if o.data.door then
+			ok = walkToDoorSheet(p, o.data.o, o.data.sq, t)
+			if ok then Q(ISOpenCloseCurtain:new(p, o.data.o)) end
+		else
+			ok = U.closeCurtain(p, o.data, t)
+		end
+		if not ok then U.fail(t, "can't reach it") end
 	end,
-	step = queueStep(600, toggled),
+	step = queueStep(600, function(p, t, o) if curtainOpen(o.data.o) == t.wasOpen then return "it didn't move" end end),
 }
 -- ISWorldObjectContextMenu.onAddSheet, with the mod's walk (the game's ISWalkToTimedAction fails at 20x and 40x):
--- stand on the square the sheet goes up from if it is free, else next to the window; the sheet into the main
--- inventory if it is in a bag (ISAddSheetAction:isValid looks there); then the timed action
+-- stand on the square the sheet goes up from if it is free, else next to the window (a door: only from that square);
+-- the sheet into the main inventory if it is in a bag (ISAddSheetAction:isValid looks there); then the timed action
 G.X.hang_sheet = {
 	start = function(p, t, o)
 		local w = o.data.o
 		local sheet = p:getInventory():getFirstTypeRecurse("Sheet")
 		if not sheet then return U.fail(t, "no sheet") end
 		local sq = w:getAddSheetSquare(p)
-		if sq and sq:isFree(false) then U.walkTo(p, sq, t)
+		if instanceof(w, "IsoDoor") then
+			if not walkToDoorSheet(p, w, sq, t) then return U.fail(t, "can't reach it") end
+		elseif sq and sq:isFree(false) then U.walkTo(p, sq, t)
 		elseif not U.walkAdjOpening(p, o.data.sq, w, t) then return U.fail(t, "can't reach it") end
 		ISWorldObjectContextMenu.transferIfNeeded(p, sheet)
 		Q(ISAddSheetAction:new(p, w))
 	end,
 	step = queueStep(900, function(p, t, o) if o.data.o:HasCurtains() == nil then return "no curtain went up" end end),
+}
+-- ISWorldObjectContextMenu.onRemoveCurtain: the sheet comes down into the inventory. A window's curtain from its own
+-- square if free, else next to the window; a door's from the sheet's side of the doorway.
+G.X.remove_sheet = {
+	start = function(p, t, o)
+		local c, ok = o.data.o, nil
+		if o.data.door then ok = walkToDoorSheet(p, c, c:getSheetSquare(), t)
+		elseif o.data.sq and o.data.sq:isFree(false) then ok = U.walkTo(p, o.data.sq, t)
+		else ok = U.walkAdjOpening(p, o.data.sq, c, t) end
+		if not ok then return U.fail(t, "can't reach it") end
+		Q(ISRemoveSheetAction:new(p, c))
+	end,
+	step = queueStep(900, function(p, t, o)
+		local up = o.data.door and o.data.o:HasCurtains() ~= nil or (not o.data.door and o.data.o:getObjectIndex() ~= -1)
+		if up then return "the sheet is still up" end
+	end),
+}
+-- Over a fence, as the Interact key does it: IsoPlayer.doContextHopOverFence → ContextualActionHandlers.ClimbOverFence
+-- → ISWorldObjectContextMenu.onClimbOverFence, ISClimbOverFence with the fence (the flagged square's getHoppable) and the
+-- direction; a tall one doContextClimbOverWall → climbOverWall(dir), which checks canClimbOverWall itself. From the
+-- square next to it on the character's side, walked to with the mod's walk (luautils.walkAdjFence uses
+-- ISWalkToTimedAction, which fails at 20x and 40x). Done once the character stands on the far side.
+G.X.climb_fence = {
+	start = function(p, t, o) U.walkTo(p, o.data.stand, t) end,
+	step = function(p, t, o)
+		local f = o.data
+		if t.pathFailed then return U.fail(t, "no way there") end
+		local sq = p:getCurrentSquare()
+		if t.climbing then
+			if sq == f.far then return U.done(t) end
+			if qlen(p) == 0 and not p:isClimbing() and tick() - t.climbing > 120 then return U.fail(t, "didn't get over") end
+			if tick() - t.t0 > 1800 then U.fail(t, "took too long") end
+			return
+		end
+		if qlen(p) > 0 then
+			if tick() - t.t0 > 1200 then U.fail(t, "took too long") end
+			return
+		end
+		if sq ~= f.stand then return U.fail(t, "couldn't get to it") end
+		local dir = IsoDirections[f.dir]
+		if f.tall then
+			if not p:canClimbOverWall(dir) then return U.fail(t, "can't climb it") end
+			p:faceDirection(dir)
+			p:climbOverWall(dir)
+		else
+			local fence = f.sq:getHoppable(f.north)
+			if not fence then return U.fail(t, "the fence is gone") end
+			Q(ISClimbOverFence:new(p, fence, dir))
+		end
+		t.climbing = tick()
+	end,
 }
 -- ISWorldObjectContextMenu.onLockDoor / onUnLockDoor, with the mod's walk
 local function lockDoor(lock)

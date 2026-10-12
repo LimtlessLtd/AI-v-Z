@@ -123,6 +123,22 @@ class EncodingTests(unittest.TestCase):
         self.assertIn(F.bucket("zombie:facing:away:close"), s2[1])
         far = {**OBS, "zombies": [{"d": 15.0, "dx": 0.0, "dy": -15.0, "facing": 0.9}]}
         self.assertNotIn(F.bucket("zombie:facing:toward:mid"), F.encode_state({"obs": far})[1])
+
+    def test_fence_and_door_sheet_flags_go_in_as_tokens(self):
+        """Gym 0.4.32: a tall fence, a drop beyond it and a sheet on a door are tokens; the dense part (the layout the
+        trained network reads) is the same as without them, and the fence's direction is a word like walk's."""
+        low = {"verb": "climb_fence", "d": 2.0, "dx": 1.5, "dy": 0.0, "dir": "E", "tall": False, "drop": False}
+        tall = dict(low, tall=True, drop=True)
+        (d1, t1), (d2, t2) = F.encode_option(low, OBS), F.encode_option(tall, OBS)
+        self.assertEqual(d1, d2)
+        self.assertNotIn(F.bucket("climb_fence:tall"), t1)
+        self.assertIn(F.bucket("climb_fence:tall"), t2)
+        self.assertIn(F.bucket("climb_fence:drop"), t2)
+        self.assertIn(F.bucket("dir:E"), t1)
+        on_door = F.encode_option({"verb": "curtain", "d": 1.0, "open": True, "door": True}, OBS)[1]
+        on_window = F.encode_option({"verb": "curtain", "d": 1.0, "open": True}, OBS)[1]
+        self.assertIn(F.bucket("curtain:door"), on_door)
+        self.assertNotIn(F.bucket("curtain:door"), on_window)
         sneaking = F.encode_state({"obs": {**OBS, "sneaking": True}})
         self.assertIn(F.bucket("self:sneaking"), sneaking[1])
         self.assertEqual(sneaking[0], F.encode_state({"obs": OBS})[0])
