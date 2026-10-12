@@ -210,7 +210,21 @@ otherPlayer, alcohol, bodyPart)`, `ISStitch:new(character, otherPlayer, item, bo
 otherPlayer, bodyPart, handPain)`, `ISRemoveBullet:new(character, otherPlayer, bodyPart)`,
 `ISCleanBurn:new(character, otherPlayer, bandage, bodyPart)`, `ISTakePillAction:new(character, item)`.
 Removing bandages/stitches/splints goes through the same panel classes (`HRemoveBandage`, `HRemoveStitch`,
-`HRemoveSplint`); their actions were not read (**unverified** signatures).
+`HRemoveSplint`). **Removal signatures verified in installed 42.21 on 2026-10-12:**
+
+| Menu handler, in `client/XpSystem/ISUI/ISHealthPanel.lua` | Exact queued action (doctor = patient for self-care) | Menu prerequisite |
+|---|---|---|
+| `HRemoveBandage:perform`, 1218-1220 | `ISApplyBandage:new(doctor, patient, nil, bodyPart, false)` | `bodyPart:bandaged()`, 1204-1215 |
+| `HRemoveStitch:perform`, 1470-1472 | `ISStitch:new(doctor, patient, nil, bodyPart, false)` | `bodyPart:stitched()`, 1460-1467 |
+| `HRemoveSplint:perform`, 1660-1662 | `ISSplint:new(doctor, patient, nil, nil, bodyPart, false)` | `getSplintFactor() > 0`, 1646-1657 |
+
+The constructors in `shared/TimedActions/ISApplyBandage.lua`, `ISStitch.lua` and `ISSplint.lua`
+confirm this argument order. They remain unimplemented and not live-tested in the gym; these are
+source facts, not a claim that treatment worked. `HRemoveGlass:perform` at 1520-1528 passes
+`handPain = true` for Hands and false with a `REMOVE_GLASS` tool, SutureNeedleHolder or Tweezers;
+the menu at 1489-1503 offers both tool variants and Hands when the visible wound contains glass.
+The tool is transferred to the player's inventory before the action. Do not collapse the menu's
+tool/hand choices into a hidden preference when implementing it.
 
 ### 12. Reading
 `ISInventoryPaneContextMenu.onLiteratureItems(items, playerNum)` (`:2804`) → `readItem` →

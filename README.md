@@ -333,8 +333,10 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 - **Gym 0.4.44 adds profession choice before traits.** It offers the game's real list and uses its
   handler to apply skills, free traits and points. The existing trait debt rule stays the same. Next
   now respects the actual disabled button and known nonnegative points, and emergency debt repair
-  preserves free profession traits. All 126 tests and installed Lua checks pass; natural-respawn
-  validation is pending. Restart the agent for the selected-profession state token.
+  preserves free profession traits. All 126 tests and installed Lua checks pass. At a natural respawn
+  at 21:57, the bot chose Park Ranger from 25 professions, bought a good trait, repaid its debt and
+  started the matching life. Fallback cases remain unexercised. Restart the agent for the
+  selected-profession state token.
   [Sources and live checklist](docs/CHARACTER_CREATION_CHECK.md).
 
 - **Gym 0.4.43 uses the game's spotted zombies.** The old visibility guess listed a zombie absent
