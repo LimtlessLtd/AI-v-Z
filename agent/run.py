@@ -153,7 +153,7 @@ class Agent:
         self.exp = ExperienceLog(self.log_dir / "experience")
         name = getattr(args, "policy", "net")
         self.policy = ProbePolicy() if probe else RandomPolicy() if name == "random" else \
-            NetPolicy(self.log_dir / "model" / "qnet.pt", temperature=getattr(args, "temperature", 0.5),
+            NetPolicy(self.log_dir / "model" / "qnet.pt", temperature=getattr(args, "temperature", 0.25),
                       explore=getattr(args, "explore", 0.1))
         every = getattr(args, "train_every", 5)
         self.trainer = Trainer(self.log_dir, every) if name == "net" and every > 0 else None
@@ -323,7 +323,8 @@ def main():
     ap.add_argument("--log-dir", default=None, help="default logs/ (logs/probe/ for the probe)")
     ap.add_argument("--policy", choices=("net", "random", "probe"), default="net")
     ap.add_argument("--train-every", type=float, default=5, help="minutes from one training round's start to the next (0: never)")
-    ap.add_argument("--temperature", type=float, default=0.5,
+    # 0.25 from 2026-10-12 (the owner's decision; 0.5 before): at 0.5 its top-rated option got a median 10% chance
+    ap.add_argument("--temperature", type=float, default=0.25,
                     help="net policy: lower picks the top-rated option more often (in spreads of the scores)")
     ap.add_argument("--explore", type=float, default=0.1, help="net policy: share of picks made at random")
     args = ap.parse_args()

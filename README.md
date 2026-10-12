@@ -105,7 +105,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.2 (gym 0.4.22)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.3 (gym 0.4.23)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -142,10 +142,11 @@ on offer a score, Q: the reward it expects to follow from picking that option no
 sees: the moodles first, then wounds, health, the zombies in view and which way each one is, light, what it
 carries and holds, the place and its open doors and windows, the time only when it wears a watch, and how its
 last action went (`agent/features.py` lists every input, and what's kept out). Each option with a direction
-(walk, run, enter, go to a room, attack) also says how close the nearest zombie that way is. It mostly picks
-the top-rated options (`--temperature`, default 0.5) and one pick in ten at random (`--explore 0.1`), so it
-keeps trying things it rates low. While an action runs, it is asked whether to carry on about every game minute
-(3 s at 1×), and at once when the action ends. Every 5 minutes (`--train-every`, counted from the
+(walk, run, enter, go to a room, attack, and doors, windows and curtains) also says how close the nearest zombie
+that way is. It mostly picks the top-rated options (`--temperature`, default 0.25 since 2026-10-12, 0.5 before) and
+one pick in ten at random (`--explore 0.1`), so it keeps trying things it rates low. While an action runs, it is
+asked whether to carry on about every game minute (3 s at 1×), at once when a zombie it can see comes within
+4 tiles, and at once when the action ends. It answers in about 25 ms. Every 5 minutes (`--train-every`, counted from the
 start of the last round) a separate low-priority process (`python -m agent.learn`, 4 CPU threads, two to three
 minutes) retrains it from all the experience so far, carrying on from the last network, and the agent switches
 to the new one at its next decision. Each training target adds up the rewards of the next 5 decisions before it
@@ -201,10 +202,14 @@ with zero reward for that first observation.
 
 Use the game's own speed buttons (or F2 pause, F3 1×, F4 5×, F5 20×, F6 40×): fast to learn more per day,
 Play (1×) to watch. The game itself drops back to 1× whenever a zombie in sight is within 4 tiles (7 with
-more than 4 in sight) or the character swings. While the AI plays, the mod presses your button again once
-no zombie in sight is within 8 tiles, so fights happen at 1× and the quiet stretches at your speed. It does
-the same for a new character after a death. The agent gets the same rhythm of decisions per game minute
-at any speed.
+more than 4 in sight), the character swings, an exercise ends or is cut off, or a walk stops with the character
+still moving. While the AI plays, the mod presses your button again once no zombie in sight is within 8 tiles
+(checked 4 times a second), so fights happen at 1× and the quiet stretches at your speed; the short drops to 1×
+and back while it exercises or changes course are the game's doing. It does the same for a new character after a
+death. Your pick is kept in `Zomboid\Lua\aivz\speed.txt`, so a restarted game goes back to it (from mod 0.5.3;
+before, the AI played on at 1× after a restart until you pressed your button again). Unpausing with F2 brings the
+game back with Play lit: that is no longer taken as a pick of 1×. To pick Play after a pause, press Play or F3.
+The agent gets the same rhythm of decisions per game minute at any speed.
 
 Measured on this PC on 2026-10-09 (a one-minute sample, time awake only; PZ runs its own fast clock
 while the character sleeps): at 20× the character got through about 270 game minutes per real minute
@@ -292,13 +297,13 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
-- **Gym 0.4.22 has only just started running in the game.** Gym 0.4.21 (2026-10-12, hot-reloaded at 11:27) asks
-  the agent at a steady rate while an action runs and presses the respawn screens' buttons every 0.3 s instead of
-  1.5 s. In its first lives decisions came 0.6 game minutes apart as intended, and a death led to the next life in
-  11 s (it was 18-45 s that morning). 0.4.22 spaces the decisions a game minute apart. The Lua compiles with the
-  game's own compiler, and every method name exists in the game (`tests/test_lua.py`). Gym 0.4.10-0.4.20 (mod 0.5.2) ran
-  from 2026-10-12 10:52 with no `AIvZ` errors in `console.txt`, and its observations carry `protection` and
-  `knox`.
+- **Gym 0.4.23 (mod 0.5.3) is not yet run in the game.** It asks at once when a zombie it can see comes within
+  4 tiles (gym 0.4.21-0.4.22 left that to the steady rate, so a zombie that appeared 2 tiles away could bite before
+  the next decision), gives doors, windows and curtains a direction, and keeps your speed pick across a game restart
+  and an F2 unpause. The Lua compiles with the game's own compiler, and every method name exists in the game
+  (`tests/test_lua.py`). Gym 0.4.21-0.4.22 ran from 2026-10-12 11:27: decisions came a game minute apart while an
+  action ran, and a death led to the next life in about 11 s (18-45 s that morning). Gym 0.4.10-0.4.20 (mod 0.5.2)
+  ran from 10:52 with no `AIvZ` errors in `console.txt`.
 - **The reward changed on 2026-10-12 (version 3), and the network starts over.** It started over again the same
   day for the new inputs (`features.VERSION` 3: where the zombies are, the building's openings). On the experience
   so far, one training round with n-step targets rated decisions in line with what followed them (correlation

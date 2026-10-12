@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.22"
+G.VERSION = "0.4.23"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -30,15 +30,19 @@ if GS.lastReq > GS.gt then GS.lastReq = -99999 end   -- reloaded over a version 
 local try, P, sqAt, Q, qlen, r1, r2 = U.try, U.P, U.sqAt, U.Q, U.qlen, U.r1, U.r2
 local H = A.hud
 
--- While an option runs, the agent is asked whether to carry on at a steady rate, whatever happens (the owner's
--- decision of 2026-10-12, backlog N7). Until gym 0.4.20 a drop in health or a zombie coming close asked at once,
--- at most every 45 ticks, and otherwise every 600: while a wound bled that was about once a second, 39% of all
--- decisions, and it cut off every flee. The reason still says what changed since the last decision ("hurt",
--- "zombie close" or "still at it"), but no longer sets when it comes; an option that ends asks at once.
+-- While an option runs, the agent is asked whether to carry on at a steady rate (the owner's decision of
+-- 2026-10-12, backlog N7), and at once when a zombie it can see comes within 4 tiles with no wall between (the
+-- owner's decision the same day, gym 0.4.23). Until gym 0.4.20 a drop in health also asked at once, at most every
+-- 45 ticks, and otherwise every 600: while a wound bled that was about once a second, 39% of all decisions, and it
+-- cut off every flee. "hurt" now waits for the steady rate; the reason still says what changed since the last
+-- decision ("hurt", "zombie close" or "still at it"). An option that ends asks at once.
 -- STEADY is in game-time ticks (GS.gt: a tick at 5x speed counts five times), so the agent gets the same rhythm
 -- of decisions per game minute at any speed you pick: 150 is about a game minute, 3 s at 1x. Gym 0.4.21 had 90
 -- (0.6 game minutes): a walk or run takes 3-3.6 game minutes to finish, and a young network that keeps the running
 -- option only now and then (7% of the time in the first lives) cut nearly every one short.
+-- Gym 0.4.21-0.4.22 had the zombie on the steady rate too: one that came into view 2 tiles off reached the
+-- character in 1-3 s (close zombies close at 0.65 tiles/s, median at 1x, 1.1 for the fastest quarter), while the
+-- next decision was up to 3 s away. The agent answers in about 25 ms, so the decision itself costs no time.
 local STEADY = 150
 local ANSWER_WAIT = 600    -- real ticks: give up waiting for the agent and ask again
 local DIRECT_RECIPES = { "RipClothing", "OpenCannedFood", "OpenCannedFoodWithKnifeOrSharpStoneFlake" }
@@ -548,30 +552,38 @@ function G.options(p)
 		add(list, "attack", info, { z = e.z })
 		if e.d < 1.6 and count(list, "shove") < 2 then add(list, "shove", info, { z = e.z }) end
 	end
-	-- doors, windows, curtains
+	-- doors, windows, curtains, with where each one is (dx, dy from the character, as for the other options with a
+	-- place): a player sees which door is the one between them and a zombie. Gym 0.4.22 and earlier gave the
+	-- distance only.
 	local ar = G.scanAround(p)
+	local function at(e)
+		return r1(e.sq:getX() + 0.5 - p:getX()), r1(e.sq:getY() + 0.5 - p:getY())
+	end
 	for i = 1, math.min(4, #ar.doors) do
 		local e = ar.doors[i]
-		add(list, "door", { d = r1(e.d), open = e.open, locked = e.locked, exterior = e.exterior }, e)
+		local dx, dy = at(e)
+		add(list, "door", { d = r1(e.d), dx = dx, dy = dy, open = e.open, locked = e.locked, exterior = e.exterior }, e)
 	end
 	local nw, nc, ns, ng = 0, 0, 0, 0
 	for _, e in ipairs(ar.windows) do
 		if not e.barricaded then
 			-- the lock state is not shown for a window (the game tells you only when you try it), so it is not listed
-			local info = { d = r1(e.d), open = e.open, exterior = e.exterior, smashed = e.smashed, glass = e.glass }
+			local dx, dy = at(e)
+			local info = { d = r1(e.d), dx = dx, dy = dy, open = e.open, exterior = e.exterior, smashed = e.smashed, glass = e.glass }
 			if not e.smashed and nw < 4 then nw = nw + 1; add(list, "window", info, e) end
 			if e.d < 2.5 and nc < 2 and try(function() return e.o:canClimbThrough(p) end) then
-				nc = nc + 1; add(list, "climb", { d = info.d, exterior = e.exterior, glass = e.glass }, e)
+				nc = nc + 1; add(list, "climb", { d = info.d, dx = dx, dy = dy, exterior = e.exterior, glass = e.glass }, e)
 			end
 			-- the Smash entry exists only for a closed, unbroken window (ISWorldObjectContextMenuLogic.doWindowMenu)
-			if e.d < 2.5 and not e.smashed and not e.open and ns < 2 then ns = ns + 1; add(list, "smash", { d = info.d, exterior = e.exterior }, e) end
+			if e.d < 2.5 and not e.smashed and not e.open and ns < 2 then ns = ns + 1; add(list, "smash", { d = info.d, dx = dx, dy = dy, exterior = e.exterior }, e) end
 			-- Remove Glass Shards needs something in the primary hand (the menu greys it out otherwise)
-			if e.d < 2.5 and e.glass and p:getPrimaryHandItem() and ng < 1 then ng = ng + 1; add(list, "clear_glass", { d = info.d }, e) end
+			if e.d < 2.5 and e.glass and p:getPrimaryHandItem() and ng < 1 then ng = ng + 1; add(list, "clear_glass", { d = info.d, dx = dx, dy = dy }, e) end
 		end
 	end
 	for i = 1, math.min(3, #ar.curtains) do
 		local e = ar.curtains[i]
-		add(list, "curtain", { d = r1(e.d), open = e.open }, e)
+		local dx, dy = at(e)
+		add(list, "curtain", { d = r1(e.d), dx = dx, dy = dy, open = e.open }, e)
 	end
 	-- containers: search the ones not looked into yet; take from the ones it has, when standing by them.
 	-- "here": in the building the character is in (or both outside); the rest are usually out of reach.
@@ -1081,11 +1093,13 @@ end
 function G.needDecision(p)
 	local cur = GS.cur
 	if not cur or cur.status ~= "running" then return cur and cur.status or "idle" end
-	if GS.gt - GS.lastReq < STEADY then return nil end
-	if GS.lastHp and p:getBodyDamage():getOverallBodyHealth() < GS.lastHp - 0.5 then return "hurt" end
+	-- more zombies in sight within 4 tiles than at the last decision: ask now (each request stores the count, so
+	-- one zombie asks once, and again only after a decision that saw it gone)
 	local n = 0
 	for _, e in ipairs(visibleZombies(p, 4)) do if not e.blocked then n = n + 1 end end
 	if n > (GS.lastClose or 0) then return "zombie close" end
+	if GS.gt - GS.lastReq < STEADY then return nil end
+	if GS.lastHp and p:getBodyDamage():getOverallBodyHealth() < GS.lastHp - 0.5 then return "hurt" end
 	return "still at it"
 end
 
