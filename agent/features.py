@@ -122,6 +122,8 @@ def encode_state(msg):
     wounds = dict.fromkeys(WOUNDS, 0)
     for w in _l(obs.get("body")):
         flags = _l(_d(w).get("flags"))
+        if "bandaged" in flags:   # the health panel hides glass (and infection, burns) under a bandage
+            flags = [f for f in flags if f != "glass"]
         for f in flags:
             if f in wounds:
                 wounds[f] += 1
