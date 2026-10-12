@@ -143,6 +143,18 @@ class EncodingTests(unittest.TestCase):
         self.assertIn(F.bucket("self:sneaking"), sneaking[1])
         self.assertEqual(sneaking[0], F.encode_state({"obs": OBS})[0])
         self.assertEqual(len(sneaking[0]), F.STATE_DIM)
+
+    def test_pile_and_dragging_go_in_as_tokens(self):
+        """Gym 0.4.34: half or all of a pile on the ground is a word on pick_up, and a corpse in tow a state token; the
+        dense parts stay as they are."""
+        one = {"verb": "pick_up", "d": 1.0, "dx": 1.0, "dy": 0.0, "type": "Base.Nails", "w": 0.01}
+        (d1, t1), (d2, t2) = F.encode_option(one, OBS), F.encode_option(dict(one, how="all", n=12), OBS)
+        self.assertEqual(d1, d2)
+        self.assertIn(F.bucket("pick_up:how:all"), t2)
+        self.assertNotIn(F.bucket("pick_up:how:all"), t1)
+        dragging = F.encode_state({"obs": {**OBS, "dragging": True}})
+        self.assertIn(F.bucket("self:dragging"), dragging[1])
+        self.assertEqual(dragging[0], F.encode_state({"obs": OBS})[0])
         hit = {"verb": "attack", "d": 1.0, "dx": 1.0, "dy": 0.0, "facing": -0.5}
         self.assertIn(F.bucket("attack:facing:away"), F.encode_option(hit)[1])
         scrap = {"verb": "disassemble", "name": "Wooden Chair", "d": 1.0, "chance": 60}

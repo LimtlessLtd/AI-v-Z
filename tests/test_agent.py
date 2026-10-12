@@ -494,6 +494,33 @@ class SpawnStaticTest(unittest.TestCase):
             self.assertNotIn(gone, self.src)
 
 
+class FloorStaticTest(unittest.TestCase):
+    """Gym 0.4.34 (mod 0.5.6), backlog G8: half or all of a pile on the ground, a bag on the ground as a container of
+    its own, and dragging a corpse, as the game's menus do them (code only, not run in the game here)."""
+
+    def setUp(self):
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        self.src = (base / "AIvZGym.lua").read_text(encoding="utf-8")
+        self.mod = (base / "AIvZ.lua").read_text(encoding="utf-8")
+
+    def test_piles_offer_half_above_two_and_all_above_one(self):
+        self.assertIn('if n > 2 then\n\t\t\tinfo.how, info.n = "half", math.ceil(n / 2)', self.src)
+        self.assertIn('if n > 1 then\n\t\t\tinfo.how, info.n = "all", n', self.src)
+        grab = self.src[self.src.index("G.X.pick_up = {"):self.src.index("G.X.drag_corpse = {")]
+        self.assertIn("for _, f in ipairs(o.data.items or { o.data }) do", grab)
+
+    def test_a_bag_on_the_ground_is_searched_without_filling_it(self):
+        self.assertIn('it:getCategory() == "Container" and instanceof(it, "InventoryContainer")', self.src)
+        self.assertIn("if not o.data.bag and not o.data.c:isExplored() then", self.src)
+        self.assertIn("local obj = bag and bag:getWorldItem() or c:getParent()", self.mod)
+
+    def test_dragging_a_corpse(self):
+        self.assertIn('if p:isDraggingCorpse() then\n\t\tadd(list, "drop_corpse", {})', self.src)
+        self.assertIn("p:setDoContinueGrapple(false)", self.src)
+        self.assertIn("not so:isAnimal()", self.src)
+        self.assertIn("act.allowedWhileDraggingCorpses = true", self.mod)   # the queue refuses other walks
+
+
 class SpeedHoldStaticTest(unittest.TestCase):
     """AIvZ 0.5.3: the owner's speed pick survives a game restart (backlog N9) and isn't lost to an F2 unpause or the
     Pause button coming back at Play (code only, not run in the game here)."""

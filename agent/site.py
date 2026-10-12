@@ -81,6 +81,8 @@ def detail(o):
         bits.append(str(o["recipe"]))
     if o.get("item"):
         bits.append("with " + str(o["item"]))
+    if o.get("how") in ("half", "all") and isinstance(o.get("n"), (int, float)):
+        bits.append(f"{o['how']} of the pile ({o['n']})")
     if o.get("from"):
         bits.append("from " + str(o["from"]))
     if o.get("to"):
@@ -130,7 +132,8 @@ def step(r):
     held = obs.get("held")
     if isinstance(held, dict) and held.get("name"):
         s["held"] = text(held["name"])
-    s["mv"] = "asleep" if obs.get("asleep") else "running" if obs.get("running") else "sneaking" if obs.get("sneaking") else ""
+    s["mv"] = ("asleep" if obs.get("asleep") else "dragging a corpse" if obs.get("dragging") else "running" if obs.get("running")
+               else "sneaking" if obs.get("sneaking") else "")
     last = dct(r.get("last"))
     if last.get("verb"):
         s["last"] = [text(last.get("verb")), text(last.get("status")), text(last.get("msg"))]
