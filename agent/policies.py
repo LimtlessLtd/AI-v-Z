@@ -42,7 +42,7 @@ class NetPolicy:
 
     name = "net"
 
-    def __init__(self, model_path, rng=None, temperature=0.5, explore=0.1):
+    def __init__(self, model_path, rng=None, temperature=0.25, explore=0.1):
         self.model_path = model_path
         self.rng = rng or random.Random()
         self.random = RandomPolicy(self.rng)

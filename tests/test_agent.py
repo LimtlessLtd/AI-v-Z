@@ -417,20 +417,65 @@ class ExerciseLuaStaticTest(unittest.TestCase):
 
 
 class DecisionRateStaticTest(unittest.TestCase):
-    """Gym 0.4.21 (owner's decision, backlog N7): while an option runs, decisions come at a steady game-time rate;
-    being hurt or a zombie coming close no longer asks at once (code only, not run in the game here)."""
+    """Gym 0.4.21 (owner's decision, backlog N7): while an option runs, decisions come at a steady game-time rate,
+    and being hurt no longer asks at once. Gym 0.4.23 (owner's decision, 2026-10-12): a zombie coming within 4
+    tiles asks at once again (code only, not run in the game here)."""
+
+    def setUp(self):
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        self.src = (base / "AIvZGym.lua").read_text(encoding="utf-8")
+        body = self.src[self.src.index("function G.needDecision"):]
+        body = body[:body.index("\nend\n")]
+        self.code = "\n".join(l.split("--")[0] for l in body.splitlines())
 
     def test_running_options_are_rechecked_at_a_steady_rate(self):
-        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
-        src = (base / "AIvZGym.lua").read_text(encoding="utf-8")
-        body = src[src.index("function G.needDecision"):]
-        body = body[:body.index("\nend\n")]
-        code = "\n".join(l.split("--")[0] for l in body.splitlines())
+        code = self.code
         self.assertIn("if GS.gt - GS.lastReq < STEADY then return nil end", code)
-        self.assertNotIn("DECIDE_GAP", src)
-        self.assertNotIn("RECHECK", src)
-        self.assertLess(code.index("STEADY"), code.index('"hurt"'))   # the gap comes first, whatever the reason
+        self.assertNotIn("DECIDE_GAP", self.src)
+        self.assertNotIn("RECHECK", self.src)
+        self.assertLess(code.index("STEADY"), code.index('"hurt"'))   # hurt waits for the steady rate
         self.assertTrue(code.rstrip().endswith('return "still at it"'))
+
+    def test_a_zombie_coming_close_asks_at_once(self):
+        code = self.code
+        self.assertLess(code.index('"zombie close"'), code.index("STEADY"))
+        self.assertIn("if n > (GS.lastClose or 0) then return \"zombie close\" end", code)
+        # the count it compares with is taken at every request, so one zombie asks once
+        req = self.src[self.src.index("function G.request"):]
+        self.assertIn("GS.lastClose = n", req[:req.index("\nend\n")])
+
+
+class SpeedHoldStaticTest(unittest.TestCase):
+    """AIvZ 0.5.3: the owner's speed pick survives a game restart (backlog N9) and isn't lost to an F2 unpause or the
+    Pause button coming back at Play (code only, not run in the game here)."""
+
+    def setUp(self):
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        self.src = (base / "AIvZ.lua").read_text(encoding="utf-8")
+
+    def test_the_pick_is_saved_and_read_back_at_load(self):
+        pick = self.src[self.src.index("local function pickSpeed"):]
+        pick = pick[:pick.index("\nend\n")]
+        self.assertIn("writeFile, SPEED_FILE", pick)
+        self.assertIn('local SPEED_FILE = "speed.txt"', self.src)
+        self.assertIn("readFirstLine(SPEED_FILE)", self.src)
+
+    def test_only_level_keys_and_real_changes_are_picks(self):
+        keys = self.src[self.src.index("function A.onKeyPressed"):]
+        keys = keys[:keys.index("\nend\n")]
+        self.assertIn("KeybindId.NORMAL_SPEED, KeybindId.FAST_FORWARD_X1, KeybindId.FAST_FORWARD_X2", keys)
+        self.assertNotIn("KeybindId.PAUSE", keys)   # unpausing with F2 comes back at Play whatever runs
+        hold = self.src[self.src.index("function A.holdSpeed"):]
+        self.assertNotIn("keyAt", hold[:hold.index("\nend\n")])
+        self.assertIn("not (lvl == 1 and sp.seen == 0)", self.src)
+        self.assertIn("isMouseButtonDown(0) and sc:isMouseOver()", hold)   # a click, not a resting mouse
+
+    def test_the_policy_defaults_to_the_owners_temperature(self):
+        import inspect
+        from agent.policies import NetPolicy
+        self.assertEqual(inspect.signature(NetPolicy).parameters["temperature"].default, 0.25)
+        run = (Path(__file__).resolve().parent.parent / "agent/run.py").read_text(encoding="utf-8")
+        self.assertIn('"--temperature", type=float, default=0.25', run)
 
 
 class TrainerTests(unittest.TestCase):
@@ -454,7 +499,7 @@ class MenuPrerequisiteStaticTest(unittest.TestCase):
         self.src = (base / "AIvZGym.lua").read_text(encoding="utf-8")
 
     def test_window_option_does_not_list_lock_state(self):
-        line = next(l for l in self.src.splitlines() if "local info = { d = r1(e.d), open = e.open" in l)
+        line = next(l for l in self.src.splitlines() if "local info = { d = r1(e.d), dx = dx, dy = dy, open = e.open" in l)
         self.assertNotIn("locked", line)
 
     def test_smash_needs_closed_window_and_clear_glass_needs_held_item(self):

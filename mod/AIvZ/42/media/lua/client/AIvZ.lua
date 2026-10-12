@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.5.2"   -- 0.5.2: helpers the gym needs (waterIn asSeen, seen beds, smashed-window squares), gym 0.4.12-0.4.19
+A.VERSION = "0.5.3"   -- 0.5.3: the speed pick survives a game restart and an F2 unpause (gym 0.4.23)
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -38,7 +38,7 @@ local KEY_HUD = Keyboard.KEY_F7
 A.s = A.s or { tick = 0, lastSeq = 0, task = nil, manual = false, lastHumanKey = -99999, lastMove = 0,
 	reflexTick = -99999, reflexAct = "", rearmUntil = 0, err = "", observing = false,
 	kills = 0, cache = {} }
-A.s.speed = A.s.speed or { held = 1, keyAt = -99999 }   -- the speed button you picked (A.holdSpeed)
+A.s.speed = A.s.speed or { held = 1 }   -- the speed button you picked (A.holdSpeed), kept in aivz/speed.txt
 A.hud = A.hud or { visible = true, goal = "", why = "", source = "", action = "waiting for the bridge" }
 A.ev = A.ev or { n = 0, list = {} }
 local S, H = A.s, A.hud
@@ -1775,21 +1775,46 @@ function A.pollIntent(p)
 end
 
 ---------------------------------------------------------------- body upkeep
--- Keep the speed you picked with PZ's buttons or keys. The game drops back to Play by itself when a
--- zombie in sight comes within 4 tiles (7 with more than 4 in sight) or the character swings; while the AI
--- plays, the button you picked is pressed again once no zombie in sight is within 8 tiles (any sooner and
--- the game would drop it straight back). The game never speeds itself up, so a faster level is always
--- your pick; Play is yours when the mouse is on the speed buttons or a speed key was just pressed.
+-- Keep the speed you picked with PZ's buttons or keys. The game drops back to Play by itself: when a zombie in
+-- sight comes within 4 tiles (7 with more than 4 in sight, IsoPlayer.updateLOS), on a swing, when an exercise ends
+-- or is cut off (ISFitnessAction:stop/perform), when the character stops moving with no path left
+-- (IsoPlayer.updateInternal2; a walk the gym ends or replaces while it is still moving), when it falls or burns,
+-- and on a click on the world (UIManager.updateMouseButtons). While the AI plays, the button you picked is pressed
+-- again once no zombie in sight is within 8 tiles (any sooner and the game would drop it straight back).
+-- Your pick: the level of an F3-F6 key you press (onKeyPressed below), or the first level change within a second of
+-- a click on the speed buttons. These are not a pick: unpausing with F2 (the game comes back with Play lit,
+-- whatever speed it runs at: SpeedControlsHandler.onKeyPressed), the Pause button coming back at Play (it returns
+-- to the level before the pause, which can be a 1x the game had dropped to), and a drop to 1x while the mouse
+-- merely rests on the buttons. Until mod 0.5.2 all three made Play "your" pick, and the AI played on at 1x.
+-- To pick Play after a pause, click Play once more (or press F3).
+-- The pick is kept in aivz/speed.txt, so a game restart doesn't forget it (until 0.5.2 it did: backlog N9).
 -- Called every tick; it only presses buttons while the AI is in control.
+local SPEED_FILE = "speed.txt"
+local function pickSpeed(lvl)
+	if lvl == S.speed.held then return end
+	S.speed.held = lvl
+	pcall(writeFile, SPEED_FILE, tostring(lvl))
+end
+if not S.speed.loaded then   -- once per game start (a hot reload keeps A.s, and with it the pick)
+	S.speed.loaded = true
+	local v = tonumber(readFirstLine(SPEED_FILE) or "")
+	if v and v >= 1 and v <= 4 then S.speed.held = math.floor(v) end
+end
+
 function A.holdSpeed(p, inControl)
 	local sc = UIManager.getSpeedControls()
 	if not sc then return end
 	local sp, lvl = S.speed, sc:getCurrentGameSpeed()
+	-- a press on the speed buttons makes at most one pick: the game can drop a 20x you just clicked straight back
+	-- to 1x for a zombie close by, and that is not your pick
+	local down = isMouseButtonDown(0) and sc:isMouseOver()
+	if down and not sp.down then sp.clickAt, sp.picked = S.tick, false end
+	sp.down = down
 	if lvl ~= sp.seen then
-		-- only your changes count. The game also changes speed by itself: up to 20x when the character falls
-		-- asleep (that became "your" pick and stuck after waking), down to 1x for a close zombie, a swing or
-		-- the end of every exercise
-		if lvl >= 1 and (sc:isMouseOver() or S.tick - sp.keyAt < 30) then sp.held = lvl end
+		-- only your changes count (see above); the game also changes speed by itself, up to 20x when the
+		-- character falls asleep (that became "your" pick and stuck after waking)
+		local clicked = sp.clickAt and not sp.picked and S.tick - sp.clickAt <= 60
+		if lvl >= 1 and clicked and not (lvl == 1 and sp.seen == 0) then pickSpeed(lvl); sp.picked = true end
 		sp.seen = lvl
 	end
 	if not inControl or lvl ~= 1 or sp.held <= 1 or S.tick % 15 ~= 0 then return end
@@ -1912,10 +1937,12 @@ function A.onKeyPressed(key)
 		return
 	end
 	if isSpeedKey(key) then
-		S.speed.keyAt = S.tick
-		-- Play pressed while the game has already dropped to 1x for a close zombie changes no level for
-		-- A.holdSpeed to see, and the old pick (20x) came back once clear: the key itself is the choice
-		if getCore():isKey(KeybindId.NORMAL_SPEED, key) then S.speed.held = 1 end
+		-- the key itself is the pick, not the level change it makes: Play pressed while the game has already
+		-- dropped to 1x changes nothing A.holdSpeed could see, and F2 (pause) is no pick at all
+		for lvl, id in ipairs({ KeybindId.NORMAL_SPEED, KeybindId.FAST_FORWARD_X1, KeybindId.FAST_FORWARD_X2,
+			KeybindId.FAST_FORWARD_X3 }) do
+			if getCore():isKey(id, key) then pickSpeed(lvl) end
+		end
 		return
 	end
 	if MOVE_KEYS[key] then
