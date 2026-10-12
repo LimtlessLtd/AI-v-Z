@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.5.6"   -- 0.5.6: walks while dragging a corpse, to a bag on the ground (gym 0.4.35); 0.5.5: steps off a wall line when no path starts there (gym 0.4.31); 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
+A.VERSION = "0.5.7"   -- 0.5.7: the enter macro picks windows a player has seen, not by lock state (backlog L11); 0.5.6: walks while dragging a corpse, to a bag on the ground (gym 0.4.35); 0.5.5: steps off a wall line when no path starts there (gym 0.4.31); 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -1399,10 +1399,13 @@ end
 
 ---------------------------------------------------------------- getting into buildings
 -- exterior windows of building b on floor z, cheapest way in first: {o, sq, out (the outside square), cost}
+-- Only windows a player knows of: on a square seen this game (IsoGridSquare:isSeen, as the gym's building counts
+-- use it), ranked by what can be seen (open, closed, smashed). Until mod 0.5.7 it ranked every window of the
+-- building, seen or not, and a locked one last (isLocked/isPermaLocked, which the game shows only when you try one).
 local function entryWindows(p, b, z, bad)
 	local def = b:getDef()
 	local out = {}
-	local px, py = p:getX(), p:getY()
+	local px, py, pn = p:getX(), p:getY(), p:getPlayerNum()
 	local function inside(sq) return sq ~= nil and sq:getBuilding() == b end
 	for x = def:getX() - 1, def:getX2() do
 		for y = def:getY() - 1, def:getY2() do
@@ -1411,15 +1414,13 @@ local function entryWindows(p, b, z, bad)
 				for _, o in ipairs(objList(sq)) do
 					if isWindow(o) and not bad[o] and not winIs(o, "isBarricaded") then
 						local other = o:getNorth() and sqAt(x, y - 1, z) or sqAt(x - 1, y, z)
-						if other and inside(sq) ~= inside(other) then
+						if other and inside(sq) ~= inside(other) and (sq:isSeen(pn) or other:isSeen(pn)) then
 							local outsq = inside(sq) and other or sq
 							if try(function() return outsq:isFree(false) end) then
 								local cost = math.sqrt((outsq:getX() - px) ^ 2 + (outsq:getY() - py) ^ 2)
 								-- smashing is loud: it's the last resort
 								if winIs(o, "isSmashed") then cost = cost + (winIs(o, "isGlassRemoved") and 0 or 3)
-								elseif not winIs(o, "IsOpen") then
-									cost = cost + ((winIs(o, "isLocked") or winIs(o, "isPermaLocked")) and 25 or 4)
-								end
+								elseif not winIs(o, "IsOpen") then cost = cost + 4 end
 								out[#out + 1] = { o = o, sq = sq, out = outsq, cost = cost }
 							end
 						end
@@ -1464,8 +1465,8 @@ function A.enterStep(p, t, b)
 			e.phase = "climb"; H.action = "climbing in through a window"
 		elseif winIs(w, "isSmashed") then
 			Q(ISRemoveBrokenGlass:new(p, w)); e.phase = "wait"; H.action = "clearing the broken glass"
-		elseif not winIs(w, "isPermaLocked") and not e.triedOpen then
-			e.triedOpen = true -- a locked one is worth one try before smashing it
+		elseif not e.triedOpen then
+			e.triedOpen = true -- one try at opening it before smashing it: a locked one shows only then (mod 0.5.7)
 			Q(ISOpenCloseWindow:new(p, w)); e.phase = "wait"; H.action = "opening a window"
 		else
 			Q(ISSmashWindow:new(p, w)); Q(ISRemoveBrokenGlass:new(p, w))
