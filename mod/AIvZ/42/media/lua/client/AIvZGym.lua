@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.19"
+G.VERSION = "0.4.20"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -262,6 +262,36 @@ function G.clock(p)
 	return c
 end
 
+-- the protection panel's numbers (ISCharacterProtection): per body part, the bite and scratch defence of the worn
+-- clothing covering it, a garment with a hole over that part not counting, at most 100. In 42.21 a garment's
+-- defence goes only when a hole opens over a part, a patch replaces the fabric, or its condition reaches 0
+-- (Clothing.getDefForPart, getBiteDefense), so this is what wear does to protection.
+function G.protection(p)
+	local out = {}
+	for i = 0, BodyPartType.ToIndex(BodyPartType.MAX) - 1 do
+		local bite = try(function() return p:getBodyPartClothingDefense(i, true, false) end)
+		local scratch = try(function() return p:getBodyPartClothingDefense(i, false, false) end)
+		if bite and scratch then
+			out[#out + 1] = { part = BodyPartType.ToString(BodyPartType.FromIndex(i)), bite = math.floor(bite + 0.5),
+				scratch = math.floor(scratch + 0.5) }
+		end
+	end
+	return out
+end
+
+-- whether the character carries the Knox infection. A player isn't told (the game rolls it when a zombie wound
+-- lands: scratch 7%, laceration 25%, bite always), so features.py keeps it out of the network's input; only the
+-- reward reads it, to charge the coming death when the infection happens (REWARD_RESEARCH.md)
+function G.knox(p)
+	local bd = p:getBodyDamage()
+	if try(function() return bd:IsInfected() end) == true then return true end
+	local parts = bd:getBodyParts()
+	for i = 0, parts:size() - 1 do
+		if try(function() return parts:get(i):IsInfected() end) == true then return true end
+	end
+	return false
+end
+
 function G.observe(p, dead)
 	local o = {}
 	local gt, cm = getGameTime(), getClimateManager()
@@ -289,6 +319,8 @@ function G.observe(p, dead)
 	o.clock = G.clock(p)
 	o.traits = G.traits(p)
 	o.body = A.wounds(p)
+	o.protection = G.protection(p)
+	o.knox = G.knox(p)   -- reward only, never the network's input
 	local l = squareLight(p:getCurrentSquare(), p:getPlayerNum())
 	o.light = { known = l ~= nil, here = l and r2(l) or nil }
 	o.asleep = try(function() return p:isAsleep() end) == true

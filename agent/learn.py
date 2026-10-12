@@ -12,7 +12,8 @@ cached in logs/model/cache (the hour being written is always re-read). Rounds ar
 logs/model/history.jsonl, which the dashboard's Learning page shows.
 
 The reward is the current one (agent/reward.py) for every decision: older records are re-scored as they are read,
-and a network trained under another reward version is set aside for a fresh one. The future is discounted by game
+the infection, the death and the change in the body's value Φ are worked out here from the observations of each
+life in order, and a network trained under another reward version is set aside for a fresh one. The future is discounted by game
 time, not by decision: being alive pays by the game minute, so with a per-decision discount an action that takes
 an hour (sleeping) would collect an hour's reward in one undiscounted step and look better just for being long.
 """
@@ -48,9 +49,10 @@ LR = 5e-4
 THREADS = 4           # CPU threads for training, leaving the rest to the game
 
 
-def _meta(r, prev_obs=None):
-    points, minutes = R.rescore(r, prev_obs)
-    return {"choice": r.get("choice"), "reward": points, "minutes": minutes, "dead": bool(r.get("dead")),
+def _meta(r):
+    points, minutes = R.rescore(r)
+    body = None if r.get("reason") == "creation" or r.get("dead") else R.body(r.get("obs"))
+    return {"choice": r.get("choice"), "reward": points, "minutes": minutes, "body": body, "dead": bool(r.get("dead")),
             "life": r.get("life"), "reason": r.get("reason"), "new_life": bool(r.get("new_life")),
             "resumed": bool(r.get("resumed")), "options": len(r.get("options") or []),
             "verbs": [o.get("verb") for o in r.get("options") or []]}
@@ -63,19 +65,16 @@ def encode_file(path, cache_dir, live):
     cp = cache_dir / f"{path.name}.npz"
     if not live and cp.exists():
         try:
-            z = np.load(cp, allow_pickle=False)
-            if str(z["key"]) == key:
-                meta = json.loads(str(z["meta"]))
-                return meta, N.Pack(z["sd"], z["st"], z["so"]), N.Pack(z["od"], z["ot"], z["oo"])
+            # closed before an out-of-date cache is replaced below: Windows refuses to replace an open file, which
+            # failed every training round after a version change (found in the reward version 3 dry run)
+            with np.load(cp, allow_pickle=False) as z:
+                if str(z["key"]) == key:
+                    meta = json.loads(str(z["meta"]))
+                    return meta, N.Pack(z["sd"], z["st"], z["so"]), N.Pack(z["od"], z["ot"], z["oo"])
         except (OSError, ValueError, KeyError):
             pass
     recs = F.read_records(path)
-    meta, prev = [], {}   # prev: each life's latest observation, for new wounds in re-scored records
-    for r in recs:
-        life = r.get("life")
-        meta.append(_meta(r, prev.get(life) if life is not None else None))
-        if life is not None and not r.get("dead") and r.get("reason") != "creation" and r.get("obs"):
-            prev[life] = r["obs"]
+    meta = [_meta(r) for r in recs]
     S = N.Pack.of([F.encode_state(r) for r in recs], F.STATE_DIM)
     O = N.Pack.of([F.encode_option(o) for r in recs for o in (r.get("options") or [])], F.OPTION_DIM)
     if not live:
@@ -128,6 +127,43 @@ class Data:
         self.tj = np.array([j for _, j in tr], dtype=np.int64)
         ok = (self.choice[self.ti] >= 0) & (self.choice[self.ti] < self.n_opts[self.ti])
         self.ti, self.tj = self.ti[ok], self.tj[ok]
+        # the infection and the death, carried through each life, and the change in Φ over each transition: discounted
+        # Φ after minus Φ before, Φ = 0 once dead. No change in Φ across a character creation (no body before) or a
+        # stretch without a body observation.
+        events, phi, has = self.body_values(metas)
+        self.reward += (events / N.SCALE).astype(np.float32)
+        dead = np.array([m["dead"] for m in metas], dtype=bool)
+        i, j = self.ti, self.tj
+        after = np.where(dead[j], 0.0, self.disc[j] * phi[j])
+        shaped = np.where(has[i] & (has[j] | dead[j]), after - phi[i], 0.0)
+        self.reward[j] += (shaped / N.SCALE).astype(np.float32)
+
+    @staticmethod
+    def body_values(metas):
+        """Per record: the infection or death charged there (points), Φ of its observation, and whether it has one.
+        The infection is carried through each life in file order: the game's flag where a record has it, else the
+        chance from the zombie wounds seen; a death costs what the infection hasn't already charged."""
+        events, phi, has = np.zeros(len(metas)), np.zeros(len(metas)), np.zeros(len(metas), dtype=bool)
+        inf, last = {}, {}
+        for k, m in enumerate(metas):
+            life = m.get("life")
+            if life is None:
+                continue
+            if m.get("new_life"):
+                inf[life], last[life] = 0.0, None
+            p = inf.get(life, 0.0)
+            if m.get("dead"):
+                events[k] = R.DEATH * (1 - p)
+                continue
+            b = m.get("body")
+            if b is None:
+                continue
+            q = R.infected(p, last.get(life), b)
+            if not m.get("resumed"):   # an infection caught while the agent was off isn't charged to it
+                events[k] = R.DEATH * (q - p)
+            inf[life], last[life] = q, b
+            phi[k], has[k] = R.potential(b), True
+        return events, phi, has
 
     def option_rows(self, recs):
         """All option rows of these records, and which of them (0..len(recs)-1) each row belongs to."""
@@ -200,6 +236,15 @@ def verb_values(net, data, last=3000):
     return {v: round(N.SCALE * sums[v] / counts[v], 2) for v in sorted(sums, key=lambda v: -sums[v] / counts[v])}
 
 
+def last_round(log_dir):
+    """The last round in logs/model/history.jsonl, or 0."""
+    try:
+        lines = (Path(log_dir) / "model" / "history.jsonl").read_text(encoding="utf-8").splitlines()
+        return max((json.loads(x).get("round", 0) for x in lines if x.strip()), default=0)
+    except (OSError, ValueError):
+        return 0
+
+
 def train(log_dir, steps=None, fresh=False, quiet=False):
     torch.set_num_threads(THREADS)
     t0 = time.time()
@@ -212,7 +257,7 @@ def train(log_dir, steps=None, fresh=False, quiet=False):
             print(msg, flush=True)
         return {"skipped": msg}
     old, meta = N.load(model_path)
-    rnd = (meta or {}).get("round", 0) + 1
+    rnd = max((meta or {}).get("round", 0), last_round(log_dir)) + 1   # a network set aside keeps the count going
     if (meta or {}).get("reward_v", 1) != R.VERSION:
         old = None   # scores of another reward: start over rather than unlearn them
     net = N.QNet() if fresh or old is None else old

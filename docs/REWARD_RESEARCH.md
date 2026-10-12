@@ -6,8 +6,8 @@ The owner asked how our reward compares with other game-playing networks. Three 
 2. Bandaging, healing and wearing protection should be rewarded, and taking clothes off should cost.
 3. Putting something on and taking it off again must not earn points.
 
-This page covers what the research says and what changes it suggests. **Nothing here is built yet**; the proposal
-in section 4 needs the owner's go-ahead.
+This page covers what the research says and what changes it suggests. The owner's decisions and what was built
+(reward version 3) are in section 6.
 
 ## 1. What comparable agents are rewarded for
 
@@ -50,7 +50,7 @@ never connects the bite to the death that follows it. Raising the death penalty 
 **Fix:** charge the expected death when the wound happens: the chance that it carries the infection × the
 death cost. A bite then costs a whole death at the moment of the bite, a laceration a quarter of one, a scratch
 7%. The same amount comes off the eventual death penalty, so a life never costs more than one death in total.
-This is potential-based shaping (section 3) with potential −death × P(infected).
+(This was first written as potential-based shaping; section 6 explains why it must be a real event instead.)
 
 On a bigger death number: once death outweighs everything else, raising it further leaves its own effect the
 same. What changes is that everything else (being alive, progress, the hints below) weighs relatively less, and
@@ -121,6 +121,47 @@ chooses one about one time in eleven. Version 2 gives no reason not to. The prot
 3. **Look-ahead:** 2 game hours now. OpenAI Five lengthened its horizon as training went on (60 s to 840 s).
    Starvation and infection play out over days here, so lengthening ours once the network survives a few hours
    is a later step.
+
+## 6. Decided and built (2026-10-12): reward version 3
+
+The owner's decisions:
+
+* **Death stays at −1000.** A bigger number doesn't buy more caution once death already outweighs everything
+  else.
+* **Protection is a hint**, and it follows the protection actually worn. In 42.21 a garment's defence drops
+  when a hole opens over a body part, a patch replaces the fabric, or it wears out completely (condition 0):
+  `Clothing.getDefForPart`, `Clothing.getBiteDefense`, `IsoGameCharacter.getBodyPartClothingDefense`. Each drop
+  costs as it happens, which points the network towards better clothing when its own is falling apart.
+
+**A correction found while building:** the infection can't be a potential.
+
+* Potential-based shaping provably leaves the best play unchanged. Here the best play is that of the discounted
+  game, where a death 3 days away is worth almost nothing.
+* As a potential (charged at the bite, refunded at the death), the infection would therefore teach the network,
+  in the limit, to ignore bites just as before.
+* So the infection is a real event: the death is charged once, when the infection happens, and the death
+  itself then costs nothing more. That is still one death per life. Nothing can be farmed, because the
+  infection can't be undone.
+* The reward reads the game's own flag (`BodyDamage:IsInfected`, gym 0.4.20). So a scratch from a tree or a
+  window, which can't infect, costs nothing extra.
+
+Health, untreated wounds and protection are potentials (hints), as proposed, at a tenth of the section 4 sizes
+to match the −1000 death:
+
+* Φ = 2 × (health − 100) − 10 × untreated wounds + 100 × protection.
+* Health counts from 100, so a healthy body costs nothing to keep under discounting.
+
+The network's input (`features.VERSION` 2) gains:
+
+* the protection panel's per-part defence;
+* each garment's defence, holes and patches on its wear and take-off options;
+* its condition, holes, patches and defence band tied to it while worn.
+
+A dry run on a copy of the 43,910 logged decisions:
+
+* charged 1,498 infections (the expected chance, since older records have no flag);
+* left 3% of the death cost at the deaths themselves: nearly every character was bitten before it died;
+* trained a fresh network without errors.
 
 ## Sources
 

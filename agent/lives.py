@@ -31,7 +31,7 @@ class Life:
         self.parts = {}
         self.kills = obs.get("kills", 0)
         self.progress = reward.LifeProgress()
-        reward.start_life(obs, self.progress)
+        self.infected = reward.start_life(obs, self.progress)   # 0-1: the Knox infection (the game's flag, or the chance)
         self.last_obs = obs
         self.last_choice = None
         self.policies = {}     # decisions made by each policy (random, net) in this life
@@ -68,7 +68,7 @@ class Life:
         return {"number": self.number, "name": self.name, "save": self.save, "born": self.born, "age": self.age,
                 "real_s": round(self.real_s, 1), "decisions": self.decisions, "reward": round(self.reward, 4),
                 "parts": self.parts, "kills": self.kills, "last_choice": self.last_choice, "policies": self.policies,
-                "reward_v": self.reward_v,
+                "reward_v": self.reward_v, "infected": self.infected,
                 "items": sorted(self.progress.items), "buildings": sorted(self.progress.buildings),
                 "containers": self.progress.containers, "last_obs": self.last_obs}
 
@@ -82,6 +82,7 @@ class Life:
         life.parts, life.kills, life.last_choice = dict(st.get("parts") or {}), st.get("kills", 0), st.get("last_choice")
         life.policies = dict(st.get("policies") or {})
         life.reward_v = st.get("reward_v", 1)
+        life.infected = float(st.get("infected", 0.0))
         life.progress.items, life.progress.buildings = set(st.get("items") or []), set(st.get("buildings") or [])
         life.progress.containers = int(st.get("containers", 0))
         life.resumed = True
@@ -154,7 +155,10 @@ class Lives:
                 return None, 0.0, {}, False, None
             cur.tick()
             # a death right after a restart still ends the life, but isn't pinned on the last decision
-            r, parts = (0.0, {}) if self.resumed else reward.step(cur.last_obs, {**obs, "dead": True}, cur.progress)
+            if self.resumed:
+                r, parts = 0.0, {}
+            else:
+                r, parts, _ = reward.step(cur.last_obs, {**obs, "dead": True}, cur.progress, inf=cur.infected)
             cur.add(r, parts)
             cur.kills = obs.get("kills", cur.kills)
             cur.age = (obs.get("t") or {}).get("age", cur.age)
@@ -175,11 +179,14 @@ class Lives:
         cur.tick()
         if self.resumed:
             reward.start_life(obs, cur.progress)   # what it got while the agent was off earns no bonus later
+            b = reward.body(obs)
+            if b and b["knox"]:   # an infection caught while the agent was off isn't charged to it
+                cur.infected = 1.0
             r, parts = 0.0, {}
         else:
             last = msg.get("last") or {}
             searched = 1 if last.get("verb") == "search" and last.get("status") == "done" else 0
-            r, parts = reward.step(cur.last_obs, obs, cur.progress, searched)
+            r, parts, cur.infected = reward.step(cur.last_obs, obs, cur.progress, searched, cur.infected)
             cur.add(r, parts)
         cur.last_obs = obs
         cur.kills = obs.get("kills", cur.kills)
