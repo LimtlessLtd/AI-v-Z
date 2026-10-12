@@ -78,6 +78,11 @@ class EncodingTests(unittest.TestCase):
         k = list(F.OPTION_NUMBERS).index("bite")
         self.assertEqual(F.encode_option({"verb": "wear", "bite": 40})[0][k], 0.4)
 
+    def test_unbandage_option_is_tied_to_its_body_part(self):
+        toks = F.encode_option({"verb": "unbandage", "part": "Hand_L"})[1]
+        self.assertIn(F.bucket("verb:unbandage"), toks)
+        self.assertIn(F.bucket("unbandage:part:Hand_L"), toks)
+
     def test_what_the_screen_doesnt_show_stays_out(self):
         self.assertEqual(F.encode_state({"obs": {"health": 87.3}})[0], F.encode_state({"obs": {"health": 82.0}})[0])
         self.assertNotEqual(F.encode_state({"obs": {"health": 87.3}})[0], F.encode_state({"obs": {"health": 40.0}})[0])
