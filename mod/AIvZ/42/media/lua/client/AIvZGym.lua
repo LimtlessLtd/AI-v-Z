@@ -10,15 +10,16 @@
 -- direction, go into a building or another room, attack or shove a zombie, open or close a door, window or
 -- curtain, climb through a window, smash one, clear its glass, search a container, take an item out of one
 -- it has searched, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
--- from a tap, bandage a wound, sleep. Nothing in here judges what's good: the agent learns that from what
--- happens. The doing (pathfinding, swings, the game's timed actions) comes from AIvZ.lua.
--- After a death, it starts a new character in a random town by pressing the game's own buttons in code.
+-- from a tap, bandage a wound, sleep, sneak or stand up. Nothing in here judges what's good: the agent learns
+-- that from what happens. The doing (pathfinding, swings, the game's timed actions) comes from AIvZ.lua.
+-- After a death, it starts a new character in a random building of a random town by pressing the game's own
+-- buttons in code (G.respawnStep, G.spawnPoint).
 
 local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.24"
+G.VERSION = "0.4.25"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -83,7 +84,13 @@ local function zombieView(e)
 	if prev and prev.at == now then return prev.view end   -- observe and options share one view per tick
 	local closing
 	if prev and now - prev.at <= 900 then closing = r1(prev.d - e.d) end
-	local view = { dx = r1(e.dx), dy = r1(e.dy), d = r1(e.d), closing = closing, blocked = e.blocked,
+	-- which way it faces, as a player sees from its body (gym 0.4.25): 1 straight at the character, -1 straight
+	-- away. Its forward direction is what the body shows, not where its AI is headed.
+	local facing
+	local fx, fy = e.z:getForwardDirectionX(), e.z:getForwardDirectionY()
+	local fn = math.sqrt(fx * fx + fy * fy)
+	if fn > 0 and e.d > 0 then facing = r1(-(fx * e.dx + fy * e.dy) / (fn * e.d)) end
+	local view = { dx = r1(e.dx), dy = r1(e.dy), d = r1(e.d), closing = closing, blocked = e.blocked, facing = facing,
 		down = try(function() return e.z:isOnFloor() end) == true }
 	GS.zprev[e.z] = { d = e.d, at = now, view = view }
 	return view
@@ -334,6 +341,8 @@ function G.observe(p, dead)
 	local l = squareLight(p:getCurrentSquare(), p:getPlayerNum())
 	o.light = { known = l ~= nil, here = l and r2(l) or nil }
 	o.asleep = try(function() return p:isAsleep() end) == true
+	-- the character's own stance, as the player sees it (gym 0.4.25)
+	o.sneaking, o.running = p:isSneaking() == true, (p:isRunning() or p:isSprinting()) == true
 	o.weather = { rain = r2(try(function() return cm:getRainIntensity() end) or 0) }   -- no temperature: only a digital clock shows it (o.clock.temp)
 	o.weight, o.maxWeight = r1(p:getInventory():getCapacityWeight()), r1(p:getMaxWeight())
 	local held = p:getPrimaryHandItem()
@@ -484,6 +493,9 @@ function G.options(p)
 	if cur and cur.status == "running" then add(list, "continue", { what = cur.verb, age = tick() - cur.t0 }) end
 	add(list, "wait", {})
 	add(list, "rest", {})
+	-- the C key (IsoPlayer.updateSneakKey toggles setSneaking): crouch and sneak, or stand back up. It stays as
+	-- chosen while the character walks (more slowly when sneaking) until changed. Not in a vehicle.
+	if not p:getVehicle() then add(list, p:isSneaking() and "stand" or "sneak", {}) end
 	local zs = visibleZombies(p, 30)
 	for _, d in ipairs(DIRS) do
 		local n = zombiesToward(zs, d[1])
@@ -806,6 +818,16 @@ G.X.rest = {
 	start = function(p) pcall(function() p:reportEvent("EventSitOnGround") end) end,
 	step = function(p, t) if tick() - t.t0 > 600 then U.done(t) end end,
 }
+local function stance(on)
+	return {
+		start = function(p) p:setSneaking(on) end,
+		step = function(p, t)
+			if tick() - t.t0 < 10 then return end
+			if p:isSneaking() == on then U.done(t) else U.fail(t, "didn't change") end
+		end,
+	}
+end
+G.X.sneak, G.X.stand = stance(true), stance(false)
 local function arrived(p, t) if t.to and dist(p, t.to[1] + 0.5, t.to[2] + 0.5) > 1.5 then return "stopped short" end end
 local function walkStart(n, running)
 	return function(p, t, o)

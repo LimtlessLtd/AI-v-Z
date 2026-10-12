@@ -115,6 +115,8 @@ perceivable now), **gap** (perceivable but missing).
 | `inv[]` coverage | first 40 non-held, non-hidden items (`AIvZGym.lua:184-187`) | gap: more items are visible in the inventory window | Page or summarise instead of truncating |
 | `zombies[]` | `visibleZombies` (`AIvZGym.lua:52-61`): `isCanSee(0)` and `getLightLevel ≥ 0.2` or within 1.5 tiles | proxy that disagrees with the game's rule (see 1) | Use membership of `p:getSpottedList()` (filter `instanceof(o, "IsoZombie")`), or `z:getTargetAlpha(pn) > 0` |
 | `zombies[].closing` | per-object memory in `GS.zprev` (`AIvZGym.lua:66-76`) for up to 900 ticks | **leak**: identity is kept across occlusion through the Java object, which a player cannot do for a look-alike zombie that left view | Reset `GS.zprev[z]` whenever `z` is not on the spotted list |
+| `zombies[].facing` | gym 0.4.25: the zombie's `getForwardDirectionX/Y` against the direction to the character, 1 facing it, -1 facing away | ok (a player sees which way a zombie's body faces; the AI's target stays hidden) | — |
+| `sneaking`, `running` | gym 0.4.25: `isSneaking()`, `isRunning() or isSprinting()` of the character | ok (a player sees their own stance) | — |
 | `zombies[].blocked` | `IsoGridSquare:isBlockedTo` on the first step (`AIvZ.lua:422-430`) | ok (a wall or door between is visible) | — |
 | `where.outside` | `IsoGameCharacter:isOutside()` | ok | — |
 | `where.room` | `IsoRoom:getName()` (map data, e.g. `kitchen`) | proxy (the label is not displayed; the furniture is) | Keep only for the room the character is in |

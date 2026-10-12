@@ -105,7 +105,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.3 (gym 0.4.24)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.3 (gym 0.4.25)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -142,8 +142,8 @@ baseline within ~6 s.
 **How it learns.** The network (`agent/net.py`, about 0.7 M weights, PyTorch on the CPU) gives every option
 on offer a score, Q: the reward it expects to follow from picking that option now. It sees what a player
 sees: the moodles first, then wounds, health, the zombies in view and which way each one is, light, what it
-carries and holds, the place and its open doors and windows, the time only when it wears a watch, and how its
-last action went (`agent/features.py` lists every input, and what's kept out). Each option with a direction
+carries and holds, the place and its open doors and windows, whether it is sneaking or running and which way each
+close zombie faces, the time only when it wears a watch, and how its last action went (`agent/features.py` lists every input, and what's kept out). Each option with a direction
 (walk, run, enter, go to a room, attack, and doors, windows and curtains) also says how close the nearest zombie
 that way is. It mostly picks the top-rated options (`--temperature`, default 0.25 since 2026-10-12, 0.5 before) and
 one pick in ten at random (`--explore 0.1`), so it keeps trying things it rates low. While an action runs, it is
@@ -299,8 +299,10 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
-- **Gym 0.4.23-0.4.24 (mod 0.5.3) are not yet run in the game.** Gym 0.4.24 starts a new life in a random building
-  of the picked town (see Lives above). Gym 0.4.23 asks at once when a zombie it can see comes within
+- **Gym 0.4.23-0.4.25 (mod 0.5.3) have only just started running in the game.** Gym 0.4.25 adds sneaking and
+  standing up as options, and gives the network its own stance and which way each zombie in sight faces (not yet
+  run in the game). Gym 0.4.24 starts a new life in a random building of the picked town (see Lives above): the
+  first 4 lives after the hot reload at 13:31 started on 4 new squares in 3 towns. Gym 0.4.23 asks at once when a zombie it can see comes within
   4 tiles (gym 0.4.21-0.4.22 left that to the steady rate, so a zombie that appeared 2 tiles away could bite before
   the next decision), gives doors, windows and curtains a direction, and keeps your speed pick across a game restart
   and an F2 unpause. The Lua compiles with the game's own compiler, and every method name exists in the game

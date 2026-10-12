@@ -110,6 +110,27 @@ class EncodingTests(unittest.TestCase):
         dark = {**OBS, "zombies": []}   # a zombie the gym doesn't list (unseen) can't show up
         self.assertEqual(F.encode_option(walk_n, dark)[0][-2:], [0.0, 0.0])
 
+    def test_stance_and_zombie_facing_go_in_as_tokens(self):
+        """Gym 0.4.25: the character's own stance and which way the zombies in sight face, as tokens (the dense
+        layout, and with it the trained network, stays as it is)."""
+        z = {"d": 2.0, "dx": 0.0, "dy": -2.0}
+        at_me = {**OBS, "zombies": [{**z, "facing": 0.9}]}
+        away = {**OBS, "zombies": [{**z, "facing": -0.8}]}
+        s1, s2 = F.encode_state({"obs": at_me}), F.encode_state({"obs": away})
+        self.assertEqual(s1[0], s2[0])
+        self.assertNotEqual(s1[1], s2[1])
+        self.assertIn(F.bucket("zombie:facing:toward:close"), s1[1])
+        self.assertIn(F.bucket("zombie:facing:away:close"), s2[1])
+        far = {**OBS, "zombies": [{"d": 15.0, "dx": 0.0, "dy": -15.0, "facing": 0.9}]}
+        self.assertNotIn(F.bucket("zombie:facing:toward:mid"), F.encode_state({"obs": far})[1])
+        sneaking = F.encode_state({"obs": {**OBS, "sneaking": True}})
+        self.assertIn(F.bucket("self:sneaking"), sneaking[1])
+        self.assertEqual(sneaking[0], F.encode_state({"obs": OBS})[0])
+        self.assertEqual(len(sneaking[0]), F.STATE_DIM)
+        hit = {"verb": "attack", "d": 1.0, "dx": 1.0, "dy": 0.0, "facing": -0.5}
+        self.assertIn(F.bucket("attack:facing:away"), F.encode_option(hit)[1])
+        self.assertEqual([F.facing_word(x) for x in (1.0, 0.7, 0.2, -0.3, -1.0)], ["toward", "toward", "side", "away", "away"])
+
     def test_open_doors_and_windows_seen_go_in(self):
         shut = {**OBS, "where": {"building": "b1", "doorsOpen": 0, "windowsOpen": 0}}
         open_ = {**OBS, "where": {"building": "b1", "doorsOpen": 2, "windowsOpen": 1}}
