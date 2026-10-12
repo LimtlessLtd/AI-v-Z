@@ -281,6 +281,9 @@ class TraitRuleLuaTest(unittest.TestCase):
         self.assertIn("inv:mag:Base.9mmClip", toks)
         self.assertIn("inv:jammed", toks)
         self.assertIn("inv:holes:2", F.item_status_tokens(vest, "inv"))
+        self.assertIn("inv:ammo_level:0", F.item_status_tokens(dict(gun, loaded=3), "inv"))   # 3 of 15
+        self.assertIn("inv:ammo_level:0", F.item_status_tokens(dict(gun, loaded=0), "inv"))   # empty is not full
+        self.assertIn("inv:ammo_level:3", F.item_status_tokens(dict(gun, loaded=15), "inv"))
         self.assertEqual(F.item_status_tokens({"type": "Base.Axe"}, "held"), [])
         base = {"obs": dict(OBS, inv=[gun, vest])}
         v0, _ = F.encode_state({"obs": dict(OBS, inv=[])})
