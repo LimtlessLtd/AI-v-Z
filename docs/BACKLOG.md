@@ -52,7 +52,7 @@ Agents leave these alone until the owner decides; then the item moves into the l
 | 6 | G14b | **Barricade a window or door** (hammer, planks and nails). Disassembling furniture, which the owner asked about and which gives planks and nails, is done (gym 0.4.29, not yet run in the game). | local | Barricading starts a cursor in the menu: `ISWorldObjectContextMenu.onBarricade(spriteName, playerObj)` → `ISBuildIsoEntity` (GAP_LIST items 9 and 14); find the timed action the cursor queues and call it with the window directly, as the gym does for the other menu entries. |
 | **Wrong data: fix what the network already learns from** | | | | |
 | 7 | G2, G5 | `exercise` moves the equipment into the hands (it often ends "no effort spent"); `engine_on` follows the radial menu (keys, hotwire). | cloud | APIs cited in [GAP_LIST.md](GAP_LIST.md) items 2 and 5. **G5 key check done** (gym 0.4.30, not yet run in the game): `engine_on` is offered only when `isEngineWorking()`, the engine is not running or started, and `VehicleEasyUse`, the key, keys in the ignition or a hotwire applies. Left: Hotwire (`ISVehicleMenu.onHotwire`) needs the Electricity/Mechanics level and Burglar trait calls, which no repo doc cites: needs the game's files (`ISVehicleMenu.lua:106-120`). **G2 left:** the `equipItems` hand-off; needs the game's files: the source of `ISFitnessUI:equipItems` (which hand and two-handed flag per exercise). G4 `drink` is done (gym 0.4.28, not yet run in the game; local check: `FluidType.Bleach` is matched by the name "Bleach" from `getFluidTypeString()`, so bleach may not be offered if the string differs). |
-| 8 | G7 | Verb prerequisites the menus apply (smash on open windows, clear_glass, equip, rest, drop, take, drink_tap, enter). | cloud | Listed under [Found in the 42.21 audit](#found-in-the-4221-audit-not-fixed-2026-10-11). |
+| 8 | G7 | Verb prerequisites the menus apply. Done in the gym (0.4.32, not run in the game): smash, clear_glass, drop favourites, drink_tap, enter, rest while sitting or in a vehicle. Left: equip hands and wounds, standing up and furniture rests, drop in a shut vehicle, take via `ISInventoryTransferUtil`. | cloud | Each left piece needs the game's files for its call (no repo doc cites the wound or vehicle-door test). Listed under [Found in the 42.21 audit](#found-in-the-4221-audit-not-fixed-2026-10-11). |
 | 9 | L1, L11, L12 | Leaks left in the gym: raw `stats` in `obs.json` (never read by the network), the `enter` macro's window choice by lock state, the zombie visibility proxy instead of `getSpottedList()`. | cloud, then local | OBSERVATION_AUDIT.md section 5; the visibility change needs a live comparison. |
 | 10 | G6 | The trait screen as the game shows it: `PointToSpend()`, Next only when enabled, profession choice. Keeps the owner's option B rule. | cloud | GAP_LIST item 6. |
 | **Care and supplies** | | | | |
@@ -488,22 +488,18 @@ game (item N5):
   * no profession choice
   * traits are removed in a way the screen doesn't offer
 
-**Verb prerequisites (G7):**
+**Verb prerequisites (G7):** most are done in the gym (checked against the code on 2026-10-12, not run in the game):
 
-* `smash` is offered for open windows.
-* `clear_glass` doesn't check for an item in the primary hand.
-* `equip`:
-  * offers only weapons
-  * doesn't check hand wounds or fractures
-  * has no secondary hand or both hands
-* `rest`:
-  * is offered in a vehicle or already sitting
-  * can't stand up
-  * can't rest on furniture
-* `drop` drops favourites, and works in a vehicle with the doors and windows shut.
-* `take` doesn't use `ISInventoryTransferUtil` (corpse items).
-* `drink_tap` keeps the nearest 5 before filtering by visibility.
-* `enter` truncates to 16 buildings before filtering.
+* Done: `smash` only for closed windows (`AIvZGym.lua` window options), `clear_glass` only with an item in the
+  primary hand, `drop` skips favourites, `drink_tap` filters by visibility before keeping 2, `enter` filters to
+  buildings seen or visited before keeping 5. `rest` is offered only when not in a vehicle and not already
+  sitting (gym 0.4.32).
+* Left, needs the game's files (no repo doc cites the call):
+  * `equip`: offers only weapons; doesn't check hand wounds or fractures; has no secondary hand or both hands
+    (`ISInventoryPaneContextMenu.OnSecondWeapon`/`OnTwoHandsEquip`, GAP_LIST item 7).
+  * `rest`: can't stand up or rest on furniture (`ISWorldObjectContextMenu.onRest`).
+  * `drop` in a vehicle with the doors and windows shut.
+  * `take` doesn't use `ISInventoryTransferUtil` (corpse items).
 
 **Missing families (gap list items 8-23):**
 

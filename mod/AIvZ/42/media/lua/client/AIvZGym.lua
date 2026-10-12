@@ -20,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.31"
+G.VERSION = "0.4.32"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -556,7 +556,11 @@ function G.options(p)
 	local cur = GS.cur
 	if cur and cur.status == "running" then add(list, "continue", { what = cur.verb, age = tick() - cur.t0 }) end
 	add(list, "wait", {})
-	add(list, "rest", {})
+	-- sitting down: not in a vehicle and not already sitting (the fitness screen's own test, GAP_LIST item 2;
+	-- the calls are the ones AIvZ.lua already makes)
+	if not p:getVehicle() and not (try(function() return p:isSitOnGround() or p:isSittingOnFurniture() end) == true) then
+		add(list, "rest", {})
+	end
 	-- the C key (IsoPlayer.updateSneakKey toggles setSneaking): crouch and sneak, or stand back up. It stays as
 	-- chosen while the character walks (more slowly when sneaking) until changed. Not in a vehicle.
 	if not p:getVehicle() then add(list, p:isSneaking() and "stand" or "sneak", {}) end
