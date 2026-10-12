@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.39"
+G.VERSION = "0.4.41"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -343,6 +343,7 @@ function G.observe(p, dead)
 	o.asleep = try(function() return p:isAsleep() end) == true
 	-- the character's own stance, as the player sees it (gym 0.4.25)
 	o.sneaking, o.running = p:isSneaking() == true, (p:isRunning() or p:isSprinting()) == true
+	o.sitting = p:isSitting() == true   -- visible body posture, gym 0.4.41; a hashed token in features.py
 	o.dragging = p:isDraggingCorpse() == true   -- a corpse in tow (gym 0.4.35)
 	o.weather = { rain = r2(try(function() return cm:getRainIntensity() end) or 0) }   -- no temperature: only a digital clock shows it (o.clock.temp)
 	o.weight, o.maxWeight = r1(p:getInventory():getCapacityWeight()), r1(p:getMaxWeight())
@@ -653,6 +654,9 @@ function G.options(p)
 	local cur = GS.cur
 	if cur and cur.status == "running" then add(list, "continue", { what = cur.verb, age = tick() - cur.t0 }) end
 	add(list, "wait", {})
+	-- shared/TimedActions/ISWaitWhileGettingUp.lua and ISContextMenu:onGetUpAndThen (42.21):
+	-- a separate Get Up choice for a seated character; `stand` below only ends sneaking.
+	if p:isSitting() then add(list, "get_up", {}) end
 	-- sitting down: not in a vehicle and not already sitting (the fitness screen's own test, GAP_LIST item 2;
 	-- the calls are the ones AIvZ.lua already makes)
 	if not p:getVehicle() and not (try(function() return p:isSitOnGround() or p:isSittingOnFurniture() end) == true) then
@@ -1120,6 +1124,10 @@ G.X = {}
 G.hooks = G.hooks or {}   -- name -> function(p, list, add, count) adding options
 G.queueStep, G.has, G.worn = queueStep, has, worn
 G.X.wait = { start = function() end, step = function(p, t) if tick() - t.t0 > 120 then U.done(t) end end }
+G.X.get_up = {
+	start = function(p) Q(ISWaitWhileGettingUp:new(p)) end,
+	step = queueStep(600, function(p) if p:isSitting() then return "still sitting" end end),
+}
 -- On a bed: ISWorldObjectContextMenu.onRest, the game's path to a place on it (ISPathFindAction:pathToSitOnFurniture)
 -- and then ISRestAction; when no place is free it goes next to it and sits on the ground (onRestPathFailed)
 G.X.rest = {

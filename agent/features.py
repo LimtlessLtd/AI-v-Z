@@ -257,6 +257,8 @@ def encode_state(msg):
         toks.append("self:sneaking")
     if obs.get("running"):
         toks.append("self:running")
+    if obs.get("sitting"):   # gym 0.4.41: visible posture, including ground and furniture
+        toks.append("self:sitting")
     if obs.get("dragging"):   # gym 0.4.35
         toks.append("self:dragging")
     for z in zs:
