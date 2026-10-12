@@ -330,6 +330,14 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.42 follows the game's furniture Rest completion.** It gets up before changing seats and
+  ends the command once the game's queue finishes sitting, instead of keeping it running another
+  ten real seconds. It reports the ground fallback and includes visible furniture posture as a token
+  after an agent restart. Installed 42.21 source audit and all 125 tests pass; live checks remain open.
+  [Backlog check and learning results](docs/BACKLOG_CHECK_2026-10-12.md): the first 1,396 decisions
+  after the preceding getting-up fix had no immediate path failures. The newest nine reward-4 lives
+  have median survival 6.25 game hours, but bandaging is still rarely chosen and the sample is small.
+
 - **Getting up after a rest (mod 0.5.8 / gym 0.4.41):** the old `stand` option only stopped sneaking.
   Many walks after a rest worked, but one bed rest left a character seated with hundreds of immediate
   "no way there" failures. Common movement paths now wait for the game's getting-up action first, as

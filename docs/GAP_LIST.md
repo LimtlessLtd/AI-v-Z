@@ -98,6 +98,15 @@ menu does since gym 0.4.37 (before: the name from `getFluidTypeString()`).
 
 ### 7. Small prerequisite fixes in existing verbs
 
+**Remaining furniture audit complete, gym 0.4.42 ([PR #82](https://github.com/LimtlessLtd/AI-v-Z/pull/82)):**
+`J:ISWorldObjectContextMenuLogic.fetch` (1639-1667) populates the menu's bed field only for the bed
+sprite flag. `createMenuEntries` (2626-2672) passes it to `doBedMenu`; Rest is added before chairCheck
+suppresses Sleep. There is no extra Rest entry for a chair without the bed flag. The gym now follows
+`doBedMenu`'s get-up wrapper when changing seats, ends Rest with the game's queue and reports ground
+fallbacks. Detailed sources and the remaining live checks are in
+[BACKLOG_CHECK_2026-10-12.md](BACKLOG_CHECK_2026-10-12.md). General equip choices and secondary-hand
+variants remain part of the broader action limits (backlog row 10).
+
 **Sitting follow-up (2026-10-12):** Mod 0.5.8 waits for getting up before common movement paths;
 gym 0.4.41 adds `get_up` and visible `obs.sitting` (a hashed token). Sources:
 `client/ISUI/ISContextMenu.lua:onGetUpAndThen` (1046),
