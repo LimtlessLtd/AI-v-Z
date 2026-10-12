@@ -35,6 +35,7 @@ class Life:
         self.last_obs = obs
         self.last_choice = None
         self.policies = {}     # decisions made by each policy (random, net) in this life
+        self.reward_v = reward.VERSION   # the reward version its total is in (a life restored from before a change keeps the old one)
         self.resumed = False   # restored from agent-state.json; cleared by the first observation after it
 
     def hours(self):
@@ -56,7 +57,7 @@ class Life:
                 "reward": round(self.reward, 2), "parts": self.parts, "decisions": self.decisions,
                 "real_minutes": round(self.real_s / 60, 1),
                 "items_seen": len(self.progress.items), "buildings": len(self.progress.buildings),
-                "last_choice": self.last_choice, "policy": self.policy(), "policies": self.policies,
+                "last_choice": self.last_choice, "policy": self.policy(), "policies": self.policies, "reward_v": self.reward_v,
                 "finished": datetime.now().isoformat(timespec="seconds")}
 
     def policy(self):
@@ -67,6 +68,7 @@ class Life:
         return {"number": self.number, "name": self.name, "save": self.save, "born": self.born, "age": self.age,
                 "real_s": round(self.real_s, 1), "decisions": self.decisions, "reward": round(self.reward, 4),
                 "parts": self.parts, "kills": self.kills, "last_choice": self.last_choice, "policies": self.policies,
+                "reward_v": self.reward_v,
                 "items": sorted(self.progress.items), "buildings": sorted(self.progress.buildings),
                 "containers": self.progress.containers, "last_obs": self.last_obs}
 
@@ -79,6 +81,7 @@ class Life:
         life.decisions, life.reward = int(st.get("decisions", 0)), float(st.get("reward", 0))
         life.parts, life.kills, life.last_choice = dict(st.get("parts") or {}), st.get("kills", 0), st.get("last_choice")
         life.policies = dict(st.get("policies") or {})
+        life.reward_v = st.get("reward_v", 1)
         life.progress.items, life.progress.buildings = set(st.get("items") or []), set(st.get("buildings") or [])
         life.progress.containers = int(st.get("containers", 0))
         life.resumed = True

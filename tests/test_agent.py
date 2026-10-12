@@ -45,25 +45,43 @@ class RewardTests(unittest.TestCase):
         self.progress = reward.LifeProgress()
         reward.start_life(OBS, self.progress)
 
-    def test_staying_alive_pays_a_little(self):
+    def test_staying_alive_pays_steadily(self):
         r, parts = reward.step(OBS, later(OBS, 10), self.progress)
-        self.assertAlmostEqual(parts["alive"], 1.0, places=2)
-        self.assertAlmostEqual(r, 1.0, places=2)
+        self.assertAlmostEqual(parts["alive"], 10.0, places=2)
+        self.assertAlmostEqual(r, 10.0, places=2)
 
-    def test_hunger_hurts_more_the_worse_it_gets(self):
-        _, mild = reward.step(later(OBS, moodles={"hungry": 1}), later(OBS, 10, moodles={"hungry": 1}), self.progress)
-        _, severe = reward.step(later(OBS, moodles={"hungry": 3}), later(OBS, 10, moodles={"hungry": 3}), self.progress)
-        self.assertLess(severe["discomfort"], mild["discomfort"] * 5)   # 9x the level^2
-        self.assertLess(severe["discomfort"] + severe["alive"], 0)       # severe hunger outweighs being alive
+    def test_feeling_bad_costs_nothing(self):
+        bad = {"hungry": 3, "thirst": 3, "panic": 4, "pain": 3, "stress": 2, "wet": 2}
+        r, parts = reward.step(later(OBS, moodles=bad), later(OBS, 10, moodles=bad), self.progress)
+        self.assertEqual(set(parts), {"alive"})
 
-    def test_bleeding_and_lost_health_cost(self):
-        hurt = later(OBS, 1, health=90, body=[{"part": "Hand_L", "flags": ["bleeding"]}])
-        _, parts = reward.step(OBS, hurt, self.progress)
-        self.assertAlmostEqual(parts["health"], -2.0)
-        self.assertLess(parts["bleeding"], 0)
-        bandaged = later(OBS, 1, health=90, body=[{"part": "Hand_L", "flags": ["bleeding", "bandaged"]}])
-        _, parts = reward.step(OBS, bandaged, reward.LifeProgress())
-        self.assertNotIn("bleeding", parts)
+    def test_lost_health_and_new_wounds_cost(self):
+        cut = later(OBS, 1, health=90, body=[{"part": "Hand_L", "flags": ["bleeding", "laceration"]}])
+        _, parts = reward.step(OBS, cut, self.progress)
+        self.assertAlmostEqual(parts["hurt"], -20.0)    # 10 health
+        self.assertAlmostEqual(parts["wounds"], -20.0)  # a laceration
+        bandaged = later(cut, 1, body=[{"part": "Hand_L", "flags": ["bleeding", "laceration", "bandaged"]}])
+        _, parts = reward.step(cut, bandaged, self.progress)
+        self.assertEqual(set(parts), {"alive"})          # the same wound under a bandage isn't new
+        healing = later(bandaged, 1, health=95)
+        self.assertNotIn("hurt", reward.step(bandaged, healing, self.progress)[1])   # healing earns nothing back
+        bitten = later(healing, 1, body=bandaged["body"] + [{"part": "ForeArm_R", "flags": ["bite", "bleeding"]}])
+        self.assertAlmostEqual(reward.step(healing, bitten, self.progress)[1]["wounds"], -reward.WOUNDS["bite"])
+
+    def test_a_death_outweighs_a_long_life_and_all_its_damage(self):
+        self.assertGreater(-reward.DEATH, reward.ALIVE_PER_MIN * 16 * 60)
+        self.assertGreater(-reward.DEATH, reward.HURT_PER_HP * 100 + sum(reward.WOUNDS.values()))
+
+    def test_version_1_records_are_rescored(self):
+        v1 = {"reward": -5.6, "obs": later(OBS, 10, body=[{"part": "Hand_L", "flags": ["bite"]}]),
+              "parts": {"alive": 1.0, "health": -2.0, "discomfort": -5.0, "bleeding": -0.1, "new_building": 0.5}}
+        # 10 minutes alive, 10 health lost, a new building; discomfort and bleeding dropped; the bite seen against OBS
+        self.assertEqual(reward.rescore(v1, OBS), (10 - 20 + 5 - 50, 10.0))
+        self.assertEqual(reward.rescore(v1), (10 - 20 + 5, 10.0))   # no earlier observation: no wounds
+        self.assertEqual(reward.rescore({"dead": True, "reward": -20.0, "parts": {"death": -20.0}}), (reward.DEATH, 0.0))
+        self.assertEqual(reward.rescore({**v1, "resumed": True}, OBS), (0.0, 0.0))
+        now = {"reward": 7.0, "parts": {"alive": 7.0}, "reward_v": reward.VERSION}
+        self.assertEqual(reward.rescore(now, OBS), (7.0, 7.0))
 
     def test_progress_counts_once(self):
         with_bat = later(OBS, 1, inv=OBS["inv"] + [{"name": "Baseball Bat", "type": "BaseballBat", "cat": "weapon"}],
@@ -141,7 +159,7 @@ class LivesTests(unittest.TestCase):
             self.assertAlmostEqual(life.reward, total)
             life, r, parts, *_ = again.observe({"id": 4, "obs": later(bat, 10), "options": OPTIONS})
             self.assertFalse(again.resumed)
-            self.assertAlmostEqual(parts["alive"], 1.0, places=2)
+            self.assertAlmostEqual(parts["alive"], 10.0, places=1)
             self.assertNotIn("new_items", parts)   # the bat came while the agent was off
             _, _, _, _, rec = again.observe({"id": 5, "dead": True, "obs": {"dead": True, "kills": 1, "t": {"age": 29.0}}})
             self.assertEqual((rec["life"], rec["ended"], rec["hours"]), (1, "died", 3.0))
@@ -251,7 +269,8 @@ class AgentLoopTests(unittest.TestCase):
                 with gzip.open(f, "rt", encoding="utf-8") as g:
                     lines += [json.loads(x) for x in g if x.strip()]
             self.assertEqual([x["id"] for x in lines], [1, 2, 3])
-            self.assertAlmostEqual(lines[1]["parts"]["alive"], 0.5, places=2)
+            self.assertAlmostEqual(lines[1]["parts"]["alive"], 5.0, places=2)
+            self.assertEqual(lines[1]["reward_v"], reward.VERSION)
             self.assertTrue(lines[2]["dead"])
             self.assertEqual(lines[2]["reward"], reward.DEATH)
             snap = a.snapshot()

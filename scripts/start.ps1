@@ -8,7 +8,9 @@ Set-Location $repo
 
 if (-not $NoPull) {
   if (git status --porcelain) { Write-Warning "Local changes present; skipping git pull." }
-  else { git pull --ff-only origin main }
+  # the checked-out branch (phase4-learning while Phase 4 is in progress), not always main: pulling main left the
+  # game on gym 0.4.9 while 15 PRs had been merged into phase4-learning (docs/BACKLOG.md N5)
+  else { git pull --ff-only }
 }
 
 # idempotent: prints 'Already installed' when the junction exists

@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from agent import features as F  # noqa: E402
+from agent import reward as R  # noqa: E402
 from test_agent import OBS, OPTIONS, later  # noqa: E402
 
 # the encoding tests need nothing extra; the network's need PyTorch (on the owner's PC, not always in the cloud)
@@ -32,7 +33,7 @@ def life_records(life, n, start_id=1, die=True):
         o = later(obs, 5 * k)
         recs.append({"life": life, "id": start_id + k, "reason": "done", "obs": o, "options": OPTIONS,
                      "last": {"verb": "wait", "status": "done"}, "choice": k % len(OPTIONS), "reward": 0.5 if k else 0.0,
-                     "dead": False, "new_life": k == 0, "resumed": False})
+                     "parts": {"alive": 0.5} if k else {}, "dead": False, "new_life": k == 0, "resumed": False})
     if die:
         recs.append({"life": life, "id": start_id + n, "reason": "died", "obs": {"dead": True}, "options": [],
                      "reward": -20.0, "dead": True, "new_life": False, "resumed": False})
@@ -141,9 +142,9 @@ class NetworkTests(unittest.TestCase):
             for k in range(8):
                 c = rng.randrange(len(OPTIONS))
                 recs.append({"life": life, "reason": "done", "obs": later(OBS, 5 * k), "options": OPTIONS, "choice": c,
-                             "reward": 0.0, "dead": False, "new_life": k == 0, "resumed": False})
+                             "reward": 0.0, "reward_v": R.VERSION, "dead": False, "new_life": k == 0, "resumed": False})
                 if k:
-                    recs[-1]["reward"] = 1.0 if recs[-2]["choice"] == 0 else -1.0
+                    recs[-1]["reward"] = 100.0 if recs[-2]["choice"] == 0 else -100.0
         with tempfile.TemporaryDirectory() as tmp:
             write_experience(tmp, recs)
             rec = learn.train(tmp, steps=400, quiet=True)
@@ -155,6 +156,28 @@ class NetworkTests(unittest.TestCase):
             self.assertEqual(q.index(max(q)), 0, q)
             rec2 = learn.train(tmp, steps=50, quiet=True)   # the next round carries on from the saved network
             self.assertEqual(rec2["round"], 2)
+            self.assertFalse(rec2["fresh"])
+
+    def test_old_experience_is_rescored_and_discounted_by_game_time(self):
+        """Version 1 records (life_records: 5 game minutes apart, death -20) are read under the current reward."""
+        from agent import learn, net as N
+        with tempfile.TemporaryDirectory() as tmp:
+            write_experience(tmp, life_records(1, 3))
+            data = learn.Data(tmp)
+            self.assertAlmostEqual(float(data.reward[3]), R.DEATH / N.SCALE, places=5)
+            alive = R.ALIVE_PER_MIN * (1 - learn.GAMMA ** 5) / (1 - learn.GAMMA)   # 5 minutes, paid minute by minute
+            self.assertAlmostEqual(float(data.reward[1]), alive / N.SCALE, places=5)
+            self.assertAlmostEqual(float(data.disc[1]), learn.GAMMA ** 5, places=5)
+            self.assertAlmostEqual(learn.GAMMA ** learn.HALF_LIFE_MIN, 0.5, places=6)
+
+    def test_a_network_of_another_reward_is_set_aside(self):
+        from agent import learn, net as N
+        with tempfile.TemporaryDirectory() as tmp:
+            write_experience(tmp, sum((life_records(n, 8) for n in range(1, 41)), []))
+            N.save(N.QNet(), Path(tmp) / "model" / "qnet.pt", round=31)   # saved under reward version 1
+            rec = learn.train(tmp, steps=20, quiet=True)
+            self.assertTrue(rec["fresh"])
+            self.assertEqual((rec["round"], rec["reward_v"]), (32, R.VERSION))
 
 
 @needs_torch
