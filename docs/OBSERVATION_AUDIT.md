@@ -113,7 +113,7 @@ perceivable now), **gap** (perceivable but missing).
 | `inv[].dmg`, `cond`, `range`, `twoHand` | `HandWeapon:getMaxDamage/getCondition/getMaxRange/isTwoHandWeapon` | ok (weapon tooltip shows damage, condition, range, "limited impact one-handed") | — |
 | `inv[].raw`, `rotten`, `cooked`, `hunger`, `thirst`, `unhappy` | `Food` getters | ok (tooltip and name) | — |
 | `inv[]` coverage | first 40 non-held, non-hidden items (`AIvZGym.lua:184-187`) | gap: more items are visible in the inventory window | Page or summarise instead of truncating |
-| `zombies[]` | Since gym 0.4.43, `visibleZombies` filters by the current player's `getSpottedList()` membership | Game's spotting result (section 1); existing alive/floor/radius checks retained | Replaced the square/light proxy in [PR #83](https://github.com/LimtlessLtd/AI-v-Z/pull/83); post-reload comparison pending |
+| `zombies[]` | Since gym 0.4.43, `visibleZombies` filters by the current player's `getSpottedList()` membership | Game's spotting result (section 1); existing alive/floor/radius checks retained | Replaced the square/light proxy in [PR #83](https://github.com/LimtlessLtd/AI-v-Z/pull/83); 98 post-reload samples matched, 77 nonempty, 391 appearances each |
 | `zombies[].closing` | per-object memory in `GS.zprev` (`AIvZGym.lua:66-76`) for up to 900 ticks | **leak**: identity is kept across occlusion through the Java object, which a player cannot do for a look-alike zombie that left view | Reset `GS.zprev[z]` whenever `z` is not on the spotted list |
 | `zombies[].facing` | gym 0.4.25: the zombie's `getForwardDirectionX/Y` against the direction to the character, 1 facing it, -1 facing away | ok (a player sees which way a zombie's body faces; the AI's target stays hidden) | — |
 | `sneaking`, `running` | gym 0.4.25: `isSneaking()`, `isRunning() or isSprinting()` of the character | ok (a player sees their own stance) | — |
@@ -198,7 +198,8 @@ perceivable now), **gap** (perceivable but missing).
     [BACKLOG_CHECK_2026-10-12.md](BACKLOG_CHECK_2026-10-12.md) found extra zombies in 330 of 8,520
     samples and missing ones in 66. Observations, option targets, directional counts and close-zombie
     triggers all use the same corrected helper; the baseline's threat detection stays separate.
-    Installed game compiler/method checks pass. After-reload comparison is still needed.
+    Installed game compiler/method checks pass. After reload, 98 sampled decisions (77 nonempty)
+    matched exactly, with 391 zombie appearances on each list and no extras or omissions.
 
 ## 6. Perceivable things the agent does not get (gaps, not leaks)
 

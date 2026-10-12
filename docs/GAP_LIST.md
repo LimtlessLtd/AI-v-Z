@@ -84,6 +84,13 @@ conditions in 0.4.30), not yet run in the game. Drink (item 4) compares `getFlui
 menu does since gym 0.4.37 (before: the name from `getFluidTypeString()`).
 
 ### 6. Trait points and profession (AIvZGymActions.lua:203-330, AIvZGym.lua:934-940)
+
+**Implemented in gym 0.4.44 ([PR #84](https://github.com/LimtlessLtd/AI-v-Z/pull/84)):** the real
+profession list is a first creation stage; `onSelectProf` applies the selected definition. Points
+already use `PointToSpend()`. Next now also requires the real button enabled and known nonnegative
+points, and debt repair leaves free profession traits intact. The owner's option-B stages and
+DEBT_LIMIT are unchanged. [Source details, validation and remaining live check](CHARACTER_CREATION_CHECK.md).
+The original audit findings below are retained as the rationale, not the current implementation.
 * Points: `prof:PointToSpend()` (`client/OptionScreens/CharacterCreationProfession.lua:860`) =
   `pointToSpend + cost + SandboxVars.CharacterFreePoints - negativeTraitOffset()` (offset only if sandbox
   `NegativeTraitsPenalty` ≠ 1). The repo reads the field `pointToSpend`, which omits all three.

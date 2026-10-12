@@ -330,10 +330,18 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.44 adds profession choice before traits.** It offers the game's real list and uses its
+  handler to apply skills, free traits and points. The existing trait debt rule stays the same. Next
+  now respects the actual disabled button and known nonnegative points, and emergency debt repair
+  preserves free profession traits. All 126 tests and installed Lua checks pass; natural-respawn
+  validation is pending. Restart the agent for the selected-profession state token.
+  [Sources and live checklist](docs/CHARACTER_CREATION_CHECK.md).
+
 - **Gym 0.4.43 uses the game's spotted zombies.** The old visibility guess listed a zombie absent
   from the game's spotted list in 330 of 8,520 local samples and missed one in 66. The same corrected
   list now feeds observations, attack/shove choices, directional counts and close-zombie decisions.
-  All 125 tests and installed Lua checks pass; after-reload comparison is pending. The nearby-object
+  All 125 tests and installed Lua checks pass. After reload, all 98 sampled decisions matched the
+  game, including 77 with zombies and 391 appearances on each list. The nearby-object
   light threshold is still a guess. See [the audit](docs/BACKLOG_CHECK_2026-10-12.md).
 
 - **Gym 0.4.42 follows the game's furniture Rest completion.** It gets up before changing seats and

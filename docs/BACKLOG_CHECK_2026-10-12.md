@@ -122,3 +122,9 @@ same-floor, alive, distance-sorted records. A missing spotted list yields none, 
 to the old guess. Nearby-object light checks are separate and retain their existing threshold.
 All 125 tests pass, including installed-game Lua compilation and method-name checks. The next
 verification is a diagnostic comparison after reloading, including decisions with zombies present.
+
+**After reload:** gym 0.4.43 matched all 98 diagnostic samples (decision IDs 11204-11324, sampled
+passively over 90 seconds): 77 were nonempty, with 391 zombie appearances on each list, zero
+extra-zombie samples and zero missing-zombie samples. These are appearances across decisions,
+not 391 different zombies. This verifies the running helper against the game's spotting result;
+it is not a pixel-by-pixel check of every fade transition. L12's code/comparison item is closed.
