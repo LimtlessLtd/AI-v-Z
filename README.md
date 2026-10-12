@@ -5,28 +5,24 @@ in real time while you watch. The intended environment gives it what a player ca
 normal gameplay action a player can take, so it learns from what happens. That coverage is not complete
 yet. No cloud services, no language model, no multiplayer.
 
-> **Status (2026-10-09):** Phase 3 is **in progress**. Its decision/execution/logging loop works end to
-> end for 27 implemented action types, but this is only a subset of player actions. Exercise,
-> inventory transfers and vehicle entry/engine verbs are written but untested in game; disassembly, driving, repairs, full crafting and hearing capture remain unfinished.
-> The agent (`agent/`) picks from the implemented options and every decision is logged with its reward.
-> Live probes check each option against what actually happened in the game and keep their logs separate
-> from the agent's experience.
-> **It learns now (Phase 4, started 2026-10-11)**: a small network scores every option the game offers and
-> the agent plays by those scores, retraining every 15 minutes from everything it has lived through. It
-> starts from the random policy's experience, so expect clumsy play that improves over hours. With
-> the agent off, a hand-written **rules baseline** plays instead: it loots, fights, flees, gets into
-> locked houses through windows, keeps a home base, sleeps, bandages wounds with torn clothes and opens
-> cans. That baseline is the score the self-taught agent has to beat. The earlier Qwen language model
-> was removed on 2026-10-09; see [Roadmap](#roadmap).
+> **Status (2026-10-12): Phase 4, learning, is in progress.** A small network scores every option the
+> game offers and the agent plays by those scores, retraining every 15 minutes from everything it has
+> lived through. The reward was redone on 2026-10-12 (version 3, below), so the network starts over and
+> play is clumsy for the first hours. The gym (Phase 3) works end to end for 27 action types, a subset
+> of what a player can do; its known gaps (crafting, vehicles, repairs, hearing and more) are in the
+> [backlog](docs/BACKLOG.md). With the agent off, a hand-written **rules baseline** plays instead: it
+> loots, fights, flees, gets into locked houses through windows, keeps a home base, sleeps, bandages
+> wounds with torn clothes and opens cans. That baseline is the score the self-taught agent has to beat.
+> The earlier Qwen language model was removed on 2026-10-09.
 
 ## Roadmap
 
 | Phase | What | Status |
 |---|---|---|
-| 0. Specs and benchmark | Hardware, model benchmarks | Done ([docs/SPECS.md](docs/SPECS.md); the Qwen benchmark is kept for the record in [docs/BENCHMARK.md](docs/BENCHMARK.md)) |
+| 0. Specs and benchmark | Hardware, model benchmarks | Done ([docs/SPECS.md](docs/SPECS.md); the Qwen benchmark is kept for the record in [docs/archive/BENCHMARK.md](docs/archive/BENCHMARK.md)) |
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
-| **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | In progress: 27 implemented action types exercised; full action and hearing coverage missing. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
+| **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | Closed 2026-10-11 ([PR #25](https://github.com/LimtlessLtd/AI-v-Z/pull/25)) with 27 action types working; the gaps (more actions, hearing, the last hidden-information leaks) are filled alongside Phase 4. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
 | **4. Learning** | A small network scores every option; the reward is a big, steady gain for time alive, costs for lost health and new wounds, small bonuses for progress (places, items, kills), a death cost that outweighs everything else (charged when the Knox infection happens), and hints for health, wound care and clothing protection that can't be farmed. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 15 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
@@ -104,12 +100,15 @@ Needs Python 3.10+ and Project Zomboid Build 42.
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-Pulls the latest `main`, switching to it if another branch is checked out (skipped if you have local changes), links the mod if needed, launches Project
-Zomboid through Steam and runs the self-taught agent (`-NoPull`, `-NoGame`, `-Policy` available). The agent
-polls for the game, so start order doesn't matter: once a singleplayer game with AI-v-Z enabled is loaded,
-it takes over. Still manual: enable the mod once per save, and load/start the save. The agent plays with the
-network and trains it (`-Policy random` for the Phase 3 random player). Not yet run end to end from this
-script (written in the cloud, untested on Windows).
+Pulls the latest `main`, switching to it if another branch is checked out (skipped if you have local
+changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
+(`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
+Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
+the one the game loaded (`OK v0.5.2 (gym 0.4.20)`). The agent polls for the game, so start order doesn't
+matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
+mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
+for the Phase 3 random player). Run it in its own window, not as a background task of a Claude session,
+which is killed when that session closes (backlog N3).
 
 ## Run (rules baseline)
 
@@ -248,11 +247,16 @@ powershell -ExecutionPolicy Bypass -File scripts/reload-mod.ps1
 `reload-mod.ps1` hot-reloads the Lua into a running game. Lua errors appear in
 `%USERPROFILE%\Zomboid\console.txt` and `Zomboid\Lua\aivz\loader.txt`. The tests include the 31
 hand-made situations from the Phase 0 benchmark ([tests/snapshots.py](tests/snapshots.py)); the rules must
-pick a sensible goal in all of them.
+pick a sensible goal in all of them. `tests/test_lua.py` compiles the mod's Lua with the game's own compiler
+(from `projectzomboid.jar`, on the game's Java runtime), so a syntax error shows up before the game loads it.
+It needs `javac` and finds the game through Steam (or `PZ_DIR`); without them it skips. It catches syntax
+errors only: a wrong method name still shows up only in the game, so check new game calls against the
+installed game's Lua or `projectzomboid.jar` first.
 
 ## Repository layout
 
 ```
+CLAUDE.md           the owner's rules and how to work on the code (Claude sessions load it, local and cloud)
 mod/AIvZ/           the Build 42 Lua mod (AIvZ.lua: reflex, tactics, HUD; AIvZGym.lua: the agent's options,
                     observations and respawns; AIvZLoader.lua: events, hot reload)
 agent/              the self-taught agent: run.py (loop, logs, dashboard, trainer), link.py (the files), reward.py,
@@ -260,32 +264,41 @@ agent/              the self-taught agent: run.py (loop, logs, dashboard, traine
                     net.py (the network), learn.py (a training round), agent.html, learning.html
 bridge/             bridge.py (rules baseline decision loop, dashboard server) and mind.html
 brain/              baseline decision code: goals, rules, percept conversion, strategy
-tests/              unit tests, and the 31 benchmark situations
-scripts/            install-mod.ps1, reload-mod.ps1
-docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; ACTION_CATALOGUE,
-                    OBSERVATION_AUDIT and GAP_LIST (audit against the installed game); BENCHMARK and
-                    DECISION_MODELS (Phase 0 record, Qwen era), REWARD_RESEARCH (reward v3 proposal)
+tests/              unit tests, the 31 benchmark situations, LuaCheck.java (the Lua compile check)
+scripts/            start.ps1 (one-click start), install-mod.ps1, reload-mod.ps1
+docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and verification; ACTION_CATALOGUE,
+                    OBSERVATION_AUDIT and GAP_LIST (audit against the installed game); REWARD_RESEARCH (reward
+                    version 3); archive/ (BENCHMARK and DECISION_MODELS: the Phase 0 record, Qwen era)
 ```
 
 ## Known issues (agent and gym)
 
 - **Player action coverage is incomplete.** Clothing wear/remove exists; crafting only covers some
-  item recipes. Exercise, disassembly, driving, vehicle maintenance, repairs, transfers between chosen
-  inventory containers and many other systems are missing. Existing per-verb caps also hide some legal
-  choices. See [coverage audit](docs/PHASE3_COVERAGE.md) and the per-action
-  [catalogue](docs/ACTION_CATALOGUE.md); `sleep`, `drink`, `exercise`, `engine_on` and the trait points
-  disagree with the installed game ([gap list](docs/GAP_LIST.md)).
+  item recipes. Disassembly, driving, vehicle maintenance, repairs, transfers between chosen inventory
+  containers and many other systems are missing. Existing per-verb caps also hide some legal choices. See
+  [coverage audit](docs/PHASE3_COVERAGE.md) and the per-action [catalogue](docs/ACTION_CATALOGUE.md).
+  `drink`, `engine_on` and the trait screen still differ from the game's own rules; `sleep` and `exercise`
+  follow them in code, untested in game ([gap list](docs/GAP_LIST.md)).
 - **There is no hearing input.** Helicopter audio, alarms, engines, horns, zombie banging and other
   audible cues do not currently reach the agent. The proposed audio path is not implemented.
-- **Perception needs an information audit.** The gym currently includes coordinates and target flags
-  for unseen zombies. These must not substitute for hearing; the learner should get only visible or
-  otherwise player-perceivable evidence. Leaks still present are listed in
-  [OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md).
-- **Objects next to the character** (doors, windows, curtains, containers, water) are offered only when `isCouldSee` holds, so not through a wall (gym 0.4.16; not run in game, reload the mod).
-- **Building opening counts** (`where.doorsOpen/windowsOpen/curtainsOpen`) include only squares the player has seen (gym 0.4.17; not run in game). The smashed count too since gym 0.4.19.
-- **Temperature** is no longer in the observation unless a digital watch or clock is worn or held (`clock.temp`, the air temperature at the character; gym 0.4.18; not run in game, reload the mod).
-- **Unseen rooms and beds** are filtered from the options since gym 0.4.15 (`go_room` by `RoomDef:isExplored()`, beds by `isSeen`); not run in game, reload the mod.
-- **Item status is new.** Gym 0.4.11 adds weapon, ammo and clothing status to item records (not run in game; reload the mod to get it). The network sees it only as hashed tokens, and has never trained on it.
+- **Two hidden-information leaks remain in the gym.** The `enter` macro picks a window by its lock state,
+  which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
+  spotted list. The other leaks are fixed in the gym or kept out of the network's input
+  ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
+- **Gym 0.4.10-0.4.20 (mod 0.5.2) hasn't run in the game yet.** It came after the 2026-10-11/12 overnight
+  run. Every game call in it was checked against the 42.21 jar, and the Lua compiles with the game's own
+  compiler (`tests/test_lua.py`), but none of it has been played. It brings:
+  * no through-wall objects next to the character (0.4.16);
+  * only seen rooms, beds and openings (0.4.15, 0.4.17, 0.4.19);
+  * only seen vehicles (0.4.14);
+  * doors locked as the menu says (0.4.13);
+  * temperature only from a digital clock (0.4.18);
+  * a zombie forgotten once out of sight (0.4.10);
+  * no poison test in the drink category (0.4.12);
+  * weapon, ammo and clothing status on items (0.4.11);
+  * the protection panel and the infection flag (0.4.20).
+
+  After the first run, check `Zomboid\console.txt` for `AIvZ` errors.
 - **The reward changed on 2026-10-12 (version 3), and the network starts over.** Under version 1 it survived
   no longer than random play (median about 1.4 game hours over 32 rounds and about 250 network lives):
   discomfort cost more per minute than being alive earned, so an early death scored better
@@ -294,11 +307,9 @@ docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; A
   older reward keep their totals in `lives.jsonl`; the Learning page shows "–" for their reward and still
   compares their hours and kills. Experience from before gym 0.4.20 has no protection or infection readings:
   there, the infection is the expected chance from the zombie wounds seen.
-- **Clothing protection is new (gym 0.4.20, not run in game; reload the mod).** The network sees the
-  protection panel's bite and scratch defence per body part, and each garment's defence, holes and condition,
-  on its own wear/take-off options and tied to it when worn. A full per-item layout is still open (backlog O6).
-- **Run the agent in its own window** (`scripts/start.ps1`). Started as a background task of a Claude
-  session, it is killed when that session shuts down: on 2026-10-12 this stopped it at 02:13 (backlog N3).
+- **Item status reaches the network only roughly.** It sees the protection panel's bite and scratch defence
+  per body part, and each item's status (condition, holes, defence, ammo...) as binned, hashed tokens: on
+  its own wear/take-off options, and tied to each worn garment. A full per-item layout is still open (backlog O6).
 - **Traits are learned slowly.** Each life's observations list the character's traits (gym 0.4.7, as the
   character screen shows them), so the network can link them to how the life goes; but a trait's effect
   is spread over a whole life, and the discount makes that link weak.

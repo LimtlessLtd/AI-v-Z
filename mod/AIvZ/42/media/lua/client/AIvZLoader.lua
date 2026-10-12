@@ -73,7 +73,9 @@ local function call(name, ...)
 	end
 end
 
-status(AIvZ and AIvZ.VERSION and ("OK v" .. AIvZ.VERSION) or "ERR AIvZ.lua did not load")
+-- the gym's version too, so loader.txt shows which code the game loaded (scripts/start.ps1 prints the repo's)
+status(AIvZ and AIvZ.VERSION and ("OK v" .. AIvZ.VERSION .. " (gym " .. tostring(AIvZ.gym and AIvZ.gym.VERSION) .. ")")
+	or "ERR AIvZ.lua did not load")
 Events.OnTick.Add(function() call("onTick") end)
 Events.OnRenderTick.Add(checkReload)
 Events.OnKeyPressed.Add(function(key) call("onKeyPressed", key) end)

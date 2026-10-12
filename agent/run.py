@@ -109,7 +109,8 @@ class ExclusiveHTTPServer(ThreadingHTTPServer):
 
 class ExperienceLog:
     """Hourly gzip files of decisions; a new gzip member per flush, which gzip readers handle. Flushed every
-    20 decisions or 30 s, so a killed agent (Windows gives no chance to clean up) loses half a minute at most."""
+    20 decisions or 30 s, also while no decision comes (`flush_stale`), so a killed agent (Windows gives no chance
+    to clean up) loses half a minute at most."""
 
     def __init__(self, root):
         self.root = Path(root)
@@ -123,6 +124,12 @@ class ExperienceLog:
         self.hour = hour
         self.lines.append(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
         if len(self.lines) >= 20 or record.get("dead") or time.time() - self.flushed > 30:
+            self.flush()
+
+    def flush_stale(self, age=30):
+        """Flush decisions that have waited more than `age` seconds: a paused or stalled game sends none to trigger
+        the check in `add`, and they sat in memory until the next one (backlog N4)."""
+        if self.lines and time.time() - self.flushed > age:
             self.flush()
 
     def flush(self):
@@ -296,6 +303,7 @@ class Agent:
             while True:
                 msg = self.link.wait(1.0)
                 if msg is None:
+                    self.exp.flush_stale()
                     continue
                 try:
                     self.handle(msg)

@@ -304,6 +304,20 @@ class AgentLoopTests(unittest.TestCase):
             self.assertEqual(len(snap["lives"]), 1)
             self.assertIsNone(snap["life"])
 
+    def test_decisions_are_saved_while_the_game_sends_none(self):
+        """Backlog N4: the 30 s check also runs while no decision arrives, so a stalled game loses nothing."""
+        from agent.run import ExperienceLog
+        with tempfile.TemporaryDirectory() as tmp:
+            log = ExperienceLog(tmp)
+            log.add({"id": 1})
+            log.flush_stale()
+            self.assertEqual(list(Path(tmp).glob("*.jsonl.gz")), [])   # too recent: kept for the next batch
+            log.flushed -= 31
+            log.flush_stale()
+            with gzip.open(next(Path(tmp).glob("*.jsonl.gz")), "rt", encoding="utf-8") as g:
+                self.assertEqual([json.loads(x)["id"] for x in g if x.strip()], [1])
+            self.assertEqual(log.lines, [])
+
 
 
 class SleepGateStaticTest(unittest.TestCase):

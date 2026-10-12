@@ -1,7 +1,43 @@
 # Backlog
 
-Items are recorded here when raised; status is honest. Phase 3 items must be done before the Phase 4
-check-in; the rest are noted so they are not lost. Nothing here is live-tested unless it says so.
+What's open, in priority order, then the history and details behind each item. Status is honest: nothing
+here is live-tested unless it says so. Phase 3 closed on 2026-10-11 (PR #25); its gaps are worked on
+alongside Phase 4.
+
+**Who** can take an item:
+* **owner**: a decision only the owner makes.
+* **local**: needs the running game, the logs or the installed game files, so a session on the owner's PC.
+* **cloud**: code and docs from the repository alone, so the hourly cloud routine can do it too. A game call
+  is allowed only if it is cited in [GAP_LIST.md](GAP_LIST.md), [ACTION_CATALOGUE.md](ACTION_CATALOGUE.md) or
+  [OBSERVATION_AUDIT.md](OBSERVATION_AUDIT.md), or already used by the mod.
+
+Lua written in the cloud then needs a local check (`python -m unittest tests.test_lua`: it compiles with the
+game's own compiler and checks every method name against the game) and a run in the game.
+
+## Open
+
+| # | Item | Who | Next step |
+|---|---|---|---|
+| N5 | **First run of gym 0.4.10-0.4.20 (mod 0.5.2) and reward version 3.** Checked against the 42.21 jar and compiled with the game's compiler on 2026-10-12; never played. | local | Run `scripts/start.ps1`. Then check: `Zomboid\Lua\aivz\loader.txt` says `OK v0.5.2 (gym 0.4.20)`; `Zomboid\console.txt` has no `AIvZ` errors; `obs.json` has `protection` and `knox`; `logs\model\train.log` shows a fresh round 33 without errors. |
+| N2, N6 | After a few hours on reward version 3: does the network outlive random play (median 1.35 game hours), and does it bandage when bleeding? | local | Compare on the Learning page and in `lives.jsonl`. |
+| 6.4, N7 | When the network may decide: keep the "hurt", "zombie close" and "still at it" triggers, or ask at a fixed rate. "hurt" is 37% of all decisions. | owner | Decide; see [Guard rails](#guard-rails-item-6) point 4. |
+| 6.7 | Keep the rules baseline as a comparison player, or delete it. | owner | Decide; the gym uses some of its helpers. |
+| O6 | A dense per-kind item layout for the network. Bumps `features.VERSION`, so the network starts over. | owner | Decide when; hashed tokens stand in until then. |
+| Hearing | Capture the game's audio. Needs a capture library that isn't installed. | owner | Approve a library, then local. |
+| G4, G5, G2 | `drink` follows the Drink menu (thirst, beverage, portions); `engine_on` follows the radial menu (keys, hotwire); `exercise` moves the equipment into the hands. | cloud | APIs cited in [GAP_LIST.md](GAP_LIST.md) items 2, 4 and 5. |
+| G6 | The trait screen as the game shows it: `PointToSpend()`, Next only when enabled, profession choice. Keeps the owner's option B rule. | cloud | GAP_LIST item 6. |
+| G7 | Verb prerequisites the menus apply (smash on open windows, clear_glass, equip, rest, drop, take, drink_tap, enter). | cloud | Listed under [Found in the 42.21 audit](#found-in-the-4221-audit-not-fixed-2026-10-11). |
+| L1, L11, L12 | Leaks left in the gym: raw `stats` in `obs.json` (never read by the network), the `enter` macro's window choice by lock state, the zombie visibility proxy instead of `getSpottedList()`. | cloud, then local | OBSERVATION_AUDIT.md section 5; the visibility change needs a live comparison. |
+| 6.1-6.3, 6.5 | Remove the repo's own guard rails: caps that hide choices, usefulness filters, macros, the character creation stages. | cloud, then local | [Guard rails](#guard-rails-item-6); keep the game's own prerequisites. |
+| N9 | Remember the owner's game speed across a game restart. | cloud | Save the pick with the file calls the mod already uses. |
+| N8 | 28% of the run goes between lives (median 36 s from a death to the next decision). | local | Time each step of `G.respawnStep`. |
+| 1, N11 | Start a new game after 100 deaths in one save. | local | Audit the main-menu new-game flow; keep display and speed settings. |
+| O4, O5 | Vehicle part status (the Mechanics window); food, literature, bag, drainable and key tooltips. | local | Audit as for O1-O3 first. |
+| 5 | The game's own halo text from gym calls (e.g. "Not safe to sleep here."). `last.msg` is already kept from the network. | local | Audit which direct handler calls show text. |
+| 4 | Calibrate the light threshold (0.2, guessed) and account for held torches. | local | Compare with the screen at night. |
+| 2 | Confirm every spawn region is offered at respawn, not only towns. | local | Check the live log. |
+| N3 | Restart the agent if it exits on its own (it is fine when run from `start.ps1`'s window). | cloud | Optional. |
+| G8-G23 | Missing families: floor items and corpses, menus, water and stoves, medical care, reading, movement and stance, barricading, vehicles, crafting, repairs, appliances, farming and foraging, building, firearms, map and radio, the new-game flow. | local, then cloud | Audit each in the game files, then build; GAP_LIST items 8-23. |
 
 ## From the owner, 2026-10-11
 
@@ -14,7 +50,7 @@ check-in; the rest are noted so they are not lost. Nothing here is live-tested u
 
 | 5 | **No speech bubbles or announcements.** The character must not say or show anything the network didn't choose, and the network must not be handed explanations it couldn't know (e.g. "not safe to sleep here"). | 3 | Partly: all five `p:Say` calls in `AIvZ.lua` now go through a no-op `speak` helper (2026-10-11, untested in game). **Not done:** the game's own halo text from direct handler calls, and `last.msg` reason texts. Every source is listed in [Speech and announcements](#speech-and-announcements-item-5). |
 | 6 | **Remove the repo's own guard rails**, so the network learns its own rules from repetition. | 3 | Not done. [Guard rails](#guard-rails-item-6) lists them, separated from the game's own prerequisites (which stay, because a player has them too). |
-| 7 | **Item and vehicle status a player can see**: clothing condition, vehicle parts, weapons, ammo and which ammo/magazine fits which weapon. | 3 | **The network sees almost none of it today.** Work items O1-O6 in [Item and vehicle status](#item-and-vehicle-status-item-7), with verified APIs. |
+| 7 | **Item and vehicle status a player can see**: clothing condition, vehicle parts, weapons, ammo and which ammo/magazine fits which weapon. | 3 | Clothing, weapon and ammo status are in item records since gym 0.4.11, and the protection panel since 0.4.20 (not run in game); the network sees them as hashed tokens. Open: vehicles, other tooltips, a dense layout (O4-O6 in [Item and vehicle status](#item-and-vehicle-status-item-7)). |
 | 8 | **Errors from the mod** in `console.txt` (session 2026-10-11 12:06-12:52). | 3 | Two mod errors, both explained; fixed in code (gym 0.4.4 and 0.4.5), **not yet run in game**: C1 (exercise, 517 times) and C2 (vehicle scan, twice) in [Console errors](#console-errors-item-8). |
 
 ## Found 2026-10-11
@@ -34,30 +70,27 @@ the game logs `Zomboid/Logs/logs_2026-10-11_18-33` and `2026-10-12_07-33_DebugLo
 
 | # | Item | Evidence | Status / proposal |
 |---|---|---|---|
-| N1 | **Staying alive scores worse than dying.** Discomfort costs more than being alive earns, and death costs only 20, so an early death scores better than a long uncomfortable life. The network has no reason to survive. | Overnight totals: alive +4,156; discomfort −9,225 (stress −2,397, pain −1,603, panic −1,429, tired −1,102, hungry −952, wet −839, thirst −625, hypothermia −267). Average per net life: discomfort −33.9, death −20, health −17.2, bleeding −3.6, alive +15.2, progress +0.3. Being alive earns 0.1/min, but one moodle at level 2 costs 0.08/min and one at level 3 costs 0.18/min. Every verb's average reward per decision is negative. From round 6 to round 32 the network's average score stays between −21 and −24, and the loss stays between 0.86 and 0.99 from round 10. Sleep scores between −7 and −169 from round 7: it lasts about a game hour, and 15 of 55 sleeps ended in death. **Done in code, not yet run against the live game:** reward version 2, the owner's rule of 2026-10-12. Being alive pays +1 a game minute. Being hurt costs 2 per health point lost, plus 10-50 for each new wound. Dying costs 1000. Feeling bad costs nothing in itself. Training re-scores all older experience (`reward.rescore`) and discounts by game time (half-life 2 game hours). It sets the version 1 network aside and starts a fresh one. A dry run on a copy of the 42,610 logged decisions trained without errors (average score −333). |
-| N0 | **Reward version 3 proposal** (owner asked 2026-10-12: death far worse; reward bandaging, healing and protection; nothing to farm). Research and proposal in [REWARD_RESEARCH.md](REWARD_RESEARCH.md): infection risk charged when a zombie wound happens, health counted both ways, untreated wounds and worn protection as potential-based terms, so a put-on/take-off loop earns nothing. | Comparison with Crafter, OpenAI Five, Doom, MineRL, NetHack and DQN. Infection odds read from the 42.21 jar. **Done in code, not yet run in game:** reward version 3 and gym 0.4.20. The owner decided (2026-10-12) to keep death at −1000, and to make protection a hint that follows the protection actually worn, so wear and tear count. The infection is charged as the death it is, once, not as a hint (see REWARD_RESEARCH.md, "Decided"). The network sees the protection per body part and each garment's status. |
+| N0 | **Reward version 3** (owner asked 2026-10-12: death far worse; reward bandaging, healing and protection; nothing to farm). Research and proposal in [REWARD_RESEARCH.md](REWARD_RESEARCH.md): infection risk charged when a zombie wound happens, health counted both ways, untreated wounds and worn protection as potential-based terms, so a put-on/take-off loop earns nothing. | Comparison with Crafter, OpenAI Five, Doom, MineRL, NetHack and DQN. Infection odds read from the 42.21 jar. **Done in code, not yet run in game:** reward version 3 and gym 0.4.20. The owner decided (2026-10-12) to keep death at −1000, and to make protection a hint that follows the protection actually worn, so wear and tear count. The infection is charged as the death it is, once, not as a hint (see REWARD_RESEARCH.md, "Decided"). The network sees the protection per body part and each garment's status. Merged in PR #46; first run is item N5. |
+| N1 | **Staying alive scores worse than dying.** Discomfort costs more than being alive earns, and death costs only 20, so an early death scores better than a long uncomfortable life. The network has no reason to survive. | Overnight totals: alive +4,156; discomfort −9,225 (stress −2,397, pain −1,603, panic −1,429, tired −1,102, hungry −952, wet −839, thirst −625, hypothermia −267). Average per net life: discomfort −33.9, death −20, health −17.2, bleeding −3.6, alive +15.2, progress +0.3. Being alive earns 0.1/min, but one moodle at level 2 costs 0.08/min and one at level 3 costs 0.18/min. Every verb's average reward per decision is negative. From round 6 to round 32 the network's average score stays between −21 and −24, and the loss stays between 0.86 and 0.99 from round 10. Sleep scores between −7 and −169 from round 7: it lasts about a game hour, and 15 of 55 sleeps ended in death. Fixed in code by reward version 2 (the owner's rule of 2026-10-12: being alive pays +1 a game minute, being hurt costs, dying costs 1000, feeling bad costs nothing; training re-scores all older experience and discounts by game time, half-life 2 game hours), then replaced the same day by version 3 (N0). First run: item N5. |
 | N2 | **The network doesn't survive any longer than random play.** | Median game hours per life: random 1.35 (256 lives), net 1.45 (246 lives), the net's last 46 overnight lives 0.86. Since the 07:33 restart (new world, day 2, 1×): 0.64 (26 lives). Kills: random 12, net 0. | Check again once the version 2 network has played for a while. |
 | N3 | **Why it stopped overnight.** The agent ran as a background task of the Claude session "AI-v-Z learning agent" (started 2026-10-11 19:22). That task was killed at 02:13:10, about 6 hours after the session's last activity, when the session was shut down. Neither the agent nor the game failed. The game ran until 07:32 with nobody playing. Training stopped as well, because its timer runs inside the agent process. | The session transcript (`09de4825…`) ends with a "killed" task notification at 01:13:10 UTC. The task output is the start line and `[killed]`, with no errors. `train.log` has no round between 02:09 and 07:33. The last experience record is from 02:13:04. | Rule: long runs never go in a Claude background task. Today's agent runs from `scripts/start.ps1` in its own window (parent `explorer.exe`). Option: have `start.ps1` restart the agent if it exits. |
-| N4 | A killed agent loses its unflushed decisions. `ExperienceLog` flushes only when a decision arrives, so the most recent ones sit in memory. | Life 481 made 47 decisions, but only 37 are in `logs/experience/20261012-02`. | Also flush on a timer (for example every 10 s from a background thread). |
-| N5 | **The game isn't running the overnight PRs.** The game loads the mod from the local checkout, which is at `80f2d69` (gym 0.4.9). PRs #27-#41, merged overnight (gym 0.4.10-0.4.19), are only on GitHub's `phase4-learning` and haven't run in game. `start.ps1` pulls `origin/main`, which stops at #26. | `obs.json` and `loader.txt` report gym 0.4.9 and mod 0.5.1. | Everything is on `main` now (owner's rule, 2026-10-12: no other long-lived branches), and `start.ps1` switches to `main` and pulls it. Still to do: stop the agent, run `start.ps1`, reload the mod, and watch the console for errors from 0.4.10-0.4.19. |
+| N4 | A killed agent loses its unflushed decisions. `ExperienceLog` flushes only when a decision arrives, so the most recent ones sit in memory. | Life 481 made 47 decisions, but only 37 are in `logs/experience/20261012-02`. | Fixed 2026-10-12: the agent's loop also flushes decisions older than 30 s while no decision arrives (`ExperienceLog.flush_stale`, with a test). A kill mid-play can still lose up to 20 decisions or 30 s, by design (each flush is a gzip member). |
+| N5 | **The game isn't running the overnight PRs.** The game loads the mod from the local checkout, which is at `80f2d69` (gym 0.4.9). PRs #27-#41, merged overnight (gym 0.4.10-0.4.19), are only on GitHub's `phase4-learning` and haven't run in game. `start.ps1` pulls `origin/main`, which stops at #26. | `obs.json` and `loader.txt` report gym 0.4.9 and mod 0.5.1. | Everything is on `main` now (owner's rule, 2026-10-12: no other long-lived branches), and `start.ps1` switches to `main`, pulls it, and hot-reloads the mod if the game is running. Checked 2026-10-12 without the game: every game call added since 0.4.9 exists in the 42.21 jar, and all the Lua compiles with the game's compiler (`tests/test_lua.py`). The first run is in [Open](#open). |
 | N6 | **Bleeding mostly goes untreated.** | 42% of decisions (10,518 of 24,710) are made while bleeding. A bandage was on offer in 505 of those and Rip Clothing in 2,982; bandage was chosen 24 times. | Not a gym bug. Rip Clothing then bandage is a two-step chain the network hasn't found. Check again after N1. |
 | N7 | "hurt" interrupts most actions. Health 0.5 below the last decision triggers a new one, at most every `DECIDE_GAP`. While a wound bleeds, health keeps falling, so walking away or eating is cut off over and over. | 37% of all decisions (9,109) have the reason "hurt". 215 of 271 deaths came straight after a "hurt" decision. | Evidence for the owner decision in [Guard rails](#guard-rails-item-6) point 4: keep the triggers, or ask at a fixed rate. |
 | N8 | About 28% of the run goes on the gaps between lives. | Median 36 s from a death to the next life's first decision (death screen, spawn select, about 10 trait picks, loading), while lives last 1-3 real minutes. | `G.respawnStep` presses one button every 1.5 s. Find what else waits, and shorten it. |
 | N9 | The game speed you pick isn't remembered across a game restart. It's kept in the Lua session, so a restarted game plays at 1× until F5 (or a speed button) is pressed again. | Overnight, 50% of decisions ran at 20×. Since the 07:33 restart, 1,539 of 1,540 ran at 1×. | Fine while watching. For unattended runs, pick the speed again after a restart, or save the pick to a file. |
 | N10 | Options that often fail (counts over the whole period). | walk fails 11% of the time and run 10%, mostly "no way there". curtain fails 27%, window 19%, search 15%, enter 9%. engine_on was tried 50 times and never finished: 48 were cut off while running and 2 got "engine didn't start". exercise gets "no effort spent" about 4 times an hour. The 292 "in too much pain" exercise refusals all happened before the 20:05 fix. | A player's pathfinding fails too, so those stay. engine_on goes with gap list G5. |
 | N11 | The world `2026-10-11_12-06-26` reached 277 deaths. The 100-death limit is only reported. | `world_deaths` in `logs/agent-state.json` | Owner item 1. A new world was started at 07:33. |
-| N13 | **Training would have failed after every version change.** `learn.encode_file` left an out-of-date cache file open, and Windows refuses to replace an open file. The first round after any reward or encoding change raised `PermissionError`, and so did every later round. | Reproduced against `main`'s code in the reward version 3 dry run. | Fixed: the cache is read inside `with np.load(...)`. A test rebuilds an out-of-date cache. |
 | N12 | Neither game log has an error from the mod. | Vanilla only: 437 NullPointerExceptions in `IsoTree.isPlayerInsideARoom` over 14 s from 08:11:05, during a respawn, plus the usual SpriteConfig, font and map-file warnings. | Nothing to do. |
-
-## Standing Phase 3 gaps (see PHASE3_COVERAGE.md)
-
-Exercise, full crafting, disassembly, vehicles, repairs, inventory organisation, hearing, remaining
-hidden-information audit (scans and caches).
+| N13 | **Training would have failed after every version change.** `learn.encode_file` left an out-of-date cache file open, and Windows refuses to replace an open file. The first round after any reward or encoding change raised `PermissionError`, and so did every later round. | Reproduced against `main`'s code in the reward version 3 dry run. | Fixed: the cache is read inside `with np.load(...)`. A test rebuilds an out-of-date cache. |
 
 ## Lessons: things written from memory that were wrong (2026-10-11)
 
 Everything in `AIvZGymActions.lua` and the light/visibility code was written without the game's files; verify
-against the installed Lua/Java before trusting any API name.
+against the installed Lua/Java before trusting any API name. Since 2026-10-12 `tests/test_lua.py` does part of
+this on a PC with the game: it compiles the Lua with the game's compiler and flags any method name the game
+doesn't have anywhere (it would have caught lesson 1, not a real name on the wrong class).
 
 1. `Stats:getEndurance()` doesn't exist in Build 42 (use `getStats():get(CharacterStat.X)`): ~500 console errors.
 2. `ISFitnessAction` needs `Fitness:setCurrentExercise` first, else a NullPointerException in `Fitness.incRegularity`.
@@ -313,30 +346,26 @@ that version.
 
 ## Found in the 42.21 audit, not fixed (2026-10-11)
 
-Each line is open. Details, APIs and file references are in [GAP_LIST.md](GAP_LIST.md) (G#),
+Details, APIs and file references are in [GAP_LIST.md](GAP_LIST.md) (G#),
 [OBSERVATION_AUDIT.md](OBSERVATION_AUDIT.md) section 5 (L#) and [ACTION_CATALOGUE.md](ACTION_CATALOGUE.md).
 
-**Information the network gets but a player wouldn't (G1):**
+**Information the network gets but a player wouldn't (G1).** Status on 2026-10-12; "in code" means not run in
+game (item N5):
 
-* L1 raw `stats` (11 internal values, including food sickness)
-* L2 unseen rooms in `go_room` and in the building opening counts
-* L3 beds in unseen rooms and on unseen floors
-* L4 time without a watch or alarm clock; date and temperature without a digital one; `weather.temp` is
-  not the temperature the clock shows
-* L5 objects behind walls within 1.5 tiles (`perceivable`)
-* ~~L6 poison used to classify drinks~~ fixed in gym 0.4.12 for the gym (rules baseline keeps it)
-* L7 window `locked`
-* L8 vehicles within 4 tiles regardless of sight
-* L9 zombie identity kept across occlusion (`closing`)
-* L10 exact health, position, world age and exercise endurance; glass reported under a bandage
-* L11 the `enter` macro's window choice by lock state
-* L12 the zombie visibility proxy (`isCanSee` plus light >= 0.2 instead of the game's spotted list)
+* Open: L1 raw `stats` (11 internal values, including food sickness; in `obs.json`, never read by the network),
+  L11 the `enter` macro's window choice by lock state, L12 the zombie visibility proxy (`isCanSee` plus
+  light >= 0.2 instead of the game's spotted list).
+* Fixed in code: L2 unseen rooms and openings (gym 0.4.15, 0.4.17, 0.4.19), L3 unseen beds (0.4.15),
+  L4 time and temperature without a clock (0.4.6, 0.4.18), L5 objects behind walls (0.4.16), L6 poison in the
+  drink category (0.4.12), L8 unseen vehicles (0.4.14), L9 zombie identity across occlusion (0.4.10).
+* Kept from the network's input, still in `obs.json`: L7 window `locked`; L10 exact health, position, world age,
+  exercise endurance, glass under a bandage.
 
 **Verbs that are wrong:**
 
 * G2 `exercise`: fixed in code by gym 0.4.4 and 0.4.5 (see C1), apart from moving the equipment into the
   hands. Not yet run in game.
-* G3 `sleep` skips "not tired enough" and "too soon".
+* G3 `sleep`: follows the menu's conditions since gym `sleepBlock` (2026-10-11), not run in game.
 * G4 `drink` lacks the thirst > 0.1 and beverage/bleach rules and the half/quarter portions.
 * G5 `engine_on` lacks the key/hotwire/working-engine check; no Hotwire.
 * G6 Trait points:
