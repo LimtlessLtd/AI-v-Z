@@ -519,7 +519,7 @@ function A.scanBuilding(p, b, z)
 	local def = b:getDef()
 	local m = mem(p)
 	local info = { id = bkey(def), containers = 0, searched = 0, unsearched = {}, doorsOpen = {}, windowsOpen = {},
-		smashed = 0, food = {}, all = {}, curtainsOpen = {} }
+		smashed = 0, smashedAt = {}, food = {}, all = {}, curtainsOpen = {} }
 	local function inside(sq) return sq ~= nil and sq:getBuilding() == b end
 	for x = def:getX() - 1, def:getX2() do
 		for y = def:getY() - 1, def:getY2() do
@@ -555,7 +555,7 @@ function A.scanBuilding(p, b, z)
 							if cur and cur:IsOpen() then info.curtainsOpen[#info.curtainsOpen + 1] = { o = cur, sq = cur:getSquare() or sq } end
 							if isDoor(o) and open then info.doorsOpen[#info.doorsOpen + 1] = { o = o, sq = sq }
 							elseif isWindow(o) and winIs(o, "isSmashed") then
-								if not winIs(o, "isBarricaded") then info.smashed = info.smashed + 1 end
+								if not winIs(o, "isBarricaded") then info.smashed = info.smashed + 1; info.smashedAt[#info.smashedAt + 1] = { sq = sq } end
 							elseif isWindow(o) and open then
 								info.windowsOpen[#info.windowsOpen + 1] = { o = o, sq = sq }
 							end

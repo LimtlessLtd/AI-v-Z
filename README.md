@@ -263,7 +263,7 @@ docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; A
   otherwise player-perceivable evidence. Leaks still present are listed in
   [OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md).
 - **Objects next to the character** (doors, windows, curtains, containers, water) are offered only when `isCouldSee` holds, so not through a wall (gym 0.4.16; not run in game, reload the mod).
-- **Building opening counts** (`where.doorsOpen/windowsOpen/curtainsOpen`) include only squares the player has seen (gym 0.4.17; not run in game). The smashed count is still whole-floor.
+- **Building opening counts** (`where.doorsOpen/windowsOpen/curtainsOpen`) include only squares the player has seen (gym 0.4.17; not run in game). The smashed count too since gym 0.4.19.
 - **Temperature** is no longer in the observation unless a digital watch or clock is worn or held (`clock.temp`, the air temperature at the character; gym 0.4.18; not run in game, reload the mod).
 - **Unseen rooms and beds** are filtered from the options since gym 0.4.15 (`go_room` by `RoomDef:isExplored()`, beds by `isSeen`); not run in game, reload the mod.
 - **Item status is new.** Gym 0.4.11 adds weapon, ammo and clothing status to item records (not run in game; reload the mod to get it). The network sees it only as hashed tokens, and has never trained on it.
