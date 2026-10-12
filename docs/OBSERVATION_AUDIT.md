@@ -5,8 +5,8 @@ could know it from the screen, the sound, or their own memory of what they saw. 
 hidden-information leak and must not reach the learner. Hearing is not covered here beyond noting that it
 is absent ([PHASE3_COVERAGE.md](PHASE3_COVERAGE.md)). The action side is in
 [ACTION_CATALOGUE.md](ACTION_CATALOGUE.md); the ordered fixes are in [GAP_LIST.md](GAP_LIST.md).
-Everything here comes from reading the installed Lua and disassembling `projectzomboid.jar`; **none of it
-has been checked in a running game**.
+The original audit comes from reading the installed Lua and disassembling `projectzomboid.jar`.
+Dated follow-ups below distinguish subsequent live checks from source-only findings.
 
 Repo references are `file:line` under `mod/AIvZ/42/media/lua/client/`. Game Lua paths are relative to
 `media/lua/`; Java is cited as `J:class.method` with `javap` offsets.
@@ -193,9 +193,12 @@ perceivable now), **gap** (perceivable but missing).
     conditions.
 11. **The `enter` macro's window choice** (fixed in mod 0.5.7, not yet run in the game): it used the lock state of unseen windows (`isLocked`, `isPermaLocked`) and windows never seen; now only seen windows, tried in order.
     Fix: see the `enter` executor row in section 3.
-12. **Zombie visibility proxy** (`isCanSee` + max-light ≥ 0.2). Not a leak in the strict sense but not the
-    game's rule: it can both show zombies the screen hides (behind the player, in the dark beyond the
-    light test) and hide ones it shows. Fix: `IsoPlayer:getSpottedList()` / `getTargetAlpha(pn)`.
+12. **Zombie visibility proxy** (`isCanSee` + max-light ≥ 0.2): replaced in gym 0.4.43 with
+    `IsoPlayer:getSpottedList()` membership. The local comparison in
+    [BACKLOG_CHECK_2026-10-12.md](BACKLOG_CHECK_2026-10-12.md) found extra zombies in 330 of 8,520
+    samples and missing ones in 66. Observations, option targets, directional counts and close-zombie
+    triggers all use the same corrected helper; the baseline's threat detection stays separate.
+    Installed game compiler/method checks pass. After-reload comparison is still needed.
 
 ## 6. Perceivable things the agent does not get (gaps, not leaks)
 
