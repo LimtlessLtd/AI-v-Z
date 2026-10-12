@@ -18,7 +18,7 @@ game's own compiler and checks every method name against the game) and a run in 
 
 | # | Item | Who | Next step |
 |---|---|---|---|
-| N5 | **First run of gym 0.4.10-0.4.20 (mod 0.5.2) and reward version 3.** Checked against the 42.21 jar and compiled with the game's compiler on 2026-10-12; never played. | local | Run `scripts/start.ps1`. Then check: `Zomboid\Lua\aivz\loader.txt` says `OK v0.5.2 (gym 0.4.20)`; `Zomboid\console.txt` has no `AIvZ` errors; `obs.json` has `protection` and `knox`; `logs\model\train.log` shows a fresh round 33 without errors. |
+| N5 | **First run of gym 0.4.10-0.4.20 (mod 0.5.2) and reward version 3.** Checked against the 42.21 jar and compiled with the game's compiler on 2026-10-12; never played. | local | Run `scripts/start.ps1`. Then check: `Zomboid\Lua\aivz\loader.txt` says `OK v0.5.2 (gym 0.4.20)`; `Zomboid\console.txt` has no `AIvZ` errors; `obs.json` has `protection` and `knox`; `logs\model\train.log` shows a fresh round 33 without errors. Then take the gym versions that ran cleanly off the README's "hasn't run in the game yet" entry: the cloud routine writes no more Lua while 3 or more are listed there. |
 | N2, N6 | After a few hours on reward version 3: does the network outlive random play (median 1.35 game hours), and does it bandage when bleeding? | local | Compare on the Learning page and in `lives.jsonl`. |
 | 6.4, N7 | When the network may decide: keep the "hurt", "zombie close" and "still at it" triggers, or ask at a fixed rate. "hurt" is 37% of all decisions. | owner | Decide; see [Guard rails](#guard-rails-item-6) point 4. |
 | 6.7 | Keep the rules baseline as a comparison player, or delete it. | owner | Decide; the gym uses some of its helpers. |
@@ -36,7 +36,7 @@ game's own compiler and checks every method name against the game) and a run in 
 | 5 | The game's own halo text from gym calls (e.g. "Not safe to sleep here."). `last.msg` is already kept from the network. | local | Audit which direct handler calls show text. |
 | 4 | Calibrate the light threshold (0.2, guessed) and account for held torches. | local | Compare with the screen at night. |
 | 2 | Confirm every spawn region is offered at respawn, not only towns. | local | Check the live log. |
-| N3 | Restart the agent if it exits on its own (it is fine when run from `start.ps1`'s window). | cloud | Optional. |
+| N3 | Restart the agent if it exits on its own (it is fine when run from `start.ps1`'s window). | owner | Optional: say if you want `start.ps1` to restart it. |
 | G8-G23 | Missing families: floor items and corpses, menus, water and stoves, medical care, reading, movement and stance, barricading, vehicles, crafting, repairs, appliances, farming and foraging, building, firearms, map and radio, the new-game flow. | local, then cloud | Audit each in the game files, then build; GAP_LIST items 8-23. |
 
 ## From the owner, 2026-10-11
