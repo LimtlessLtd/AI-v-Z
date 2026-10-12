@@ -104,7 +104,7 @@ Needs Python 3.10+ and Project Zomboid Build 42.
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-Pulls the latest of the branch you have checked out (skipped if you have local changes), links the mod if needed, launches Project
+Pulls the latest `main`, switching to it if another branch is checked out (skipped if you have local changes), links the mod if needed, launches Project
 Zomboid through Steam and runs the self-taught agent (`-NoPull`, `-NoGame`, `-Policy` available). The agent
 polls for the game, so start order doesn't matter: once a singleplayer game with AI-v-Z enabled is loaded,
 it takes over. Still manual: enable the mod once per save, and load/start the save. The agent plays with the
