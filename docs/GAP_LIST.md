@@ -97,6 +97,15 @@ menu does since gym 0.4.37 (before: the name from `getFluidTypeString()`).
   `listboxTraitSelected`, `addTraitBtn` (`ADDTRAIT`), `addBadTraitBtn` (`ADDBADTRAIT`), `removeTraitBtn`.
 
 ### 7. Small prerequisite fixes in existing verbs
+
+**Sitting follow-up (2026-10-12):** Mod 0.5.8 waits for getting up before common movement paths;
+gym 0.4.41 adds `get_up` and visible `obs.sitting` (a hashed token). Sources:
+`client/ISUI/ISContextMenu.lua:onGetUpAndThen` (1046),
+`client/TimedActions/ISTimedActionQueue.lua:addGetUpAndThen` (229), and
+`shared/TimedActions/ISWaitWhileGettingUp.lua:start/update/perform`, installed 42.21.
+The old `stand` option only ends sneaking. See [sitting check](SITTING_CHECK.md): a naturally chosen bed
+rest was followed by hundreds of immediate path failures. These changes pass the installed game's
+compiler and method-name checks; live verification is still needed.
 * `smash` only for closed windows (`J:ISWorldObjectContextMenuLogic.doWindowMenu` offsets 888-1069).
 * `clear_glass` needs an item in the primary hand (offset 296); otherwise report the game's reason.
 * `equip`: any item may go in a hand (`ISInventoryPaneContextMenu.doEquipOption`, `:4129`), but not into a

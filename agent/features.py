@@ -15,6 +15,7 @@ tiles faces (towards the character, side-on or away), as a player sees from its 
 bump): a fence's height and a drop beyond it, and whether a sheet or curtain is on a door (OPTION_FLAGS). Since
 gym 0.4.35 (no version bump): half or all of a pile on the ground (`how`), and a corpse in tow (`self:dragging`).
 Since gym 0.4.36: the planks already on a door or window, on `barricade` and `unbarricade` (`planks`, a word).
+Since gym 0.4.41: whether the character is sitting (`self:sitting`, no dense layout change).
 
 Each side is a dense vector of fixed meaning plus a bag of hashed tokens ("inv:Base.Apple", "take:cat:food"),
 so item and place names the network has never seen still get an input without a fixed vocabulary.
