@@ -152,6 +152,10 @@ class EncodingTests(unittest.TestCase):
         self.assertIn(F.bucket("self:sitting"), sitting[1])
         self.assertNotIn(F.bucket("self:sitting"), standing[1])
         self.assertEqual(standing, F.encode_state({"obs": {**OBS, "sitting": False}}))
+        furniture = F.encode_state({"obs": {**OBS, "sitting": True, "sittingOnFurniture": True}})
+        self.assertEqual(sitting[0], furniture[0])
+        self.assertIn(F.bucket("self:sitting:furniture"), furniture[1])
+        self.assertNotIn(F.bucket("self:sitting:furniture"), sitting[1])
         get_up = F.encode_option({"verb": "get_up"}, OBS)
         self.assertIn(F.bucket("verb:get_up"), get_up[1])
 

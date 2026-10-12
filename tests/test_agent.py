@@ -638,7 +638,8 @@ class MenuPrerequisiteStaticTest(unittest.TestCase):
     def test_rest_on_a_bed_as_the_bed_menu_offers_it(self):
         """Gym 0.4.39 (backlog G7): doBedMenu's Rest, run with the game's own onRest."""
         self.assertIn("if o:isFurnitureOccupied(p) or (p:isSittingOnFurniture() and p:isSitOnFurnitureObject(o)) then return false end", self.src)
-        self.assertIn("if o.data.bed then return ISWorldObjectContextMenu.onRest(o.data.bed, p:getPlayerNum()) end", self.src)
+        rest = self.src.split("G.X.rest = {", 1)[1].split("local function stance", 1)[0]
+        self.assertIn("ISWorldObjectContextMenu.onRest(bed, p:getPlayerNum())", rest)
 
     def test_equip_and_drop_follow_the_inventory_menu(self):
         """Gym 0.4.38 (backlog G7): the hand rules of doEquipOption and the vehicle rule of Drop."""

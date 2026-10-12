@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.41"
+G.VERSION = "0.4.42"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -344,6 +344,7 @@ function G.observe(p, dead)
 	-- the character's own stance, as the player sees it (gym 0.4.25)
 	o.sneaking, o.running = p:isSneaking() == true, (p:isRunning() or p:isSprinting()) == true
 	o.sitting = p:isSitting() == true   -- visible body posture, gym 0.4.41; a hashed token in features.py
+	o.sittingOnFurniture = p:isSittingOnFurniture() == true   -- distinguish the menu's floor fallback (gym 0.4.42)
 	o.dragging = p:isDraggingCorpse() == true   -- a corpse in tow (gym 0.4.35)
 	o.weather = { rain = r2(try(function() return cm:getRainIntensity() end) or 0) }   -- no temperature: only a digital clock shows it (o.clock.temp)
 	o.weight, o.maxWeight = r1(p:getInventory():getCapacityWeight()), r1(p:getMaxWeight())
@@ -1130,18 +1131,33 @@ G.X.get_up = {
 }
 -- On a bed: ISWorldObjectContextMenu.onRest, the game's path to a place on it (ISPathFindAction:pathToSitOnFurniture)
 -- and then ISRestAction; when no place is free it goes next to it and sits on the ground (onRestPathFailed)
+-- 42.21 doBedMenu uses addGetUpOption: get up from another seat first. ISRestAction:update completes once
+-- SitOnFurnitureStarted is set; sitting then recovers endurance passively. Don't keep a finished sit running
+-- for another 600 ticks: subsequent choices can wait, read or get up while the character is still seated.
 G.X.rest = {
 	start = function(p, t, o)
-		if o.data.bed then return ISWorldObjectContextMenu.onRest(o.data.bed, p:getPlayerNum()) end
-		pcall(function() p:reportEvent("EventSitOnGround") end)
-	end,
-	step = function(p, t, o)
-		if not o.data.bed then
-			if tick() - t.t0 > 600 then U.done(t) end
+		if o.data.bed then
+			local function onUp()
+				local bed = o.data.bed
+				if not bed:getSquare() or bed:getObjectIndex() == -1 then return U.fail(t, "seat gone") end
+				ISWorldObjectContextMenu.onRest(bed, p:getPlayerNum())
+			end
+			if p:isSitting() then
+				local action = ISWaitWhileGettingUp:new(p)
+				action:setOnComplete(onUp)
+				Q(action)
+			else onUp() end
 			return
 		end
-		if tick() - t.t0 < 1200 and not (p:isSittingOnFurniture() and tick() - t.t0 > 600) then return end
-		if p:isSitting() then U.done(t) else U.fail(t, "didn't sit down") end
+		p:reportEvent("EventSitOnGround")   -- ISWorldObjectContextMenu.onSitOnGround (42.21)
+	end,
+	step = function(p, t, o)
+		local age = tick() - t.t0
+		if age > 20 and qlen(p) == 0 and p:isSitting() then
+			local fallback = o.data.bed and not p:isSittingOnFurniture()
+			return U.done(t, fallback and "sat on the ground" or nil)
+		end
+		if age > 1200 then U.fail(t, "didn't sit down") end
 	end,
 }
 local function stance(on)
