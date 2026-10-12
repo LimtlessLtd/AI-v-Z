@@ -1,7 +1,8 @@
 # Phase 3 verification — 2026-10-09
 
 **Scope correction:** These checks cover the 27 implemented option types, not all player actions.
-Phase 3 remains in progress: whole action families and hearing are missing. See
+Phase 3 was then in progress; it closed on 2026-10-11 (PR #25) with whole action families and hearing
+still missing, carried in [BACKLOG.md](BACKLOG.md). See
 [Phase 3 coverage audit](PHASE3_COVERAGE.md). The original completion claim was too broad.
 
 Tested in the running singleplayer game, Project Zomboid 42.21.0 (Steam build `25485521`,

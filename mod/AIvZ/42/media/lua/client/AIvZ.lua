@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.5.1"
+A.VERSION = "0.5.2"   -- 0.5.2: helpers the gym needs (waterIn asSeen, seen beds, smashed-window squares), gym 0.4.12-0.4.19
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes

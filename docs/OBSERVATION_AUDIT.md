@@ -162,7 +162,7 @@ perceivable now), **gap** (perceivable but missing).
 | `A.buildingInfo` cache (60 ticks) | `AIvZ.lua:564-576` | Whole-floor openings (leak above). |
 | Decision trigger `hurt` | `AIvZGym.lua:895` | Fires on a 0.5 drop of exact health, which may change no visible band: a timing signal finer than the screen. Use the band or bleeding/moodle changes. |
 | Decision trigger `zombie close` | `AIvZGym.lua:896-898` | Visible zombies within 4 tiles; inherits the zombie-visibility proxy. |
-| Reward | `agent/reward.py` | Uses exact `health`, moodles, bleeding, kills, new items/buildings/containers. A reward is a training signal, not an observation, but exact health makes it carry information the screen does not show; using the health band keeps them consistent. |
+| Reward | `agent/reward.py` | Version 3 (2026-10-12) uses exact `health`, open and bandaged wounds, the protection panel, the hidden Knox infection flag (`obs.knox`), kills, new items/buildings/containers; no moodles. A reward is a training signal, not an observation, so hidden values there teach the network what matters without showing it the value itself: the infection flag is the deliberate case (the death it causes is charged when it happens). |
 | Hearing | `agent/hearing.py` | No capture source; every record says `available: false`. |
 
 ## 5. Remaining hidden-information leaks, in order of impact
@@ -211,7 +211,7 @@ tooltips' nutrition and other effects; whether it is light enough to read (`tooD
 * Whether the tainted-water text appears in the world tooltip with the default sandbox.
 * Whether exterior squares of a building seen from the street are `isCanSee(pn)` (for building memory).
 
-## 7. Kept from the network's input (agent/features.py, no layout change)
+## 8. Kept from the network's input (agent/features.py)
 
 Three leaks are cut on the learner's side, without a `features.VERSION` bump (the input slots stay, so the
 trained network is kept; the values it sees change a little, so it adapts over the next rounds):

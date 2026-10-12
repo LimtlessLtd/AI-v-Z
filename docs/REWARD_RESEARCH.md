@@ -1,4 +1,4 @@
-# Reward research and the version 3 proposal (2026-10-12)
+# Reward research and reward version 3 (2026-10-12)
 
 The owner asked how our reward compares with other game-playing networks. Three points were raised:
 
