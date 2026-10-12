@@ -435,6 +435,22 @@ class ExerciseLuaStaticTest(unittest.TestCase):
         self.assertIn("ISFitnessAction:new(p, o.data.name, o.data.minutes, o.data.data, o.data.data.type)", src)
         self.assertIn("contains(need, true)", src)
 
+    def test_the_screens_hand_off_comes_before_the_exercise(self):
+        """Gym 0.4.37 (backlog G2): ISFitnessUI:equipItems' hand-off, then the action."""
+        src = (Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client/AIvZGymActions.lua").read_text(encoding="utf-8")
+        x = src[src.index("G.X.exercise = {"):]
+        self.assertLess(x.index("fitnessHandOff(p, d)"), x.index("Q(act)"))
+        self.assertIn('if d.prop == "primary" or d.prop == "switch" then', src)
+
+    def test_hotwire_as_the_radial_menu_offers_it(self):
+        """Gym 0.4.37 (backlog G5): ISVehicleMenu.lua:106-118, and ISVehicleMenu.onHotwire."""
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        src = (base / "AIvZGymActions.lua").read_text(encoding="utf-8")
+        self.assertIn("(p:getPerkLevel(Perks.Electricity) >= 1 and p:getPerkLevel(Perks.Mechanics) >= 2) or p:hasTrait(CharacterTrait.BURGLAR)", src)
+        self.assertIn("ISVehicleMenu.onHotwire(p)", src)
+        gym = (base / "AIvZGym.lua").read_text(encoding="utf-8")
+        self.assertIn("pf:getFluidType() == FluidType.Bleach", gym)   # the Drink menu's own test (backlog G4)
+
     def test_executors_read_option_fields_from_data(self):
         # An executor gets the option as { verb, info, data } (add() in AIvZGym.lua); its own fields are in
         # o.data. Gym 0.4.4 read o.minutes / o.blocked, which are always nil, so every exercise failed.

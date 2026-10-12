@@ -52,6 +52,9 @@ Details and the field list are in OBSERVATION_AUDIT.md sections 2-5. APIs (all e
   `InventoryContainer`s with `ISUnequipAction:new(player, item, 50)`. The screen calls
   `player:getFitness():init()` when it opens (`ISFitnessUI:new`).
 * Live test: the console must show no `Fitness.incRegularity` exception and endurance must fall.
+* **Hand-off done in gym 0.4.37** (not yet run in the game): `fitnessHandOff` does what `equipItems` does before the
+  action (`client/ISUI/ISFitnessUI.lua:266-304`). The screen's re-equip when the exercise ends (`ISFitnessUI:update`,
+  `:212-228`, only while the screen is open) is left out: the next decision's action clears the queue.
 
 ### 3. Make `sleep` respect the game's conditions (**code done 2026-10-11, gym `sleepBlock`; not run in game**) (AIvZGym.lua:467-473, 808-827; AIvZ.lua:1646-1657)
 The menu marks Sleep unavailable (`J:ISWorldObjectContextMenuLogic.doSleepOption`) when:
@@ -76,7 +79,9 @@ amount/capacity ≥ 0.5 / ≥ 0.25.
 not `isEngineRunning()`, not `isEngineStarted()`, and `SandboxVars.VehicleEasyUse` or
 `p:getInventory():haveThisKeyId(v:getKeyId())` or `v:isKeysInIgnition()` or `v:isHotwired()`. Add Hotwire
 (`ISVehicleMenu.onHotwire(playerObj)` → `ISHotwireVehicle:new(character)`) when there is no key and
-Electricity ≥ 1 and Mechanics ≥ 2, or the Burglar trait (`:106-120`).
+Electricity ≥ 1 and Mechanics ≥ 2, or the Burglar trait (`:106-120`). **Done in gym 0.4.37** (Hotwire; the start
+conditions in 0.4.30), not yet run in the game. Drink (item 4) compares `getFluidType() == FluidType.Bleach` as the
+menu does since gym 0.4.37 (before: the name from `getFluidTypeString()`).
 
 ### 6. Trait points and profession (AIvZGymActions.lua:203-330, AIvZGym.lua:934-940)
 * Points: `prof:PointToSpend()` (`client/OptionScreens/CharacterCreationProfession.lua:860`) =

@@ -75,6 +75,29 @@ G.hooks.exercise = function(p, list, add)
 	end
 end
 
+-- What the fitness screen's Start does before the exercise (ISFitnessUI:onClick → equipItems): an exercise with no
+-- prop empties the hands, one with a prop ("twohands", "primary", "switch") puts its item there
+-- (ISWorldObjectContextMenu.equip), and worn bags come off (ISUnequipAction). The screen puts them all back when the
+-- exercise ends, if it is still open (ISFitnessUI:update); the gym doesn't: the next decision's action clears the
+-- queue, and equip and wear are the network's own options. (gym 0.4.37)
+local function fitnessHandOff(p, d)
+	local pn = p:getPlayerNum()
+	if not d.prop then
+		ISInventoryPaneContextMenu.unequipItem(p:getPrimaryHandItem(), pn)
+		if not p:isItemInBothHands(p:getPrimaryHandItem()) then ISInventoryPaneContextMenu.unequipItem(p:getSecondaryHandItem(), pn) end
+	end
+	if d.prop == "twohands" then ISWorldObjectContextMenu.equip(p, p:getPrimaryHandItem(), d.item, true, true) end
+	if d.prop == "primary" or d.prop == "switch" then
+		ISWorldObjectContextMenu.equip(p, p:getPrimaryHandItem(), d.item, true, false)
+		p:setSecondaryHandItem(nil)
+	end
+	local worn = p:getWornItems()
+	for i = 0, worn:size() - 1 do
+		local it = worn:get(i):getItem()
+		if it and instanceof(it, "InventoryContainer") then Q(ISUnequipAction:new(p, it, 50)) end
+	end
+end
+
 G.X.exercise = {
 	start = function(p, t, o)
 		if not (rawget(_G, "ISFitnessAction") and rawget(_G, "FitnessExercises")) then return U.fail(t, "unsupported: no fitness API") end
@@ -88,7 +111,9 @@ G.X.exercise = {
 		-- argument is what sets Fitness' current exercise; omitting it left it nil.
 		local ok, act = pcall(function() return ISFitnessAction:new(p, o.data.name, o.data.minutes, o.data.data, o.data.data.type) end)
 		if not ok or not act then return U.fail(t, "unsupported: ISFitnessAction:new failed") end
-		-- equipment hand-off (ISFitnessUI:equipItems) is NOT done here yet: exercises with a prop item need it in hand
+		local d = o.data.data
+		if d.item and not p:getInventory():contains(d.item, true) then return U.fail(t, "no " .. tostring(d.item)) end
+		fitnessHandOff(p, d)
 		Q(act)
 	end,
 	step = G.queueStep(2400, function(p, t, o)
@@ -179,7 +204,7 @@ end
 
 -- ISVehicleMenu.showRadialMenu (ISVehicleMenu.lua:87-101, cited in GAP_LIST item 5): Start engine is shown to the driver
 -- when isEngineWorking(), not running and not started, and SandboxVars.VehicleEasyUse, or the key (haveThisKeyId
--- of getKeyId()) is carried, or the keys are in the ignition, or the car is hotwired. Hotwire is not offered yet.
+-- of getKeyId()) is carried, or the keys are in the ignition, or the car is hotwired. Hotwire: see canHotwire.
 local function canStartEngine(p, v)
 	if try(function() return v:isEngineWorking() end) ~= true then return false end
 	if try(function() return v:isEngineRunning() end) == true or try(function() return v:isEngineStarted() end) == true then return false end
@@ -188,6 +213,16 @@ local function canStartEngine(p, v)
 	if try(function() return v:isKeysInIgnition() end) == true or try(function() return v:isHotwired() end) == true then return true end
 	local id = try(function() return v:getKeyId() end)
 	return id ~= nil and try(function() return p:getInventory():haveThisKeyId(id) end) ~= nil and true or false
+end
+
+-- Hotwire (ISVehicleMenu.lua:106-118): to the driver of a car not hotwired, its engine neither started nor running,
+-- without VehicleEasyUse, the keys not in the ignition and no key carried, with Electricity 1 and Mechanics 2 or the
+-- Burglar trait (the slice without them, ContextMenu_VehicleHotwireSkill, does nothing). (gym 0.4.37)
+local function canHotwire(p, v)
+	local sv = rawget(_G, "SandboxVars")
+	if v:isHotwired() or v:isEngineStarted() or v:isEngineRunning() or (sv and sv.VehicleEasyUse) or v:isKeysInIgnition()
+		or p:getInventory():haveThisKeyId(v:getKeyId()) then return false end
+	return (p:getPerkLevel(Perks.Electricity) >= 1 and p:getPerkLevel(Perks.Mechanics) >= 2) or p:hasTrait(CharacterTrait.BURGLAR)
 end
 
 G.hooks.vehicle = function(p, list, add)
@@ -201,6 +236,7 @@ G.hooks.vehicle = function(p, list, add)
 			elseif canStartEngine(p, inside) then
 				add(list, "engine_on", { running = false }, { v = inside })
 			end
+			if canHotwire(p, inside) then add(list, "hotwire", {}, { v = inside }) end
 		end
 		return
 	end
@@ -246,6 +282,11 @@ local function engine(on)
 	}
 end
 G.X.engine_on, G.X.engine_off = engine(true), engine(false)
+-- ISVehicleMenu.onHotwire: ISHotwireVehicle, whose complete() calls tryHotwire(Electricity level), which can fail
+G.X.hotwire = {
+	start = function(p, t, o) ISVehicleMenu.onHotwire(p) end,
+	step = G.queueStep(1800, function(p, t, o) if not o.data.v:isHotwired() then return "didn't get it hotwired" end end),
+}
 
 ---------------------------------------------------------------- character creation: choosing traits
 -- Called from G.respawnStep on the profession/traits screen while the agent plays. Each call (every 0.3 s)
