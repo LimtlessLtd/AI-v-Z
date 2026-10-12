@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.14"
+G.VERSION = "0.4.15"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -478,7 +478,9 @@ function G.options(p)
 		local rl = {}
 		for i = 0, rooms:size() - 1 do
 			local r = rooms:get(i)
-			if r:getZ() == math.floor(p:getZ()) and r ~= myDef then
+			-- only rooms the character has seen (observation audit, leak 2); if the call fails the room is kept
+			local explored = try(function() return r:isExplored() end)
+			if r:getZ() == math.floor(p:getZ()) and r ~= myDef and explored ~= false then
 				local cx, cy = r:getX() + r:getW() / 2, r:getY() + r:getH() / 2
 				rl[#rl + 1] = { r = r, d = dist(p, cx, cy), dx = cx - p:getX(), dy = cy - p:getY() }
 			end
@@ -609,7 +611,7 @@ function G.options(p)
 	-- sleep: in the nearest bed here, or on the floor; only when the game's Sleep menu entry would be enabled
 	local noSleep = sleepBlock(p)
 	if b and not noSleep then
-		local bed = A.beds(p, b)[1]
+		local bed = A.beds(p, b, true)[1]
 		if bed then add(list, "sleep", { bed = true, d = bed.d }, { bed = bed.o }) end
 	end
 	-- the game's floor-sleep check reads the square (an error once, with none, mid-climb)
