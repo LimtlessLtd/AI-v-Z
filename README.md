@@ -267,9 +267,12 @@ docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; A
 - **Temperature** is no longer in the observation unless a digital watch or clock is worn or held (`clock.temp`, the air temperature at the character; gym 0.4.18; not run in game, reload the mod).
 - **Unseen rooms and beds** are filtered from the options since gym 0.4.15 (`go_room` by `RoomDef:isExplored()`, beds by `isSeen`); not run in game, reload the mod.
 - **Item status is new.** Gym 0.4.11 adds weapon, ammo and clothing status to item records (not run in game; reload the mod to get it). The network sees it only as hashed tokens, and has never trained on it.
-- **Learning has only just started.** The first networks learn from about 260 random lives that mostly ended
-  within a few game hours, so early play is close to random. Watch the Learning page over hours, not
-  minutes.
+- **The network isn't learning to survive yet.** After 32 training rounds and about 250 network lives, it
+  survives no longer than random play (median about 1.4 game hours). The likely cause is the reward:
+  discomfort costs more per minute than being alive earns, so an early death scores better than a long
+  uncomfortable life ([backlog](docs/BACKLOG.md) N1, an owner decision).
+- **Run the agent in its own window** (`scripts/start.ps1`). Started as a background task of a Claude
+  session, it is killed when that session shuts down: on 2026-10-12 this stopped it at 02:13 (backlog N3).
 - **Traits are learned slowly.** Each life's observations list the character's traits (gym 0.4.7, as the
   character screen shows them), so the network can link them to how the life goes; but a trait's effect
   is spread over a whole life, and the discount makes that link weak.
