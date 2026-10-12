@@ -9,7 +9,9 @@ the reward reads). Used since version 2: `obs.protection`, the protection panel'
 part, and each garment's tooltip (defence, holes, condition) on its own options and tied to it when worn. Since
 version 3: where the zombies in sight are (each compass sector's nearest one and how many), as a player sees them on
 screen, and on each option with a direction the zombies that lie that way; the building's open doors, windows and
-curtains and its smashed windows, counted on squares the character has seen.
+curtains and its smashed windows, counted on squares the character has seen. Tokens since gym 0.4.25 (no
+version bump): the character's own stance (sneaking, running) and which way each zombie in sight within 10
+tiles faces (towards the character, side-on or away), as a player sees from its body.
 
 Each side is a dense vector of fixed meaning plus a bag of hashed tokens ("inv:Base.Apple", "take:cat:food"),
 so item and place names the network has never seen still get an input without a fixed vocabulary.
@@ -86,6 +88,11 @@ def bucket(token):
 # are always 0.
 HIDDEN_OPTION_FIELDS = {("window", "locked"), ("exercise", "endurance")}
 HEALTH_BANDS = (90, 80, 70, 60, 50, 40, 20, 10, 0)   # the health panel's status text changes at these
+
+
+def facing_word(f):
+    """A zombie's facing (gym 0.4.25: 1 straight at the character, -1 straight away) as a player would put it."""
+    return "toward" if f >= 0.7 else "away" if f <= -0.3 else "side"
 
 
 def health_band(h):
@@ -238,6 +245,16 @@ def encode_state(msg):
     v += [_clip(_num(z0.get("closing")) / 2, -1.0, 1.0), 1.0 if z0.get("down") else 0.0, 1.0 if z0.get("blocked") else 0.0]
     # this building's openings, on squares the character has seen (gym 0.4.17, 0.4.19)
     v += [min(_num(where.get(k)), 5) / 5 for k in OPENINGS]
+    # the character's own stance and which way the zombies in sight within 10 tiles face (gym 0.4.25), as tokens
+    if obs.get("sneaking"):
+        toks.append("self:sneaking")
+    if obs.get("running"):
+        toks.append("self:running")
+    for z in zs:
+        d, f = _num(z.get("d"), 99.0), z.get("facing")
+        if d < 10 and isinstance(f, (int, float)) and not z.get("down"):
+            band = "close" if d < 3 else "near" if d < 6 else "mid"
+            toks.append(f"zombie:facing:{facing_word(f)}:{band}")
     for it in _l(obs.get("inv")):
         it = _d(it)
         toks.append(f"inv:{it.get('type') or it.get('name')}")
@@ -277,6 +294,8 @@ def encode_option(o, obs=None):
             toks.append(f"{k}:{x}")   # shared across verbs: "type:Base.Apple" for take, eat and drop alike
     if isinstance(o.get("zombies"), (int, float)) and o["zombies"] > 0:
         toks.append(f"{verb}:toward_zombies")
+    if isinstance(o.get("facing"), (int, float)):   # attack and shove: which way that zombie faces
+        toks.append(f"{verb}:facing:{facing_word(o['facing'])}")
     return v, [bucket(x) for x in toks]
 
 
