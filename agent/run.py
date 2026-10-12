@@ -4,7 +4,7 @@
     python -m agent.run --policy random  # plays at random and doesn't train (Phase 3 behaviour)
     python -m agent.run --policy probe   # test tool: tries every kind of option in game (logs/probe/report.txt)
 
-The default net policy plays by the network's scores (agent/net.py) and retrains it every 15 minutes in a
+The default net policy plays by the network's scores (agent/net.py) and retrains it every 5 minutes in a
 separate low-priority process (agent/learn.py, also runnable by hand), from all the experience so far.
 
 While it runs, the agent plays instead of the rules baseline (start one or the other, not both: they share
@@ -51,8 +51,9 @@ BELOW_NORMAL = 0x00004000   # Windows process priority class for training, so th
 
 
 class Trainer:
-    """Runs a training round (python -m agent.learn) in its own process when the saved network is more than
-    `every_min` minutes old, at below-normal priority. The playing agent picks up each new network itself."""
+    """Runs a training round (python -m agent.learn) in its own process every `every_min` minutes, counted from the
+    start of the last round (the saved network's age when the agent starts), at below-normal priority. A round that
+    takes longer runs into the next. The playing agent picks up each new network itself."""
 
     def __init__(self, log_dir, every_min):
         self.log_dir, self.every = Path(log_dir), every_min * 60
@@ -60,8 +61,8 @@ class Trainer:
         self.running, self.started, self.last_try, self.last_code = False, None, None, None
 
     def due(self):
-        if self.last_try and time.time() - self.last_try < self.every:
-            return False
+        if self.last_try:
+            return time.time() - self.last_try >= self.every
         try:
             return time.time() - self.model.stat().st_mtime >= self.every
         except OSError:
@@ -154,7 +155,7 @@ class Agent:
         self.policy = ProbePolicy() if probe else RandomPolicy() if name == "random" else \
             NetPolicy(self.log_dir / "model" / "qnet.pt", temperature=getattr(args, "temperature", 0.5),
                       explore=getattr(args, "explore", 0.1))
-        every = getattr(args, "train_every", 15)
+        every = getattr(args, "train_every", 5)
         self.trainer = Trainer(self.log_dir, every) if name == "net" and every > 0 else None
         self.hearing = Hearing()   # no capture source yet: records 'unavailable' rather than inventing input
         self.port = args.port
@@ -321,7 +322,7 @@ def main():
     ap.add_argument("--lua-dir", default=str(DEFAULT_LUA_DIR))
     ap.add_argument("--log-dir", default=None, help="default logs/ (logs/probe/ for the probe)")
     ap.add_argument("--policy", choices=("net", "random", "probe"), default="net")
-    ap.add_argument("--train-every", type=float, default=15, help="minutes between training rounds (0: never)")
+    ap.add_argument("--train-every", type=float, default=5, help="minutes from one training round's start to the next (0: never)")
     ap.add_argument("--temperature", type=float, default=0.5,
                     help="net policy: lower picks the top-rated option more often (in spreads of the scores)")
     ap.add_argument("--explore", type=float, default=0.1, help="net policy: share of picks made at random")

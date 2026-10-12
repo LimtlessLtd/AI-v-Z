@@ -1,10 +1,15 @@
 """Train the network on the experience logs (Phase 4). One run is one training round:
 
-    python -m agent.learn            # from the repo root; the agent also runs this itself every 15 minutes
+    python -m agent.learn            # from the repo root; the agent also runs this itself every 5 minutes
 
 It reads every decision in logs/experience, learns Q (net.py) by Double-DQN updates over those decisions
 (off-policy, so the random policy's experience counts too), and saves logs/model/qnet.pt, which the playing
-agent picks up at its next decision. A conservative term (CQL, Kumar et al. 2020) holds down the scores of
+agent picks up at its next decision. Each target adds up the rewards of the next N_STEP decisions of the life
+before it bootstraps (n-step returns, the owner's go-ahead of 2026-10-12): with one-step targets a death reached
+the decision 50 before it only after about five rounds, as each copy of the target network carried it back one
+decision; now it carries it back N_STEP. The decisions in between were made by whatever policy played them (the
+random one, an older network, exploration), which the target doesn't correct for, as in Rainbow (Hessel et al.
+2018) and R2D2 (Kapturowski et al. 2019). A conservative term (CQL, Kumar et al. 2020) holds down the scores of
 options the experience says little about: without it, the max in each update picked options that were
 rarely or never tried in that situation, their arbitrary scores fed back, and the scores drifted upwards
 (round 2 of 2026-10-11 rated the average option +3 where the logged return averages -19). Each round carries on from the last saved network. Encoded hours are
@@ -41,6 +46,7 @@ from agent import reward as R  # noqa: E402
 HALF_LIFE_MIN = 120   # game minutes: a reward 2 game hours away counts half
 GAMMA = 0.5 ** (1 / HALF_LIFE_MIN)   # per game minute
 MIN_STEP_MIN = 0.1    # a decision that takes no game time (character creation, a dropped item) still discounts a little
+N_STEP = 5            # decisions whose rewards each target adds up before it bootstraps (1: one-step Q-learning)
 BATCH = 256
 STEPS = 2000          # updates per round (about a minute on 4 threads); each round starts from the last network
 TARGET_EVERY = 200    # steps between copies of the network used for the bootstrapped targets
@@ -76,7 +82,7 @@ def encode_file(path, cache_dir, live):
     recs = F.read_records(path)
     meta = [_meta(r) for r in recs]
     S = N.Pack.of([F.encode_state(r) for r in recs], F.STATE_DIM)
-    O = N.Pack.of([F.encode_option(o) for r in recs for o in (r.get("options") or [])], F.OPTION_DIM)
+    O = N.Pack.of([F.encode_option(o, r.get("obs")) for r in recs for o in (r.get("options") or [])], F.OPTION_DIM)
     if not live:
         cache_dir.mkdir(parents=True, exist_ok=True)
         tmp = cp.with_name(cp.name + ".tmp.npz")
@@ -137,6 +143,26 @@ class Data:
         after = np.where(dead[j], 0.0, self.disc[j] * phi[j])
         shaped = np.where(has[i] & (has[j] | dead[j]), after - phi[i], 0.0)
         self.reward[j] += (shaped / N.SCALE).astype(np.float32)
+        self.n_reward, self.n_disc, self.n_state = self.n_step(N_STEP)
+
+    def n_step(self, n):
+        """Per transition (i, j): the rewards of up to n transitions along its life from i, each discounted by the
+        game time before it, their total discount, and the record the target bootstraps from (the last one reached;
+        a death or a record without options ends the sum early and is terminal). A record that starts no transition
+        (the life's latest, or one before a restart) ends it too, and is bootstrapped from as before."""
+        nxt = np.full(len(self.meta), -1, dtype=np.int64)   # record -> the transition that starts there
+        nxt[self.ti] = np.arange(len(self.ti))
+        reward = self.reward[self.tj].astype(np.float64)
+        disc = self.disc[self.tj].astype(np.float64)
+        state = self.tj.copy()
+        for _ in range(n - 1):
+            k = np.where(self.terminal[state], -1, nxt[state])
+            go = k >= 0
+            j = self.tj[k[go]]
+            reward[go] += disc[go] * self.reward[j]
+            disc[go] *= self.disc[j]
+            state[go] = j
+        return reward.astype(np.float32), disc.astype(np.float32), state
 
     @staticmethod
     def body_values(metas):
@@ -187,7 +213,7 @@ def _logsumexp(q, seg, n):
 
 def step(net, target, opt, data, rng):
     idx = rng.integers(0, len(data.ti), BATCH)
-    I, J = data.ti[idx], data.tj[idx]
+    I, J = data.ti[idx], data.n_state[idx]   # the decision, and where its N_STEP rewards lead
     q_s, seg_s = q_all(net, data, I)   # every option of each situation, the chosen one among them
     first = np.zeros(len(I), dtype=np.int64)
     first[1:] = np.cumsum(data.n_opts[I])[:-1]
@@ -203,7 +229,7 @@ def step(net, target, opt, data, rng):
             sel = q_on >= best[seg] - 1e-6   # Double DQN: the online network picks, the target network values
             val = torch.full((len(Jl),), -1e9).scatter_reduce(0, seg[sel], q_tg[sel], "amax")
             boot[torch.from_numpy(live)] = val
-        y = torch.from_numpy(data.reward[J]) + torch.from_numpy(data.disc[J]) * boot
+        y = torch.from_numpy(data.n_reward[idx]) + torch.from_numpy(data.n_disc[idx]) * boot
     td = torch.nn.functional.smooth_l1_loss(q, y)
     # only pushes down: the logged choice is held up by its own target, so lifting it as well (standard CQL)
     # added a bias that compounded through the discount
@@ -278,7 +304,7 @@ def train(log_dir, steps=None, fresh=False, quiet=False):
     rec = {"round": rnd, "trained_at": datetime.now().isoformat(timespec="seconds"), "steps": n, "fresh": bool(fresh or old is None),
            "decisions": len(data.meta), "transitions": int(len(data.ti)), "lives": len(lives),
            "loss_first": round(float(np.mean(losses[:50])), 4), "loss": round(float(np.mean(losses[-100:])), 4),
-           "q_mean": round(N.SCALE * float(np.mean(qs[-100:])), 3), "reward_v": R.VERSION,
+           "q_mean": round(N.SCALE * float(np.mean(qs[-100:])), 3), "reward_v": R.VERSION, "n_step": N_STEP,
            "seconds": round(time.time() - t0, 1),
            "verbs": verb_values(net, data)}
     N.save(net, model_path, **{k: v for k, v in rec.items() if k != "verbs"})

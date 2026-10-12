@@ -88,6 +88,33 @@ class EncodingTests(unittest.TestCase):
         self.assertEqual(F.encode_option({"verb": "exercise", "endurance": 1})[0][e], 0.0)
         self.assertEqual(len(F.encode_option({"verb": "window"})[0]), F.OPTION_DIM)
 
+    def test_where_the_zombies_are_goes_in(self):
+        """Version 3: the state says which way each zombie in sight is; an option with a direction says which lie
+        that way (dx, dy as the gym gives them: +y is south)."""
+        north = {**OBS, "zombies": [{"d": 2.0, "dx": 0.0, "dy": -2.0, "closing": 1.0}]}
+        south = {**OBS, "zombies": [{"d": 2.0, "dx": 0.0, "dy": 2.0, "closing": 1.0}]}
+        self.assertNotEqual(F.encode_state({"obs": north})[0], F.encode_state({"obs": south})[0])
+        base = len(F.MOODLES) + len(F.WOUNDS) + len(F.REASONS) + len(F.STATUSES) + 32 + 2 * len(F.PARTS)
+        n = base + 2 * F.SECTORS.index("N")
+        dense = F.encode_state({"obs": north})[0]
+        self.assertAlmostEqual(dense[n], 0.9)          # nearness of the closest in the north sector
+        self.assertAlmostEqual(dense[n + 1], 1 / 3)    # one within 10 tiles
+        self.assertEqual(dense[base + 2 * F.SECTORS.index("S")], 0.0)
+        self.assertEqual([F.sector(1, -1), F.sector(-3, 0.5), F.sector(0, 0)], ["NE", "W", None])
+        walk_n = {"verb": "walk", "dir": "N", "dx": 0, "dy": -1, "zombies": 1}
+        walk_s = {"verb": "walk", "dir": "S", "dx": 0, "dy": 1, "zombies": 0}
+        self.assertAlmostEqual(F.encode_option(walk_n, north)[0][-2], 0.9)
+        self.assertEqual(F.encode_option(walk_s, north)[0][-2:], [0.0, 0.0])
+        self.assertEqual(F.encode_option(walk_n)[0][-2:], [0.0, 0.0])   # without the observation: nothing
+        self.assertEqual(len(F.encode_option(walk_n, north)[0]), F.OPTION_DIM)
+        dark = {**OBS, "zombies": []}   # a zombie the gym doesn't list (unseen) can't show up
+        self.assertEqual(F.encode_option(walk_n, dark)[0][-2:], [0.0, 0.0])
+
+    def test_open_doors_and_windows_seen_go_in(self):
+        shut = {**OBS, "where": {"building": "b1", "doorsOpen": 0, "windowsOpen": 0}}
+        open_ = {**OBS, "where": {"building": "b1", "doorsOpen": 2, "windowsOpen": 1}}
+        self.assertNotEqual(F.encode_state({"obs": shut})[0], F.encode_state({"obs": open_})[0])
+
     def test_glass_under_a_bandage_stays_out(self):
         def enc(flags):
             return F.encode_state({"obs": {"body": [{"part": "Hand_L", "flags": flags}]}})
@@ -200,6 +227,30 @@ class NetworkTests(unittest.TestCase):
         _, phi, _ = learn.Data.body_values([learn._meta(r) for r in jacket])
         self.assertAlmostEqual((phi[1] - phi[0]) + (phi[2] - phi[1]), 0.0)   # on, then off: nothing gained
 
+    def test_targets_add_up_the_next_rewards_of_the_life(self):
+        """N-step targets: from a life's first decision the rewards of the next N_STEP decisions, each discounted by
+        the game time before it; near the end, the death ends the sum and nothing is bootstrapped after it."""
+        from agent import learn
+        with tempfile.TemporaryDirectory() as tmp:
+            write_experience(tmp, life_records(1, 8))
+            data = learn.Data(tmp)
+        n = learn.N_STEP
+        self.assertGreater(n, 1)
+        first = list(data.ti).index(0)
+        r, d = 0.0, 1.0
+        for k in range(1, n + 1):
+            r += d * float(data.reward[k])
+            d *= float(data.disc[k])
+        self.assertAlmostEqual(float(data.n_reward[first]), r, places=4)
+        self.assertAlmostEqual(float(data.n_disc[first]), d, places=5)
+        self.assertEqual(int(data.n_state[first]), n)
+        last = list(data.ti).index(7)   # the last decision: its next record is the death
+        self.assertEqual(int(data.n_state[last]), 8)
+        self.assertTrue(data.terminal[8])
+        self.assertAlmostEqual(float(data.n_reward[last]), float(data.reward[8]), places=5)
+        before = list(data.ti).index(8 - 2)   # two before the death: two rewards, then terminal
+        self.assertEqual(int(data.n_state[before]), 8)
+
     def test_an_out_of_date_cache_is_rebuilt(self):
         """A version change makes every cached hour out of date; rebuilding one replaces the file it just read."""
         from agent import learn
@@ -290,7 +341,7 @@ class TraitRuleLuaTest(unittest.TestCase):
         v1, t1 = F.encode_state(base)
         self.assertEqual(len(v1), F.STATE_DIM)
         self.assertGreater(len(t1), 2)
-        self.assertEqual(F.VERSION, 2)   # 2: protection per body part and clothing status on options (reward version 3)
+        self.assertEqual(F.VERSION, 3)   # 2: protection and clothing status (reward version 3); 3: where the zombies are
 
 
 if __name__ == "__main__":

@@ -6,7 +6,10 @@ the raw stats behind them (hunger 0.09, temperature 37.3), the world clock (`t.h
 seen only on a worn watch or clock, `obs.clock`), the air temperature, map coordinates, `last.msg` (a
 text explanation of a failure the player wouldn't be given), and `obs.knox` (the hidden Knox infection, which only
 the reward reads). Used since version 2: `obs.protection`, the protection panel's bite and scratch defence per body
-part, and each garment's tooltip (defence, holes, condition) on its own options and tied to it when worn.
+part, and each garment's tooltip (defence, holes, condition) on its own options and tied to it when worn. Since
+version 3: where the zombies in sight are (each compass sector's nearest one and how many), as a player sees them on
+screen, and on each option with a direction the zombies that lie that way; the building's open doors, windows and
+curtains and its smashed windows, counted on squares the character has seen.
 
 Each side is a dense vector of fixed meaning plus a bag of hashed tokens ("inv:Base.Apple", "take:cat:food"),
 so item and place names the network has never seen still get an input without a fixed vocabulary.
@@ -20,8 +23,9 @@ import math
 import zlib
 from pathlib import Path
 
-VERSION = 2           # bump when the encoding changes: cached features and saved networks are rebuilt
+VERSION = 3           # bump when the encoding changes: cached features and saved networks are rebuilt
                       # 2 (2026-10-12, with reward version 3): protection per body part, clothing status on options
+                      # 3 (2026-10-12, owner's go-ahead): where the zombies are, by sector and per option; openings
 BUCKETS = 4096        # hashed-token buckets per side
 
 MOODLES = ("hungry", "thirst", "tired", "endurance", "panic", "pain", "sick", "wet", "hypothermia", "hyperthermia",
@@ -47,8 +51,14 @@ OPTION_WORDS = ("name", "type", "cat", "dir", "recipe", "part", "trait", "what",
 PARTS = ("Hand_L", "Hand_R", "ForeArm_L", "ForeArm_R", "UpperArm_L", "UpperArm_R", "Torso_Upper", "Torso_Lower", "Head",
          "Neck", "Groin", "UpperLeg_L", "UpperLeg_R", "LowerLeg_L", "LowerLeg_R", "Foot_L", "Foot_R")
 
-STATE_DIM = len(MOODLES) + len(WOUNDS) + len(REASONS) + len(STATUSES) + 32 + 2 * len(PARTS)
-OPTION_DIM = len(OPTION_NUMBERS) + 1
+# compass sectors, as the gym names directions (AIvZ.lua dir8: +y is south, 45 degrees each)
+SECTORS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+ZOMBIE_RANGE = 20.0   # tiles: a zombie at the character's feet counts 1, one this far or further 0
+OPENINGS = ("doorsOpen", "windowsOpen", "curtainsOpen", "smashed")
+
+STATE_DIM = (len(MOODLES) + len(WOUNDS) + len(REASONS) + len(STATUSES) + 32 + 2 * len(PARTS) + 2 * len(SECTORS) + 3
+             + len(OPENINGS))
+OPTION_DIM = len(OPTION_NUMBERS) + 1 + 2
 
 
 def _d(v):
@@ -94,6 +104,43 @@ def _clip(x, lo=-5.0, hi=5.0):
 
 def _bin(x, edges=(0.25, 0.5, 0.75)):
     return sum(x > e for e in edges)
+
+
+def sector(dx, dy):
+    """The compass sector of (dx, dy) as the gym's dir8 names it, or None for the character's own square."""
+    t = 0.4142   # tan 22.5 degrees
+    ns = "N" if dy < -t * abs(dx) else "S" if dy > t * abs(dx) else ""
+    ew = "E" if dx > t * abs(dy) else "W" if dx < -t * abs(dy) else ""
+    return (ns + ew) or None
+
+
+def _near(d):
+    """How close a zombie is, 1 at the character's feet to 0 at ZOMBIE_RANGE tiles or further."""
+    return max(0.0, 1.0 - d / ZOMBIE_RANGE)
+
+
+def _zombies(obs):
+    """(dx, dy, distance) of each zombie in sight."""
+    out = []
+    for z in _l(_d(obs).get("zombies")):
+        z = _d(z)
+        dx, dy = _num(z.get("dx")), _num(z.get("dy"))
+        out.append((dx, dy, _num(z.get("d"), math.hypot(dx, dy))))
+    return out
+
+
+def zombies_toward(dx, dy, zombies):
+    """(nearness of the closest, count within 10 tiles) of the zombies within 45 degrees of the direction (dx, dy)."""
+    norm = math.hypot(dx, dy)
+    best, n = 0.0, 0
+    if norm == 0:
+        return best, n
+    for zx, zy, d in zombies:
+        zn = math.hypot(zx, zy)
+        if zn > 0 and (dx * zx + dy * zy) / (norm * zn) >= 0.7071:
+            best = max(best, _near(d))
+            n += d < 10
+    return best, n
 
 
 def item_status_tokens(it, prefix):
@@ -177,6 +224,20 @@ def encode_state(msg):
     for part in PARTS:
         x = prot.get(part, {})
         v += [min(_num(x.get("bite")), 100.0) / 100, min(_num(x.get("scratch")), 100.0) / 100]
+    # where the zombies in sight are: per compass sector, the nearest one's nearness and how many within 10 tiles
+    near, count = dict.fromkeys(SECTORS, 0.0), dict.fromkeys(SECTORS, 0)
+    for dx, dy, d in _zombies(obs):
+        sec = sector(dx, dy)
+        if sec:
+            near[sec] = max(near[sec], _near(d))
+            count[sec] += d < 10
+    for sec in SECTORS:
+        v += [near[sec], min(count[sec], 6) / 3]
+    # the nearest zombie as watched: how far it closed in since the last look, whether it's down or behind a wall
+    z0 = min(zs, key=lambda z: _num(z.get("d"), 99.0)) if zs else {}
+    v += [_clip(_num(z0.get("closing")) / 2, -1.0, 1.0), 1.0 if z0.get("down") else 0.0, 1.0 if z0.get("blocked") else 0.0]
+    # this building's openings, on squares the character has seen (gym 0.4.17, 0.4.19)
+    v += [min(_num(where.get(k)), 5) / 5 for k in OPENINGS]
     for it in _l(obs.get("inv")):
         it = _d(it)
         toks.append(f"inv:{it.get('type') or it.get('name')}")
@@ -198,12 +259,16 @@ def encode_state(msg):
     return v, [bucket(x) for x in toks]
 
 
-def encode_option(o):
-    """(dense list of OPTION_DIM floats, list of token buckets) for one option."""
+def encode_option(o, obs=None):
+    """(dense list of OPTION_DIM floats, list of token buckets) for one option. `obs` is the observation it was offered
+    with: an option with a direction (walk, run, enter, go_room, attack...) also gets the zombies in sight that lie
+    that way, the closest one's nearness and how many within 10 tiles."""
     o = _d(o)
     verb = str(o.get("verb"))
     v = [0.0 if (verb, k) in HIDDEN_OPTION_FIELDS else _clip(_num(o.get(k)) / s) for k, s in OPTION_NUMBERS.items()]
     v.append(1.0)   # a constant input, so every option has one non-zero entry
+    ahead, n = zombies_toward(_num(o.get("dx")), _num(o.get("dy")), _zombies(obs)) if obs else (0.0, 0)
+    v += [ahead, min(n, 6) / 3]
     toks = [f"verb:{verb}"]
     for k in OPTION_WORDS:
         x = o.get(k)

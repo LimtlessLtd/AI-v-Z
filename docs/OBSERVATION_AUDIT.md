@@ -160,8 +160,8 @@ perceivable now), **gap** (perceivable but missing).
 | `GS.blds` (240 ticks), `GS.water` (120 ticks) | `AIvZGym.lua:305-316`, `:442-448` | Stale lists between refreshes; truncation before filtering. |
 | `GS.rcache` (600 ticks) | `AIvZGym.lua:530-559` | Keyed by item object; stale availability. |
 | `A.buildingInfo` cache (60 ticks) | `AIvZ.lua:564-576` | Whole-floor openings (leak above). |
-| Decision trigger `hurt` | `AIvZGym.lua:895` | Fires on a 0.5 drop of exact health, which may change no visible band: a timing signal finer than the screen. Use the band or bleeding/moodle changes. |
-| Decision trigger `zombie close` | `AIvZGym.lua:896-898` | Visible zombies within 4 tiles; inherits the zombie-visibility proxy. |
+| Decision reason `hurt` | `G.needDecision` | Until gym 0.4.20 a trigger: a 0.5 drop of exact health asked at once, a timing signal finer than the screen. Since 0.4.21 (owner's decision, 2026-10-12) decisions come at a steady rate while an action runs, and `hurt` only labels one: the reason still reports a drop the health band may not show. Use the band or bleeding/moodle changes. |
+| Decision reason `zombie close` | `G.needDecision` | Visible zombies within 4 tiles; inherits the zombie-visibility proxy. A label on the steady decision since gym 0.4.21, no longer a trigger. |
 | Reward | `agent/reward.py` | Version 3 (2026-10-12) uses exact `health`, open and bandaged wounds, the protection panel, the hidden Knox infection flag (`obs.knox`), kills, new items/buildings/containers; no moodles. A reward is a training signal, not an observation, so hidden values there teach the network what matters without showing it the value itself: the infection flag is the deliberate case (the death it causes is charged when it happens). |
 | Hearing | `agent/hearing.py` | No capture source; every record says `available: false`. |
 
