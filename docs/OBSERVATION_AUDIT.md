@@ -173,7 +173,7 @@ perceivable now), **gap** (perceivable but missing).
    rooms never seen. Fix: `RoomDef:isExplored()` plus per-character memory; `IsoGridSquare:isSeen(pn)` for
    squares.
 3. **Beds in unseen rooms/floors** (fixed in gym 0.4.15: `A.beds(p, b, true)` keeps beds on `isSeen(pn)` squares; the rules baseline still sees all; untested in game) through the `sleep` option. Same fix.
-4. **Time of day and temperature without a watch.** (Not reaching the network: it reads `obs.clock`, never `t.hour`/`t.age` or `weather.temp`; `obs.clock` itself is gated on a worn watch since gym 0.4.6. They remain in `obs.json`.) Fix: time only when `UIManager.getClock():isVisible()`;
+4. **Time of day and temperature without a watch.** (Gym 0.4.18: `weather.temp` is gone from the observation; a digital clock's `clock.temp` is `getAirTemperatureForCharacter(p)`, as the clock shows it; untested in game. `t.hour`/`t.age` remain as bookkeeping. Not reaching the network: it reads `obs.clock`, never `t.hour`/`t.age` or `weather.temp`; `obs.clock` itself is gated on a worn watch since gym 0.4.6. They remain in `obs.json`.) Fix: time only when `UIManager.getClock():isVisible()`;
    temperature only when `isDateVisible()`, using `ClimateManager:getAirTemperatureForCharacter(p)` as the
    clock does.
 5. **Through-wall objects within 1.5 tiles** (`perceivable`; gym 0.4.16 requires `isCouldSee(pn)` for them, kept if the call fails; untested in game). Fix: `IsoGridSquare:canReachTo` /
