@@ -252,7 +252,7 @@ tests/              unit tests, and the 31 benchmark situations
 scripts/            install-mod.ps1, reload-mod.ps1
 docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; ACTION_CATALOGUE,
                     OBSERVATION_AUDIT and GAP_LIST (audit against the installed game); BENCHMARK and
-                    DECISION_MODELS (Phase 0 record, Qwen era)
+                    DECISION_MODELS (Phase 0 record, Qwen era), REWARD_RESEARCH (reward v3 proposal)
 ```
 
 ## Known issues (agent and gym)
