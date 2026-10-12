@@ -20,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.33"
+G.VERSION = "0.4.34"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -326,8 +326,6 @@ function G.observe(p, dead)
 	o.born = m.born
 	o.pos = { x = r1(p:getX()), y = r1(p:getY()), z = math.floor(p:getZ()) }
 	o.health = r1(p:getBodyDamage():getOverallBodyHealth())
-	o.stats = {}
-	for _, k in ipairs(U.STATS) do o.stats[k:lower()] = r2(U.stat(p, k)) end
 	o.moodles = {}
 	for _, k in ipairs(U.MOODLES) do
 		local v = U.moodle(p, k)

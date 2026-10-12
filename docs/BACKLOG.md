@@ -52,7 +52,7 @@ Agents leave these alone until the owner decides; then the item moves into the l
 | **Wrong data: fix what the network already learns from** | | | | |
 | 6 | G2, G5 | `exercise` moves the equipment into the hands (it often ends "no effort spent"); `engine_on` follows the radial menu (keys, hotwire). | cloud | APIs cited in [GAP_LIST.md](GAP_LIST.md) items 2 and 5. **G5 key check done** (gym 0.4.30, not yet run in the game): `engine_on` is offered only when `isEngineWorking()`, the engine is not running or started, and `VehicleEasyUse`, the key, keys in the ignition or a hotwire applies. Left: Hotwire (`ISVehicleMenu.onHotwire`) needs the Electricity/Mechanics level and Burglar trait calls, which no repo doc cites: needs the game's files (`ISVehicleMenu.lua:106-120`). **G2 left:** the `equipItems` hand-off; needs the game's files: the source of `ISFitnessUI:equipItems` (which hand and two-handed flag per exercise). G4 `drink` is done (gym 0.4.28, not yet run in the game; local check: `FluidType.Bleach` is matched by the name "Bleach" from `getFluidTypeString()`, so bleach may not be offered if the string differs). |
 | 7 | G7 | Verb prerequisites the menus apply. Done in the gym (0.4.32, not run in the game): smash, clear_glass, drop favourites, drink_tap, enter, rest while sitting or in a vehicle. Left: equip hands and wounds, standing up and furniture rests, drop in a shut vehicle, take via `ISInventoryTransferUtil`. | cloud | Each left piece needs the game's files for its call (no repo doc cites the wound or vehicle-door test). Listed under [Found in the 42.21 audit](#found-in-the-4221-audit-not-fixed-2026-10-11). |
-| 8 | L1, L11, L12 | Leaks left in the gym: raw `stats` in `obs.json` (never read by the network), the `enter` macro's window choice by lock state, the zombie visibility proxy instead of `getSpottedList()`. | cloud, then local | OBSERVATION_AUDIT.md section 5; the visibility change needs a live comparison. |
+| 8 | L1, L11, L12 | Leaks left in the gym (L1, raw `stats`, is gone from the gym's `obs.json` in gym 0.4.34, not run in the game): the `enter` macro's window choice by lock state, the zombie visibility proxy instead of `getSpottedList()`. | cloud, then local | OBSERVATION_AUDIT.md section 5; the visibility change needs a live comparison. |
 | 9 | G6 | The trait screen as the game shows it: `PointToSpend()`, Next only when enabled, profession choice. Keeps the owner's option B rule. | cloud | GAP_LIST item 6. |
 | **Care and supplies** | | | | |
 | 10 | G11 | Medical care beyond bandages: disinfect, stitch, splint, remove glass, pills. | cloud, then local | GAP_LIST item 11 (the removal actions' signatures are unverified). |
@@ -480,8 +480,9 @@ Details, APIs and file references are in [GAP_LIST.md](GAP_LIST.md) (G#),
 **Information the network gets but a player wouldn't (G1).** Status on 2026-10-12; "in code" means not run in
 game (item N5):
 
-* Open: L1 raw `stats` (11 internal values, including food sickness; in `obs.json`, never read by the network),
-  L11 the `enter` macro's window choice by lock state, L12 the zombie visibility proxy (`isCanSee` plus
+* Fixed in code: L1 raw `stats` (11 internal values, including food sickness) no longer in the gym's `obs.json`
+  (gym 0.4.34; the rules baseline's own percept in `AIvZ.lua` keeps them; not run in the game).
+* Open: L11 the `enter` macro's window choice by lock state, L12 the zombie visibility proxy (`isCanSee` plus
   light >= 0.2 instead of the game's spotted list).
 * Fixed in code: L2 unseen rooms and openings (gym 0.4.15, 0.4.17, 0.4.19), L3 unseen beds (0.4.15),
   L4 time and temperature without a clock (0.4.6, 0.4.18), L5 objects behind walls (0.4.16), L6 poison in the
