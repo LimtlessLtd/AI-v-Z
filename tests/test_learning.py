@@ -110,6 +110,29 @@ class EncodingTests(unittest.TestCase):
         dark = {**OBS, "zombies": []}   # a zombie the gym doesn't list (unseen) can't show up
         self.assertEqual(F.encode_option(walk_n, dark)[0][-2:], [0.0, 0.0])
 
+    def test_health_reads_in_the_panels_bands(self):
+        """The network sees health as the panel's wording bands it, never the exact number (OBSERVATION_AUDIT L10)."""
+        self.assertEqual([F.health_band(h) for h in (100, 95, 90, 89, 80, 75, 10, 5, 0, -3)],
+                         [1.0, 0.9, 0.8, 0.8, 0.7, 0.7, 0.1, 0.1, 0.0, 0.0])
+        self.assertEqual(F.health_band(81), F.health_band(89))
+
+    def test_zombies_toward_counts_only_those_within_45_degrees(self):
+        zs = [(0, -2, 2.0), (0, 2, 2.0), (0, 0, 0.0), (12, -12, 17.0)]
+        self.assertEqual(F.zombies_toward(0, -1, zs), (0.9, 1))        # north: the one at (0, -2); 17 tiles off is outside 45
+        self.assertEqual(F.zombies_toward(1, 0, zs[:3]), (0.0, 0))      # east: none that way
+        self.assertEqual(F.zombies_toward(1, -1, [(12, -12, 17.0)]), (F._near(17.0), 0))   # far: not within 10 tiles
+        self.assertEqual(F.zombies_toward(0, 0, zs), (0.0, 0))         # no direction, nothing
+        self.assertEqual(F.zombies_toward(0, -1, []), (0.0, 0))
+
+    def test_odd_observations_still_encode_to_fixed_sizes(self):
+        """A missing or malformed field must not raise (the agent answers the game on every tick)."""
+        for msg in ({}, {"obs": None}, {"obs": "x"},
+                    {"obs": {"zombies": "x", "inv": 5, "body": [None, 3], "held": 4, "traits": 7}}):
+            self.assertEqual(len(F.encode_state(msg)[0]), F.STATE_DIM)
+        self.assertEqual(len(F.encode_option({})[0]), F.OPTION_DIM)
+        self.assertEqual(len(F.encode_option({"verb": "walk", "dx": "a"}, {"zombies": [None, 3]})[0]), F.OPTION_DIM)
+        self.assertEqual([F._num(float("nan")), F._num(float("inf")), F._num(True), F._num("3")], [0.0, 0.0, 1.0, 0.0])
+
     def test_open_doors_and_windows_seen_go_in(self):
         shut = {**OBS, "where": {"building": "b1", "doorsOpen": 0, "windowsOpen": 0}}
         open_ = {**OBS, "where": {"building": "b1", "doorsOpen": 2, "windowsOpen": 1}}
