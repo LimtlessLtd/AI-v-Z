@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.38"
+G.VERSION = "0.4.39"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -608,6 +608,19 @@ local function shutIn(p)
 	return (door and not door:isOpen() and window and not (window:isOpen() or window:isDestroyed())) and true or false
 end
 
+-- The bed menu's Rest (J:ISWorldObjectContextMenuLogic.doBedMenu, for a bed-flagged object): not when something is
+-- between the bed and the free square next to it (its private isSomethingTo: IsoGridSquare.isSomethingTo from the
+-- character's square, or from AdjacentFreeTileFinder.Find's when not next to it), someone is on it, or the
+-- character sits on it already; and only in the same room or with its square in sight (isCanSee). (gym 0.4.39)
+local function bedRestable(p, o)
+	local sq, here = o:getSquare(), p:getCurrentSquare()
+	if not (sq and here) then return false end
+	local from = AdjacentFreeTileFinder.isTileOrAdjacent(here, sq) and here or AdjacentFreeTileFinder.Find(sq, p, nil)
+	if from and sq:isSomethingTo(from) then return false end
+	if o:isFurnitureOccupied(p) or (p:isSittingOnFurniture() and p:isSitOnFurnitureObject(o)) then return false end
+	return sq:getRoom() == here:getRoom() or sq:isCanSee(p:getPlayerNum())
+end
+
 local function zombiesToward(zs, dname)
 	local n = 0
 	for _, e in ipairs(zs) do if e.d < 20 and U.dir8(e.dx, e.dy) == dname then n = n + 1 end end
@@ -953,6 +966,11 @@ function G.options(p)
 			end
 		end
 	end
+	-- rest on the nearest bed here, as the bed menu offers it (gym 0.4.39)
+	if b and not p:getVehicle() then
+		local bed = A.beds(p, b, true)[1]
+		if bed and bedRestable(p, bed.o) then add(list, "rest", { bed = true, d = bed.d }, { bed = bed.o }) end
+	end
 	-- sleep: in the nearest bed here, or on the floor; only when the game's Sleep menu entry would be enabled
 	local noSleep = sleepBlock(p)
 	if b and not noSleep then
@@ -1102,9 +1120,21 @@ G.X = {}
 G.hooks = G.hooks or {}   -- name -> function(p, list, add, count) adding options
 G.queueStep, G.has, G.worn = queueStep, has, worn
 G.X.wait = { start = function() end, step = function(p, t) if tick() - t.t0 > 120 then U.done(t) end end }
+-- On a bed: ISWorldObjectContextMenu.onRest, the game's path to a place on it (ISPathFindAction:pathToSitOnFurniture)
+-- and then ISRestAction; when no place is free it goes next to it and sits on the ground (onRestPathFailed)
 G.X.rest = {
-	start = function(p) pcall(function() p:reportEvent("EventSitOnGround") end) end,
-	step = function(p, t) if tick() - t.t0 > 600 then U.done(t) end end,
+	start = function(p, t, o)
+		if o.data.bed then return ISWorldObjectContextMenu.onRest(o.data.bed, p:getPlayerNum()) end
+		pcall(function() p:reportEvent("EventSitOnGround") end)
+	end,
+	step = function(p, t, o)
+		if not o.data.bed then
+			if tick() - t.t0 > 600 then U.done(t) end
+			return
+		end
+		if tick() - t.t0 < 1200 and not (p:isSittingOnFurniture() and tick() - t.t0 > 600) then return end
+		if p:isSitting() then U.done(t) else U.fail(t, "didn't sit down") end
+	end,
 }
 local function stance(on)
 	return {
