@@ -198,6 +198,17 @@ class EncodingTests(unittest.TestCase):
         self.assertIn(F.bucket("trait:Athletic"), at_creation)
         self.assertIn(F.bucket("trait:Athletic"), in_life)
 
+    def test_profession_links_creation_to_the_life_without_a_layout_change(self):
+        key = "base:carpenter"
+        at_creation = F.encode_state({"obs": {"profession": key}, "reason": "creation"})
+        in_life = F.encode_state({"obs": {**OBS, "profession": key}})
+        self.assertIn(F.bucket(f"profession:{key}"), at_creation[1])
+        self.assertIn(F.bucket(f"profession:{key}"), in_life[1])
+        self.assertEqual(in_life[0], F.encode_state({"obs": OBS})[0])
+        option = F.encode_option({"verb": "choose_profession", "type": key, "cat": "profession", "cost": -4}, OBS)
+        self.assertIn(F.bucket("verb:choose_profession"), option[1])
+        self.assertIn(F.bucket(f"type:{key}"), option[1])
+
     def test_damaged_files_give_up_what_can_still_be_read(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "x.jsonl.gz"
