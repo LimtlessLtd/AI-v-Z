@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.15"
+G.VERSION = "0.4.16"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -82,7 +82,8 @@ end
 -- a square the character can make things out on right now: in line of sight and lit enough, or right next to it
 local function perceivable(p, sq, d)
 	if not sq then return false end
-	if d <= NEAR then return true end
+	-- next to the character: not through a wall (the loot window's rule is reachability; couldSee is the line-of-sight flag)
+	if d <= NEAR then return try(function() return sq:isCouldSee(p:getPlayerNum()) end) ~= false end
 	if try(function() return sq:isCanSee(p:getPlayerNum()) end) ~= true then return false end
 	local l = squareLight(sq, p:getPlayerNum())
 	return l == nil or l >= LIGHT_MIN

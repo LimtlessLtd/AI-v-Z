@@ -262,6 +262,7 @@ docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; A
   for unseen zombies. These must not substitute for hearing; the learner should get only visible or
   otherwise player-perceivable evidence. Leaks still present are listed in
   [OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md).
+- **Objects next to the character** (doors, windows, curtains, containers, water) are offered only when `isCouldSee` holds, so not through a wall (gym 0.4.16; not run in game, reload the mod).
 - **Unseen rooms and beds** are filtered from the options since gym 0.4.15 (`go_room` by `RoomDef:isExplored()`, beds by `isSeen`); not run in game, reload the mod.
 - **Item status is new.** Gym 0.4.11 adds weapon, ammo and clothing status to item records (not run in game; reload the mod to get it). The network sees it only as hashed tokens, and has never trained on it.
 - **Learning has only just started.** The first networks learn from about 260 random lives that mostly ended

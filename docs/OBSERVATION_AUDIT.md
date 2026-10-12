@@ -176,7 +176,7 @@ perceivable now), **gap** (perceivable but missing).
 4. **Time of day and temperature without a watch.** Fix: time only when `UIManager.getClock():isVisible()`;
    temperature only when `isDateVisible()`, using `ClimateManager:getAirTemperatureForCharacter(p)` as the
    clock does.
-5. **Through-wall objects within 1.5 tiles** (`perceivable`). Fix: `IsoGridSquare:canReachTo` /
+5. **Through-wall objects within 1.5 tiles** (`perceivable`; gym 0.4.16 requires `isCouldSee(pn)` for them, kept if the call fails; untested in game). Fix: `IsoGridSquare:canReachTo` /
    `isCouldSee(pn)`.
 6. **Poison in the drink category** (`FluidContainer:isPoisonous()` in `U.waterIn`). Fixed in gym 0.4.12 (the gym calls `U.waterIn(it, true)`, which skips the poison test; the rules baseline keeps it; untested in game). Original fix note: classify from
    visible fluid type only.
