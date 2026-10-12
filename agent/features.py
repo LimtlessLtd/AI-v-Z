@@ -294,6 +294,8 @@ def encode_option(o, obs=None):
             toks.append(f"{k}:{x}")   # shared across verbs: "type:Base.Apple" for take, eat and drop alike
     if isinstance(o.get("zombies"), (int, float)) and o["zombies"] > 0:
         toks.append(f"{verb}:toward_zombies")
+    if verb == "disassemble" and isinstance(o.get("chance"), (int, float)):   # the menu's chance of the materials
+        toks.append(f"disassemble:chance:{min(int(o['chance']) // 25, 4)}")
     if isinstance(o.get("facing"), (int, float)):   # attack and shove: which way that zombie faces
         toks.append(f"{verb}:facing:{facing_word(o['facing'])}")
     return v, [bucket(x) for x in toks]

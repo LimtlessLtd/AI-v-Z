@@ -143,7 +143,7 @@ first (`luautils.walkAdj*`).
 | Gardening: scythe grass, remove grass, remove bush, remove wall vine | `doGardeningSubmenu` → `onScytheGrass` (`:2839`), `onRemoveGrass` (`:2521`), `onRemovePlant` (`:2499`) | Scythe; cutting tool for bushes (predicates not audited) | **missing** |
 | Chop tree | `doTreeMenu` → `onChopTree` (`:833`) | Unbroken item with tag `CHOP_TREE` (`lambda$doTreeMenu$0`) | **missing** |
 | Destroy (sledgehammer) | `doDestroyMenu` → `onDestroy` (`:822`) | Sledgehammer (not audited) | **missing** |
-| Disassemble furniture/fixtures | `client/ISUI/ISDisassembleMenu.lua:3` (`createMenu`) → `disassemble` (`:83`) | Moveable with scrap definition and the tools it names | **missing** |
+| Disassemble furniture/fixtures | `client/ISUI/ISDisassembleMenu.lua:3` (`createMenu`) → `disassemble` (`:83`) | Moveable with scrap definition and the tools it names | **partial** since gym 0.4.28 (2026-10-12, not yet run in the game): `disassemble` for objects in sight within 3 tiles that the menu lists and allows (`canScrapObject(...).craftValid` and `.canScrap`, nearest 4 of 8 checked), with the menu's success chance; the mod walks next to it, then `ISDisassembleMenu.disassemble` equips the tools and queues `ISMoveablesAction` "scrap". Objects further away are not offered yet |
 | Pick up / place / rotate / scrap furniture | `client/ISUI/ISMoveableContextMenu.lua:13`, `server/BuildingObjects/ISMoveableCursor.lua:147` | Weight, tools per object | **missing** |
 | Walk to | `createMenuEntries` offset 3828 → `onWalkTo` (`:2545`) | — | **partial** (see section 2) |
 | Sit on ground | `createMenuEntries` offset 3776 → `onSitOnGround` (`:2835`) | Not in vehicle, not sitting | **partial** (`rest`) |
