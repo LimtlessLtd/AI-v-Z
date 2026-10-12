@@ -14,6 +14,7 @@ version bump): the character's own stance (sneaking, running) and which way each
 tiles faces (towards the character, side-on or away), as a player sees from its body. Since gym 0.4.33 (no version
 bump): a fence's height and a drop beyond it, and whether a sheet or curtain is on a door (OPTION_FLAGS). Since
 gym 0.4.35 (no version bump): half or all of a pile on the ground (`how`), and a corpse in tow (`self:dragging`).
+Since gym 0.4.36: the planks already on a door or window, on `barricade` and `unbarricade` (`planks`, a word).
 
 Each side is a dense vector of fixed meaning plus a bag of hashed tokens ("inv:Base.Apple", "take:cat:food"),
 so item and place names the network has never seen still get an input without a fixed vocabulary.
@@ -49,7 +50,8 @@ OPTION_NUMBERS = {
     "bite": 100, "scratch": 100, "holes": 5, "patches": 5,   # a garment's tooltip: what wearing it would add
 }
 OPTION_WORDS = ("name", "type", "cat", "dir", "recipe", "part", "trait", "what", "area", "from", "to", "toKind",
-                "fluidType", "item", "list", "ammo", "mag", "slot", "fire", "how")   # how: gym 0.4.35, half or all
+                "fluidType", "item", "list", "ammo", "mag", "slot", "fire", "how",   # how: gym 0.4.35, half or all
+                "planks")   # gym 0.4.36: planks up on that side of a door or window (0-4), as a word
 # yes/no option fields added after the dense layout was fixed: a token when true, so the layout (and the trained
 # network) stays. Gym 0.4.33: a tall fence, a drop beyond a fence, a sheet or curtain on a door.
 OPTION_FLAGS = ("tall", "drop", "door")
