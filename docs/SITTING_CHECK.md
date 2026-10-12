@@ -62,8 +62,9 @@ All paths below are relative to the installed game's `media/lua`; Java comes fro
 - `client/TimedActions/ISTimedActionQueue.lua:229-234`, `addGetUpAndThen`: the same wrapper for an action.
   `ISTimedActionQueue.add` itself does not add that prerequisite.
 - `client/Vehicles/TimedActions/ISPathFindAction.lua:start`: starts the selected path immediately.
-  `J:zombie.pathfind.PathFindBehavior2.setData` treats a character sitting on solid furniture
-  specially; starting a path from there is not equivalent to first getting up through the menu.
+  `J:zombie.pathfind.PathFindBehavior2.pathToLocationF` calls `setData` immediately, whereas
+  `pathToCharacter` handles a target sitting on solid furniture specially. The gym uses a location
+  path; it must first get its own character up through the menu's prerequisite.
 - `J:zombie.ai.states.PlayerSitOnGroundState.execute` and `PlayerSitOnFurnitureState.execute`, offsets
   0-25: a player's movement-key input stops queued actions and sets `forceGetUp`. The gym's chosen
   direction uses a timed path, rather than pressing that key.
