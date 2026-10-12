@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.16"
+G.VERSION = "0.4.17"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -312,7 +312,16 @@ function G.observe(p, dead)
 	local info = A.buildingInfo(p, false)
 	if info then
 		o.where.building = info.id
-		o.where.doorsOpen, o.where.windowsOpen, o.where.curtainsOpen = #info.doorsOpen, #info.windowsOpen, #info.curtainsOpen
+		-- only openings on squares the player has seen: the whole-floor scan counts rooms never visited (audit leak 2)
+		local pn = p:getPlayerNum()
+		local function seen(list)
+			local n = 0
+			for _, e in ipairs(list) do
+				if e.sq == nil or try(function() return e.sq:isSeen(pn) end) ~= false then n = n + 1 end
+			end
+			return n
+		end
+		o.where.doorsOpen, o.where.windowsOpen, o.where.curtainsOpen = seen(info.doorsOpen), seen(info.windowsOpen), seen(info.curtainsOpen)
 		o.where.smashed = info.smashed
 	end
 	-- what it remembers is in containers it has looked into nearby
