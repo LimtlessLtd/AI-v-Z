@@ -335,7 +335,9 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   "no way there" failures. Common movement paths now wait for the game's getting-up action first, as
   the right-click menu does. A seated character also gets a separate `get_up` choice and the network
   gets a sitting token after an agent restart. The installed Lua/compiler checks and all 125 tests pass;
-  live verification is still pending. [Evidence and remaining check](docs/SITTING_CHECK.md).
+  after reloading, life 792 sat on the ground, chose a walk, got up and moved away at 21:22 on
+  2026-10-12. Furniture rests and completion of the separate `get_up` still need verification.
+  [Evidence and remaining check](docs/SITTING_CHECK.md).
 
 - **Player action coverage is incomplete.** Clothing wear/remove exists; crafting only covers some
   item recipes. Disassembly, driving, vehicle maintenance, repairs, transfers between chosen inventory

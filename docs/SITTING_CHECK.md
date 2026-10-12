@@ -86,3 +86,16 @@ a `get_up` choice completing with sitting false, and movement after a naturally 
 rest without a stationary run of immediate `no way there` failures. Check both ground and furniture
 rests. Keep row 1 open until this and its curtain/wall-line checks are satisfied. Furniture rests
 are frequently replaced before they finish; a bed-rest choice alone is insufficient evidence.
+
+### First check after reloading, 21:22
+
+`loader.txt` accepted mod 0.5.8 / gym 0.4.41. Passive observation sampled 102 distinct decisions over
+45 seconds: one showed sitting true with `get_up` offered, and none had a gym error. The experience
+file confirms life 792 chose a ground rest at 21:22:34 (decision 7142), was sitting at 7143 and chose
+a walk, then was no longer sitting at 7144. Position moved from `(12019.5, 6984.1)` to
+`(12019.5, 6982.9)` at 7145 and `(12019.5, 6977.5)` at 7146. The bot made these choices itself.
+
+This verifies getting up and moving after a **ground** rest with the new path prerequisite. The
+standalone `get_up` was offered but not chosen in the 250 flushed decisions examined. Furniture
+rest, standalone action completion and longer-run failure rates remain pending in backlog row 1.
+The running Python agent still needs a restart to encode the new sitting token.
