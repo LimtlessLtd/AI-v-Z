@@ -478,8 +478,8 @@ class DecisionRateStaticTest(unittest.TestCase):
 
 
 class SpawnStaticTest(unittest.TestCase):
-    """Gym 0.4.32 (owner's decision, 2026-10-12 evening): a new life starts at one of the game's own start points of a
-    town picked at random on the spawn screen. Gym 0.4.24-0.4.31 swapped them for a random room square, and lives
+    """Gym 0.4.33 (owner's decision, 2026-10-12 evening): a new life starts at one of the game's own start points of a
+    town picked at random on the spawn screen. Gym 0.4.24-0.4.32 swapped them for a random room square, and lives
     started on wall lines and water (code only, not run in the game here)."""
 
     def setUp(self):

@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.5 (gym 0.4.32)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.5 (gym 0.4.33)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -138,7 +138,7 @@ python -m agent.run
 
 Its dashboard is at <http://127.0.0.1:8799/>. Load your game. Within a few seconds the agent takes over from the baseline; when the character dies it
 starts a new one by itself, choosing its traits: in a random town from the game's spawn screen, at one of that
-town's own start points (gym 0.4.32, the owner's decision of 2026-10-12: gym 0.4.24-0.4.31 picked a random room
+town's own start points (gym 0.4.33, the owner's decision of 2026-10-12: gym 0.4.24-0.4.32 picked a random room
 square instead, and some lives started on a wall line or on water and never moved). Stopping the agent (Ctrl+C) hands the character back to the
 baseline within ~6 s.
 
@@ -342,10 +342,11 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
-- **Gym 0.4.32 is new.** It starts each life at the game's own start points of a random town again (see Lives
+- **Gym 0.4.33 is new.** It starts each life at the game's own start points of a random town again (see Lives
   above), and adds climbing over fences, sheets and curtains on doors, and taking sheets down. The fence work ran
   in the game for 4 minutes on 2026-10-12 before it was merged: `climb_fence` was chosen 45 times, and each time
   the next decision replaced it before the climb, as happens to most attacks (backlog, "Policy spread").
+  Gym 0.4.32 offers `rest` only when not in a vehicle and not already sitting (backlog G7).
 - **Gym 0.4.31 (mod 0.5.5) has only just started running in the game** (hot-reloaded at 18:32 on 2026-10-12, no
   `AIvZ` errors). It fixes two ways a character stayed in one room for good. A door or window sits on the wall
   between two squares and the game keeps it on the square south or east of that wall, so one on a room's east or

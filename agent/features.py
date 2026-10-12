@@ -11,7 +11,7 @@ version 3: where the zombies in sight are (each compass sector's nearest one and
 screen, and on each option with a direction the zombies that lie that way; the building's open doors, windows and
 curtains and its smashed windows, counted on squares the character has seen. Tokens since gym 0.4.25 (no
 version bump): the character's own stance (sneaking, running) and which way each zombie in sight within 10
-tiles faces (towards the character, side-on or away), as a player sees from its body. Since gym 0.4.32 (no version
+tiles faces (towards the character, side-on or away), as a player sees from its body. Since gym 0.4.33 (no version
 bump): a fence's height and a drop beyond it, and whether a sheet or curtain is on a door (OPTION_FLAGS).
 
 Each side is a dense vector of fixed meaning plus a bag of hashed tokens ("inv:Base.Apple", "take:cat:food"),
@@ -50,7 +50,7 @@ OPTION_NUMBERS = {
 OPTION_WORDS = ("name", "type", "cat", "dir", "recipe", "part", "trait", "what", "area", "from", "to", "toKind",
                 "fluidType", "item", "list", "ammo", "mag", "slot", "fire")
 # yes/no option fields added after the dense layout was fixed: a token when true, so the layout (and the trained
-# network) stays. Gym 0.4.32: a tall fence, a drop beyond a fence, a sheet or curtain on a door.
+# network) stays. Gym 0.4.33: a tall fence, a drop beyond a fence, a sheet or curtain on a door.
 OPTION_FLAGS = ("tall", "drop", "door")
 
 # the protection panel's body parts (BodyPartType order); obs.protection gives each one's bite and scratch defence

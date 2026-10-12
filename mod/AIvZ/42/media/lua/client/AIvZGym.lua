@@ -20,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.32"
+G.VERSION = "0.4.33"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -435,7 +435,7 @@ local function addOpening(out, p, o, sq, d, pz)
 		if cbo ~= nil then e.locked = cbo ~= true end
 		out.doors[#out.doors + 1] = e
 		-- a sheet hung on a door is its curtain (IsoDoor:HasCurtains() returns the door itself), drawn from the
-		-- sheet's side of the doorway (getSheetSquare), as the door menu does (gym 0.4.32)
+		-- sheet's side of the doorway (getSheetSquare), as the door menu does (gym 0.4.33)
 		if instanceof(o, "IsoDoor") and o:HasCurtains() then
 			out.curtains[#out.curtains + 1] = { o = o, sq = o:getSheetSquare() or sq, d = d, open = o:isCurtainOpen(), door = true }
 		end
@@ -513,7 +513,7 @@ function G.scanAround(p)
 					end
 					if U.isDoor(o) or U.isWindow(o) then addOpening(out, p, o, sq, d, pz) end
 				end
-				-- fences on this square's edges (gym 0.4.32). Each edge is listed once, from the side the character is on:
+				-- fences on this square's edges (gym 0.4.33). Each edge is listed once, from the side the character is on:
 				-- it stands on that square and climbs toward the other. "drop": nothing to stand on beyond
 				-- (IsoPlayer.isSafeToClimbOver: the Interact key then climbs only when held, not tapped).
 				if d <= FENCE_RANGE then
@@ -593,7 +593,11 @@ function G.options(p)
 	local cur = GS.cur
 	if cur and cur.status == "running" then add(list, "continue", { what = cur.verb, age = tick() - cur.t0 }) end
 	add(list, "wait", {})
-	add(list, "rest", {})
+	-- sitting down: not in a vehicle and not already sitting (the fitness screen's own test, GAP_LIST item 2;
+	-- the calls are the ones AIvZ.lua already makes)
+	if not p:getVehicle() and not (try(function() return p:isSitOnGround() or p:isSittingOnFurniture() end) == true) then
+		add(list, "rest", {})
+	end
 	-- the C key (IsoPlayer.updateSneakKey toggles setSneaking): crouch and sneak, or stand back up. It stays as
 	-- chosen while the character walks (more slowly when sneaking) until changed. Not in a vehicle.
 	if not p:getVehicle() then add(list, p:isSneaking() and "stand" or "sneak", {}) end
@@ -714,7 +718,7 @@ function G.options(p)
 			end
 		end
 	end
-	-- curtains, on windows and (gym 0.4.32) on doors; Remove curtains takes the sheet down into the inventory, greyed
+	-- curtains, on windows and (gym 0.4.33) on doors; Remove curtains takes the sheet down into the inventory, greyed
 	-- out by the menu when a sheet wouldn't fit (ISWorldObjectContextMenu.addRemoveCurtainOption)
 	local sheetItem = getScriptManager():FindItem("Base.Sheet")
 	local roomForSheet = sheetItem ~= nil and inv:hasRoomFor(p, sheetItem:getActualWeight())
@@ -1482,7 +1486,7 @@ end
 
 -- Where a new life starts: the owner's decision of 2026-10-12 (evening). The town is picked at random on the
 -- game's own spawn screen, and the game puts the character at one of that town's own start points. Gym
--- 0.4.24-0.4.31 swapped those for a random square of a random ground-floor room of the town (G.spawnPoint),
+-- 0.4.24-0.4.32 swapped those for a random square of a random ground-floor room of the town (G.spawnPoint),
 -- clear of the last 20 deaths. That square was a corner of the room's tiles (whole-number x and y), and next
 -- to a wall it lay on the wall's line, where the game's pathfinder finds no way anywhere; others were water
 -- (a boathouse) or closed rooms. Seven lives on 2026-10-12 never left the spot they started on, for up to 66

@@ -125,7 +125,7 @@ class EncodingTests(unittest.TestCase):
         self.assertNotIn(F.bucket("zombie:facing:toward:mid"), F.encode_state({"obs": far})[1])
 
     def test_fence_and_door_sheet_flags_go_in_as_tokens(self):
-        """Gym 0.4.32: a tall fence, a drop beyond it and a sheet on a door are tokens; the dense part (the layout the
+        """Gym 0.4.33: a tall fence, a drop beyond it and a sheet on a door are tokens; the dense part (the layout the
         trained network reads) is the same as without them, and the fence's direction is a word like walk's."""
         low = {"verb": "climb_fence", "d": 2.0, "dx": 1.5, "dy": 0.0, "dir": "E", "tall": False, "drop": False}
         tall = dict(low, tall=True, drop=True)
