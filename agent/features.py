@@ -108,7 +108,7 @@ def item_status_tokens(it, prefix):
         if it.get(k):
             toks.append(f"{prefix}:{k}")
     if it.get("maxAmmo"):
-        toks.append(f"{prefix}:ammo_level:{_bin(_num(it.get('loaded')) / _num(it.get('maxAmmo'), 1.0) or 1.0)}")
+        toks.append(f"{prefix}:ammo_level:{_bin(_num(it.get('loaded')) / _num(it.get('maxAmmo')))}")   # 0 = empty
     if it.get("holes"):
         toks.append(f"{prefix}:holes:{min(int(_num(it['holes'])), 4)}")
     if it.get("patches"):

@@ -84,6 +84,7 @@ the game logs `Zomboid/Logs/logs_2026-10-11_18-33` and `2026-10-12_07-33_DebugLo
 | N11 | The world `2026-10-11_12-06-26` reached 277 deaths. The 100-death limit is only reported. | `world_deaths` in `logs/agent-state.json` | Owner item 1. A new world was started at 07:33. |
 | N12 | Neither game log has an error from the mod. | Vanilla only: 437 NullPointerExceptions in `IsoTree.isPlayerInsideARoom` over 14 s from 08:11:05, during a respawn, plus the usual SpriteConfig, font and map-file warnings. | Nothing to do. |
 | N13 | **Training would have failed after every version change.** `learn.encode_file` left an out-of-date cache file open, and Windows refuses to replace an open file. The first round after any reward or encoding change raised `PermissionError`, and so did every later round. | Reproduced against `main`'s code in the reward version 3 dry run. | Fixed: the cache is read inside `with np.load(...)`. A test rebuilds an out-of-date cache. |
+| N14 | **An empty gun looked full.** `item_status_tokens` computed `loaded / maxAmmo or 1.0`, so 0 rounds became 1.0 and got the "full" token. | Found in a scheduled run by reading the code. | Fixed in `agent/features.py` (tokens only, no layout change, `features.VERSION` unchanged); tests cover empty, partial and full. |
 
 ## Lessons: things written from memory that were wrong (2026-10-11)
 
