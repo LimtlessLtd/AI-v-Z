@@ -145,7 +145,7 @@ class EncodingTests(unittest.TestCase):
         self.assertEqual(len(sneaking[0]), F.STATE_DIM)
 
     def test_pile_and_dragging_go_in_as_tokens(self):
-        """Gym 0.4.34: half or all of a pile on the ground is a word on pick_up, and a corpse in tow a state token; the
+        """Gym 0.4.35: half or all of a pile on the ground is a word on pick_up, and a corpse in tow a state token; the
         dense parts stay as they are."""
         one = {"verb": "pick_up", "d": 1.0, "dx": 1.0, "dy": 0.0, "type": "Base.Nails", "w": 0.01}
         (d1, t1), (d2, t2) = F.encode_option(one, OBS), F.encode_option(dict(one, how="all", n=12), OBS)

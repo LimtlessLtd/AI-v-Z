@@ -171,7 +171,7 @@ perceivable now), **gap** (perceivable but missing).
 
 ## 5. Remaining hidden-information leaks, in order of impact
 
-1. **Raw `stats`** (not reaching the network: `agent/features.py` is an allow-list and never reads `stats`; still in `obs.json`, the logs and the bridge) (11 exact internal values, including food sickness) in every observation. Fix: remove;
+1. **Raw `stats`** (fixed in gym 0.4.34: `G.observe` no longer writes them, so they are out of `obs.json` and the logs; the rules baseline's percept in `AIvZ.lua` still has them; not run in the game. The network never read them: `agent/features.py` is an allow-list) (11 exact internal values, including food sickness) in every observation. Fix: remove;
    rely on moodles (`Moodles:getMoodleLevel`).
 2. **Unseen rooms** (`go_room` options fixed in gym 0.4.15 with `RoomDef:isExplored()`, kept if the call fails; untested in game; gym 0.4.17 counts open doors, windows and curtains only on `isSeen(pn)` squares; gym 0.4.19 counts smashed windows on seen squares too; untested in game): `go_room` options and the building opening counts expose layout, names and state of
    rooms never seen. Fix: `RoomDef:isExplored()` plus per-character memory; `IsoGridSquare:isSeen(pn)` for

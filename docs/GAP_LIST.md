@@ -123,7 +123,7 @@ Electricity ≥ 1 and Mechanics ≥ 2, or the Burglar trait (`:106-120`).
   happens when the window is hidden).
 * Place on ground: `ISInventoryPaneContextMenu.onPlaceItemOnGround(items, playerObj)` (`:4457`) or
   `ISDropWorldItemAction:new(character, item, sq, xoffset, yoffset, zoffset, rotation, isMultiple)`.
-* **Done in gym 0.4.34** (mod 0.5.6, not yet run in the game): half and all of a pile (the world menu groups a
+* **Done in gym 0.4.35** (mod 0.5.6, not yet run in the game): half and all of a pile (the world menu groups a
   square's items by `getName()`, `J:ISWorldObjectContextMenuLogic.handleGrabWorldItem`), a bag on the ground as a
   container (`ISInventoryPage:refreshBackpacks`, category "Container"), dragging a corpse and letting go
   (`onGrabCorpseItem`, `handleGrabWorldItem_onDropCorpse`). Left out on purpose: placing an item. `drop` puts it

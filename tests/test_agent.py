@@ -495,7 +495,7 @@ class SpawnStaticTest(unittest.TestCase):
 
 
 class FloorStaticTest(unittest.TestCase):
-    """Gym 0.4.34 (mod 0.5.6), backlog G8: half or all of a pile on the ground, a bag on the ground as a container of
+    """Gym 0.4.35 (mod 0.5.6), backlog G8: half or all of a pile on the ground, a bag on the ground as a container of
     its own, and dragging a corpse, as the game's menus do them (code only, not run in the game here)."""
 
     def setUp(self):

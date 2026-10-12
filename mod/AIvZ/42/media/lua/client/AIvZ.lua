@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.5.6"   -- 0.5.6: walks while dragging a corpse, to a bag on the ground (gym 0.4.34); 0.5.5: steps off a wall line when no path starts there (gym 0.4.31); 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
+A.VERSION = "0.5.6"   -- 0.5.6: walks while dragging a corpse, to a bag on the ground (gym 0.4.35); 0.5.5: steps off a wall line when no path starts there (gym 0.4.31); 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes

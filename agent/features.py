@@ -13,7 +13,7 @@ curtains and its smashed windows, counted on squares the character has seen. Tok
 version bump): the character's own stance (sneaking, running) and which way each zombie in sight within 10
 tiles faces (towards the character, side-on or away), as a player sees from its body. Since gym 0.4.33 (no version
 bump): a fence's height and a drop beyond it, and whether a sheet or curtain is on a door (OPTION_FLAGS). Since
-gym 0.4.34 (no version bump): half or all of a pile on the ground (`how`), and a corpse in tow (`self:dragging`).
+gym 0.4.35 (no version bump): half or all of a pile on the ground (`how`), and a corpse in tow (`self:dragging`).
 
 Each side is a dense vector of fixed meaning plus a bag of hashed tokens ("inv:Base.Apple", "take:cat:food"),
 so item and place names the network has never seen still get an input without a fixed vocabulary.
@@ -49,7 +49,7 @@ OPTION_NUMBERS = {
     "bite": 100, "scratch": 100, "holes": 5, "patches": 5,   # a garment's tooltip: what wearing it would add
 }
 OPTION_WORDS = ("name", "type", "cat", "dir", "recipe", "part", "trait", "what", "area", "from", "to", "toKind",
-                "fluidType", "item", "list", "ammo", "mag", "slot", "fire", "how")   # how: gym 0.4.34, half or all
+                "fluidType", "item", "list", "ammo", "mag", "slot", "fire", "how")   # how: gym 0.4.35, half or all
 # yes/no option fields added after the dense layout was fixed: a token when true, so the layout (and the trained
 # network) stays. Gym 0.4.33: a tall fence, a drop beyond a fence, a sheet or curtain on a door.
 OPTION_FLAGS = ("tall", "drop", "door")
@@ -255,7 +255,7 @@ def encode_state(msg):
         toks.append("self:sneaking")
     if obs.get("running"):
         toks.append("self:running")
-    if obs.get("dragging"):   # gym 0.4.34
+    if obs.get("dragging"):   # gym 0.4.35
         toks.append("self:dragging")
     for z in zs:
         d, f = _num(z.get("d"), 99.0), z.get("facing")

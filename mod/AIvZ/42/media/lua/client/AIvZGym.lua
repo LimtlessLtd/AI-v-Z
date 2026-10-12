@@ -20,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.34"
+G.VERSION = "0.4.35"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -326,8 +326,6 @@ function G.observe(p, dead)
 	o.born = m.born
 	o.pos = { x = r1(p:getX()), y = r1(p:getY()), z = math.floor(p:getZ()) }
 	o.health = r1(p:getBodyDamage():getOverallBodyHealth())
-	o.stats = {}
-	for _, k in ipairs(U.STATS) do o.stats[k:lower()] = r2(U.stat(p, k)) end
 	o.moodles = {}
 	for _, k in ipairs(U.MOODLES) do
 		local v = U.moodle(p, k)
@@ -344,7 +342,7 @@ function G.observe(p, dead)
 	o.asleep = try(function() return p:isAsleep() end) == true
 	-- the character's own stance, as the player sees it (gym 0.4.25)
 	o.sneaking, o.running = p:isSneaking() == true, (p:isRunning() or p:isSprinting()) == true
-	o.dragging = p:isDraggingCorpse() == true   -- a corpse in tow (gym 0.4.34)
+	o.dragging = p:isDraggingCorpse() == true   -- a corpse in tow (gym 0.4.35)
 	o.weather = { rain = r2(try(function() return cm:getRainIntensity() end) or 0) }   -- no temperature: only a digital clock shows it (o.clock.temp)
 	o.weight, o.maxWeight = r1(p:getInventory():getCapacityWeight()), r1(p:getMaxWeight())
 	local held = p:getPrimaryHandItem()
@@ -500,7 +498,7 @@ function G.scanAround(p)
 					if it then
 						out.floor[#out.floor + 1] = { w = w, it = it, sq = sq, d = d }
 						-- a bag lying there is a container of its own, as the loot window lists it (refreshBackpacks:
-						-- getCategory() "Container", item:getInventory()) (gym 0.4.34)
+						-- getCategory() "Container", item:getInventory()) (gym 0.4.35)
 						if it:getCategory() == "Container" and instanceof(it, "InventoryContainer") then
 							local key = "bag:" .. it:getID()
 							out.containers[#out.containers + 1] = { c = it:getInventory(), sq = sq, d = d, key = key,
@@ -789,7 +787,7 @@ function G.options(p)
 	end
 	-- items on the ground in sight: pick one up (the world menu's Grab, ISWorldObjectContextMenu.onGrabWItem). The menu
 	-- makes the items of one name on a square one entry, "Name (n)", with One, Half (more than 2) and All
-	-- (J:ISWorldObjectContextMenuLogic.handleGrabWorldItem; onGrabHalfWItems takes ceil(n / 2)) (piles: gym 0.4.34)
+	-- (J:ISWorldObjectContextMenuLogic.handleGrabWorldItem; onGrabHalfWItems takes ceil(n / 2)) (piles: gym 0.4.35)
 	local piles, order = {}, {}
 	for _, f in ipairs(ar.floor) do
 		local k = f.sq:getX() .. "," .. f.sq:getY() .. "," .. tostring(f.it:getName())
@@ -813,7 +811,7 @@ function G.options(p)
 	end
 	-- corpses: drag one, or let go of the one being dragged (the world menu's Grab > Corpse and Drop Corpse,
 	-- J:ISWorldObjectContextMenuLogic.handleGrabWorldItem, ISWorldObjectContextMenu.handleGrabCorpseSubmenu: not an
-	-- animal, not from a vehicle, not while carrying a corpse, not on a burning square) (gym 0.4.34)
+	-- animal, not from a vehicle, not while carrying a corpse, not on a burning square) (gym 0.4.35)
 	if p:isDraggingCorpse() then
 		add(list, "drop_corpse", {})
 	elseif not p:getVehicle() and inv:getItemCount("Base.CorpseMale") == 0 then
@@ -1331,7 +1329,7 @@ G.X.disassemble = {
 }
 -- ISWorldObjectContextMenu.onGrabWItem, with the mod's walk (luautils.walkAdj uses ISWalkToTimedAction, which
 -- fails at 20x and 40x): onto the item's square or next to it, then ISGrabItemAction with the game's grab time
--- Half or all of a pile (gym 0.4.34): an ISGrabItemAction for each item, as onGrabHalfWItems and onGrabAllWItems do.
+-- Half or all of a pile (gym 0.4.35): an ISGrabItemAction for each item, as onGrabHalfWItems and onGrabAllWItems do.
 G.X.pick_up = {
 	start = function(p, t, o)
 		local w, sq = o.data.w, o.data.sq
