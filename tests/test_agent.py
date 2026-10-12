@@ -445,6 +445,34 @@ class DecisionRateStaticTest(unittest.TestCase):
         self.assertIn("GS.lastClose = n", req[:req.index("\nend\n")])
 
 
+class RandomSpawnStaticTest(unittest.TestCase):
+    """Gym 0.4.24 (owner's decision, 2026-10-12): a new life starts in a random building of the picked town, clear of
+    recent deaths (code only, not run in the game here)."""
+
+    def setUp(self):
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        self.src = (base / "AIvZGym.lua").read_text(encoding="utf-8")
+
+    def test_the_picked_region_gets_one_random_point_after_next(self):
+        self.assertIn("G.RANDOM_SPAWN = true", self.src)
+        step = self.src[self.src.index("function G.respawnStep"):]
+        step = step[:step.index("\nend\n")]
+        self.assertLess(step.index("w.mapSpawnSelect:clickNext()"), step.index("randomizeSpawn(w.mapSpawnSelect)"))
+        swap = self.src[self.src.index("local function randomizeSpawn"):]
+        swap = swap[:swap.index("\nend\n")]
+        self.assertIn("unemployed = { pt }", swap)   # CoopCharacterCreation:accept1 falls back to it
+        self.assertIn("for k in pairs(reg.points) do points[k] = { pt } end", swap)
+
+    def test_deaths_are_kept_and_avoided(self):
+        dead = self.src[self.src.index("function G.dead"):]
+        dead = dead[:dead.index("\nend\n")]
+        self.assertIn("GS.deaths[#GS.deaths + 1]", dead)
+        pick = self.src[self.src.index("function G.spawnPoint"):]
+        pick = pick[:pick.index("\nend\n")]
+        self.assertIn("DEATH_CLEAR", pick)
+        self.assertIn("r:getZ() == 0", pick)
+
+
 class SpeedHoldStaticTest(unittest.TestCase):
     """AIvZ 0.5.3: the owner's speed pick survives a game restart (backlog N9) and isn't lost to an F2 unpause or the
     Pause button coming back at Play (code only, not run in the game here)."""
