@@ -167,13 +167,13 @@ perceivable now), **gap** (perceivable but missing).
 
 ## 5. Remaining hidden-information leaks, in order of impact
 
-1. **Raw `stats`** (11 exact internal values, including food sickness) in every observation. Fix: remove;
+1. **Raw `stats`** (not reaching the network: `agent/features.py` is an allow-list and never reads `stats`; still in `obs.json`, the logs and the bridge) (11 exact internal values, including food sickness) in every observation. Fix: remove;
    rely on moodles (`Moodles:getMoodleLevel`).
 2. **Unseen rooms** (`go_room` options fixed in gym 0.4.15 with `RoomDef:isExplored()`, kept if the call fails; untested in game; the building opening counts are still whole-floor): `go_room` options and the building opening counts expose layout, names and state of
    rooms never seen. Fix: `RoomDef:isExplored()` plus per-character memory; `IsoGridSquare:isSeen(pn)` for
    squares.
 3. **Beds in unseen rooms/floors** (fixed in gym 0.4.15: `A.beds(p, b, true)` keeps beds on `isSeen(pn)` squares; the rules baseline still sees all; untested in game) through the `sleep` option. Same fix.
-4. **Time of day and temperature without a watch.** Fix: time only when `UIManager.getClock():isVisible()`;
+4. **Time of day and temperature without a watch.** (Not reaching the network: it reads `obs.clock`, never `t.hour`/`t.age` or `weather.temp`; `obs.clock` itself is gated on a worn watch since gym 0.4.6. They remain in `obs.json`.) Fix: time only when `UIManager.getClock():isVisible()`;
    temperature only when `isDateVisible()`, using `ClimateManager:getAirTemperatureForCharacter(p)` as the
    clock does.
 5. **Through-wall objects within 1.5 tiles** (`perceivable`; gym 0.4.16 requires `isCouldSee(pn)` for them, kept if the call fails; untested in game). Fix: `IsoGridSquare:canReachTo` /
@@ -184,7 +184,7 @@ perceivable now), **gap** (perceivable but missing).
 8. **Vehicles within 4 tiles regardless of sight.** Fixed in gym 0.4.14 with the square's `isCanSee(pn)` (not the alpha; untested in game). Original fix note: `getTargetAlpha(pn)` (needs live check) or square
    `isCanSee(pn)`.
 9. **Zombie identity across occlusion** in `closing` (fixed in gym 0.4.10, not yet seen in game). Fix: forget a zombie when it leaves the spotted list.
-10. **Exact health, exact position, exact endurance in `exercise`, world age, glass under a bandage.**
+10. **Exact health, exact position, exact endurance in `exercise`, world age, glass under a bandage.** (Network side: health goes in as the panel's band, and position, world age and exercise endurance are not read; the wound flag `glass` is still read, so glass under a bandage can still leak.)
     Fix: bands and coarse or no values as listed in section 2; wound flags with the health panel's
     conditions.
 11. **The `enter` macro's window choice** uses lock state of unseen windows (`AIvZ.lua:1322-1353`).
