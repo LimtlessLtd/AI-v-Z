@@ -583,17 +583,19 @@ function A.buildingInfo(p, fresh)
 end
 
 -- beds in building b on any floor, nearest first (another floor counts as 12 tiles further)
-function A.beds(p, b)
+-- seenOnly: only beds on squares the character has seen (the gym; the rules baseline sees the whole building)
+function A.beds(p, b, seenOnly)
 	local def = b:getDef()
 	local out = {}
 	local px, py, pz = p:getX(), p:getY(), math.floor(p:getZ())
+	local pn = p:getPlayerNum()
 	for z = 0, 3 do
 		for x = def:getX(), def:getX2() do
 			for y = def:getY(), def:getY2() do
 				local sq = sqAt(x, y, z)
 				if sq and sq:getBuilding() == b then
 					for _, o in ipairs(objList(sq)) do
-						if isBed(o) then out[#out + 1] = { o = o, d = math.abs(x - px) + math.abs(y - py) + 12 * math.abs(z - pz) } end
+						if isBed(o) and (not seenOnly or try(function() return sq:isSeen(pn) end) ~= false) then out[#out + 1] = { o = o, d = math.abs(x - px) + math.abs(y - py) + 12 * math.abs(z - pz) } end
 					end
 				end
 			end

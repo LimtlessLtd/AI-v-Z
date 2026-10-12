@@ -169,10 +169,10 @@ perceivable now), **gap** (perceivable but missing).
 
 1. **Raw `stats`** (11 exact internal values, including food sickness) in every observation. Fix: remove;
    rely on moodles (`Moodles:getMoodleLevel`).
-2. **Unseen rooms**: `go_room` options and the building opening counts expose layout, names and state of
+2. **Unseen rooms** (`go_room` options fixed in gym 0.4.15 with `RoomDef:isExplored()`, kept if the call fails; untested in game; the building opening counts are still whole-floor): `go_room` options and the building opening counts expose layout, names and state of
    rooms never seen. Fix: `RoomDef:isExplored()` plus per-character memory; `IsoGridSquare:isSeen(pn)` for
    squares.
-3. **Beds in unseen rooms/floors** through the `sleep` option. Same fix.
+3. **Beds in unseen rooms/floors** (fixed in gym 0.4.15: `A.beds(p, b, true)` keeps beds on `isSeen(pn)` squares; the rules baseline still sees all; untested in game) through the `sleep` option. Same fix.
 4. **Time of day and temperature without a watch.** Fix: time only when `UIManager.getClock():isVisible()`;
    temperature only when `isDateVisible()`, using `ClimateManager:getAirTemperatureForCharacter(p)` as the
    clock does.
@@ -180,7 +180,7 @@ perceivable now), **gap** (perceivable but missing).
    `isCouldSee(pn)`.
 6. **Poison in the drink category** (`FluidContainer:isPoisonous()` in `U.waterIn`). Fixed in gym 0.4.12 (the gym calls `U.waterIn(it, true)`, which skips the poison test; the rules baseline keeps it; untested in game). Original fix note: classify from
    visible fluid type only.
-7. **Window `locked`.** Fix: drop until a failed attempt; doors: `couldBeOpen(p)`.
+7. **Window `locked`.** Already dropped from the window options (not listed in the gym) and zeroed in the network input. Original fix: drop until a failed attempt; doors: `couldBeOpen(p)`.
 8. **Vehicles within 4 tiles regardless of sight.** Fixed in gym 0.4.14 with the square's `isCanSee(pn)` (not the alpha; untested in game). Original fix note: `getTargetAlpha(pn)` (needs live check) or square
    `isCanSee(pn)`.
 9. **Zombie identity across occlusion** in `closing` (fixed in gym 0.4.10, not yet seen in game). Fix: forget a zombie when it leaves the spotted list.
