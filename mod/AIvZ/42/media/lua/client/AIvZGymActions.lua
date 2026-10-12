@@ -177,13 +177,30 @@ local function nearVehicles(p, radius)
 	return out
 end
 
+-- ISVehicleMenu.showRadialMenu (ISVehicleMenu.lua:87-101, cited in GAP_LIST item 5): Start engine is shown to the driver
+-- when isEngineWorking(), not running and not started, and SandboxVars.VehicleEasyUse, or the key (haveThisKeyId
+-- of getKeyId()) is carried, or the keys are in the ignition, or the car is hotwired. Hotwire is not offered yet.
+local function canStartEngine(p, v)
+	if try(function() return v:isEngineWorking() end) ~= true then return false end
+	if try(function() return v:isEngineRunning() end) == true or try(function() return v:isEngineStarted() end) == true then return false end
+	local sv = rawget(_G, "SandboxVars")
+	if sv and sv.VehicleEasyUse then return true end
+	if try(function() return v:isKeysInIgnition() end) == true or try(function() return v:isHotwired() end) == true then return true end
+	local id = try(function() return v:getKeyId() end)
+	return id ~= nil and try(function() return p:getInventory():haveThisKeyId(id) end) ~= nil and true or false
+end
+
 G.hooks.vehicle = function(p, list, add)
 	local inside = try(function() return p:getVehicle() end)
 	if inside then
 		add(list, "exit_vehicle", { seat = try(function() return inside:getSeat(p) end) }, { v = inside })
 		local on = try(function() return inside:isEngineRunning() end) == true
 		if try(function() return inside:isDriver(p) end) then
-			add(list, on and "engine_off" or "engine_on", { running = on }, { v = inside })
+			if on then
+				add(list, "engine_off", { running = true }, { v = inside })
+			elseif canStartEngine(p, inside) then
+				add(list, "engine_on", { running = false }, { v = inside })
+			end
 		end
 		return
 	end
