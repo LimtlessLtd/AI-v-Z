@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.43"
+G.VERSION = "0.4.44"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -319,6 +319,8 @@ function G.observe(p, dead)
 	local d = p:getDescriptor()
 	local m = U.mem(p)
 	o.who = { name = d:getForename() .. " " .. d:getSurname(), save = tostring(getWorld():getWorld()) }
+	local profession = d:getCharacterProfession()   -- CharacterCreationProfession.lua:1097, installed 42.21
+	o.profession = profession and tostring(profession) or nil
 	-- o.t is bookkeeping for the reward and the logs: a player sees the time only on a watch or clock
 	-- (o.clock), and the darkness ("dark") always
 	o.t = { age = r2(gt:getWorldAgeHours()), day = gt:getNightsSurvived() + 1, hour = gt:getHour(), min = gt:getMinutes(),
@@ -1767,7 +1769,11 @@ function G.respawnStep()
 		local handled = G.CHOOSE_TRAITS and G.creation and G.active() and select(2, pcall(G.creation, w.charCreationProfession))
 		if not handled then
 			if G.creationRepair then pcall(G.creationRepair, w.charCreationProfession) end   -- never start overdrawn
-			w.charCreationProfession:onOptionMouseDown({ internal = "NEXT" }, 0, 0)
+			-- CharacterCreationProfession:render disables playButton while PointToSpend() < 0;
+			-- ISButton:onMouseUp checks its enabled state. Directly invoking NEXT used to bypass both.
+			if G.creationReady and G.creationReady(w.charCreationProfession) then
+				w.charCreationProfession:onOptionMouseDown(w.charCreationProfession.playButton, 0, 0)
+			end
 		end
 	elseif w.charCreationMain and w.charCreationMain:isVisible() then
 		w.charCreationMain:onOptionMouseDown({ internal = "NEXT" }, 0, 0)

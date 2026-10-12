@@ -291,7 +291,7 @@ G.X.hotwire = {
 ---------------------------------------------------------------- character creation: choosing traits
 -- Called from G.respawnStep on the profession/traits screen while the agent plays. Each call (every 0.3 s)
 -- either asks the agent (obs.json {creation = true}), reads its answer from act.txt, or gives up waiting.
--- Options: add one trait (with its point cost as the game states it), or stop buying. The game enforces its
+-- Options: choose a profession first, then add one trait (with its point cost as the game states it), or stop buying. The game enforces its
 -- own exclusions: an add that doesn't take effect is reported as failed.
 local WAIT_MS = 20000
 local MAX_FAILS = 6      -- this many refused picks in a row, then the stage moves on (or traits are taken off)
@@ -323,6 +323,25 @@ function G.creationPoints(prof)
 	return (net <= 0) and 0 or -net, false
 end
 
+-- Installed 42.21 CharacterCreationProfession:render (827-836) and ISButton:isEnabled (441-442).
+-- Match the real Next button, including the screen's points calculation; unknown points never permit Next.
+function G.creationReady(prof)
+	local points, known = G.creationPoints(prof)
+	return known and points >= 0 and prof.playButton ~= nil and prof.playButton:isEnabled() == true
+end
+
+-- CharacterCreationProfession.listboxProf items are CharacterProfessionDefinition objects;
+-- onSelectProf (434-488) applies their points, free traits, skills and clothes, just as the menu does.
+local function professionOptions(prof)
+	local opts = {}
+	for i, it in ipairs(prof.listboxProf and prof.listboxProf.items or {}) do
+		local def = it.item
+		if def then opts[#opts + 1] = { verb = "choose_profession", name = def:getUIName(), cost = def:getCost(),
+			type = tostring(def:getType()), cat = "profession", idx = i, list = "listboxProf" } end
+	end
+	return opts
+end
+
 -- The owner's rule (option B, 2026-10-11), in two stages:
 --   buy:  add any number of good traits (they cost points), each only if it leaves the points at DEBT_LIMIT or
 --         above, or stop buying. Buying also ends when no good trait fits any more.
@@ -332,6 +351,7 @@ end
 -- (The first rule, buy until 0 then pay, kept bad traits on offer next to Continue once the points were back
 -- to 0, and the agent piled them up: up to 7 bad against 2 good.)
 local function creationOptions(prof, points, c)
+	if not c.professionDone then return professionOptions(prof), "profession" end
 	local opts = {}
 	local stage = c.paying and "pay" or "buy"
 	for _, key in ipairs({ "listboxTrait", "listboxBadTrait" }) do
@@ -364,7 +384,8 @@ function G.creationRepair(prof)
 		local best, bi = nil, nil
 		for i, it in ipairs(prof.listboxTraitSelected.items or {}) do
 			local c = select(2, traitLabel(it)) or 0
-			if not best or c > best then best, bi = c, i end
+			-- CharacterCreationProfession disables Remove for free profession traits; leave them intact.
+			if it.item and not it.item:isFree() and c > 0 and (not best or c > best) then best, bi = c, i end
 		end
 		if not bi then return end
 		click(prof, { verb = "remove_trait", idx = bi })
@@ -374,7 +395,8 @@ end
 function G.creation(prof)
 	if not (prof.listboxTrait and prof.listboxTraitSelected and prof.addTraitBtn and prof.removeTraitBtn) then return false end
 	local c = G.s.creation
-	if not c then c = { steps = 0, fails = 0 }; G.s.creation = c end
+	if not c then c = { steps = 0, fails = 0, professionDone = false }; G.s.creation = c
+	elseif c.professionDone == nil then c.professionDone = true end   -- hot reload: finish the already-running trait stage
 	local now = getTimestampMs()
 	if c.asked then
 		local line = U.readFirstLine("act.txt")
@@ -383,6 +405,19 @@ function G.creation(prof)
 			local o = c.opts[(tonumber(parts[2]) or -1) + 1]
 			c.asked = false
 			if not o then return true end   -- not a valid choice: ask again
+			if o.verb == "choose_profession" then
+				local it = prof.listboxProf and prof.listboxProf.items[o.idx]
+				local def = it and it.item
+				if def then
+					prof.listboxProf.selected = o.idx
+					prof:onSelectProf(def)
+				end
+				local ok = def ~= nil and prof.profession == def
+				c.professionDone, c.fails = ok, ok and 0 or c.fails + 1
+				c.last = { verb = o.verb, name = o.name, status = ok and "done" or "failed",
+					msg = ok and "" or "the game didn't select it" }
+				return true
+			end
 			if o.verb == "done_buying" then
 				c.paying, c.fails = true, 0
 				c.last = { verb = o.verb, status = "done", msg = "" }
@@ -402,6 +437,12 @@ function G.creation(prof)
 	end
 	local points, known = G.creationPoints(prof)
 	local opts, stage = creationOptions(prof, points, c)
+	if stage == "profession" and (#opts == 0 or c.fails >= MAX_FAILS) then
+		-- The screen already has a selected profession; retain it on a missing/refusing menu rather than
+		-- manufacture a different profession. Normal play offers every item in the real list.
+		c.professionDone, c.fails = true, 0
+		opts, stage = creationOptions(prof, points, c)
+	end
 	-- buying with nothing left that fits (or every pick refused) ends the buying
 	if stage == "buy" and (#opts == 0 or c.fails >= MAX_FAILS) then
 		c.paying, c.fails = true, 0
@@ -418,7 +459,8 @@ function G.creation(prof)
 	for i, o in ipairs(c.opts) do out[i] = o end
 	U.writeFile("obs.json", A.json({ id = c.id, reason = "creation", creation = true, gym = G.VERSION,
 		obs = { selected = selectedTraits(prof), points = points, points_from_game = known, debt_limit = DEBT_LIMIT,
-			stage = stage, bad_list = prof.listboxBadTrait ~= nil, bad_button = prof.addBadTraitBtn ~= nil },
+			stage = stage, profession = prof.profession and tostring(prof.profession:getType()) or nil,
+			bad_list = prof.listboxBadTrait ~= nil, bad_button = prof.addBadTraitBtn ~= nil },
 		options = out, last = c.last }))
 	return true
 end
