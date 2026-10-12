@@ -8,7 +8,8 @@
 --
 -- The implemented options approximate a subset of the right-click menus: wait, rest, walk or run in a
 -- direction, go into a building or another room, attack or shove a zombie, open or close a door, window or
--- curtain, lock or unlock a door with its key, hang a sheet on a window, climb through a window, smash one,
+-- curtain, lock or unlock a door with its key, barricade a door or window with planks or pry the planks off,
+-- hang a sheet on a window, climb through a window, smash one,
 -- clear its glass, search a container, a corpse or a bag on the ground, take an item out of one it has searched,
 -- pick an item up off the ground (one, half or all of a pile), drag a corpse and let go of it, disassemble furniture, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
 -- from a tap, bandage a wound, sleep, sneak or stand up. Nothing in here judges what's good: the agent learns
@@ -20,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.35"
+G.VERSION = "0.4.36"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -575,6 +576,15 @@ local function count(list, verb)
 	return n
 end
 
+-- barricades (gym 0.4.36): the tools as the menus find them (J:ISWorldObjectContextMenuLogic.doBarricadeMenu's
+-- hammer test, ISWorldObjectContextMenu's predicateRemoveBarricade), and the planks on one side of an opening
+local function notBroken(it) return not it:isBroken() end
+local function removesBarricade(it) return it:hasTag(ItemTag.REMOVE_BARRICADE) and not it:isBroken() end
+local function planksOn(o, same)
+	local b = same and o:getBarricadeOnSameSquare() or o:getBarricadeOnOppositeSquare()
+	return b and b:getNumPlanks() or 0
+end
+
 local function zombiesToward(zs, dname)
 	local n = 0
 	for _, e in ipairs(zs) do if e.d < 20 and U.dir8(e.dx, e.dy) == dname then n = n + 1 end end
@@ -729,6 +739,31 @@ function G.options(p)
 			if e.d < 2.5 and e.glass and p:getPrimaryHandItem() and ng < 1 then ng = ng + 1; add(list, "clear_glass", { d = info.d, dx = dx, dy = dy }, e) end
 			if sheet and nh < 2 and e.o:HasCurtains() == nil then
 				nh = nh + 1; add(list, "hang_sheet", { d = info.d, dx = dx, dy = dy, exterior = e.exterior }, e)
+			end
+		end
+	end
+	-- Barricade with planks, and Unbarricade, on doors and windows (J:ISWorldObjectContextMenuLogic.doBarricadeMenu:
+	-- isBarricadeAllowed(), no barricade on the character's side or one that takes another plank, a hammer that isn't
+	-- broken, a plank and 2 nails in the inventory, light enough to read by (the entry is greyed out otherwise);
+	-- Unbarricade: planks on the character's side and a RemoveBarricade tool). A door only while shut
+	-- (BuildRecipeCode.barricade.OnIsValidPlanks). The planks already up are what a player sees. (gym 0.4.36)
+	local canBuild = inv:getFirstTagEvalRecurse(ItemTag.HAMMER, notBroken) ~= nil and inv:containsTypeRecurse("Plank")
+		and inv:getItemCountRecurse("Base.Nails") >= 2 and not p:tooDarkToRead()
+	local canPry = inv:getFirstEvalRecurse(removesBarricade) ~= nil
+	if (canBuild or canPry) and not p:getVehicle() then
+		local nb = 0
+		for _, group in ipairs({ ar.doors, ar.windows }) do
+			for _, e in ipairs(group) do
+				if nb >= 4 then break end
+				local isDoor = U.isDoor(e.o)
+				local b = e.o:getBarricadeForCharacter(p)
+				local dx, dy = at(e)
+				local info = { d = r1(e.d), dx = dx, dy = dy, exterior = e.exterior, door = isDoor or nil,
+					planks = b and b:getNumPlanks() or 0 }
+				if canBuild and e.o:isBarricadeAllowed() and (not b or b:canAddPlank()) and not (isDoor and e.open) then
+					nb = nb + 1; add(list, "barricade", info, e)
+				end
+				if canPry and b and b:getNumPlanks() > 0 then nb = nb + 1; add(list, "unbarricade", info, e) end
 			end
 		end
 	end
@@ -1240,6 +1275,60 @@ local function lockDoor(lock)
 	}
 end
 G.X.lock_door, G.X.unlock_door = lockDoor(true), lockDoor(false)
+-- The side of an opening the character will stand on after walking to `adj`: true for the opening's own square (the
+-- square south of a north edge, east of a west edge)
+local function ownSide(e, adj)
+	if e.o:getNorth() then return adj:getY() >= e.sq:getY() end
+	return adj:getX() >= e.sq:getX()
+end
+-- Barricade: the menu entry hands the build cursor an ISBuildIsoEntity for the BarricadePlanks entity
+-- (ISWorldObjectContextMenu.onBarricade("carpentry_01_8")); a click on an opening's edge then runs
+-- ISBuildingObject.tryBuild, which equips the hammer and queues ISBuildAction for the entity's recipe (a plank and a
+-- nail, BuildWallHammer). The gym does that click on the edge from the side it walks to: the entity faces N or W on
+-- the opening's own square, S or E on the square beyond (nSprite 2, 1, 4, 3: ISBuildIsoEntity:getFace). The walk is
+-- the mod's (the cursor's luautils.walkAdjWall uses ISWalkToTimedAction, which fails at 20x and 40x).
+G.X.barricade = {
+	start = function(p, t, o)
+		local e = o.data
+		local ok, adj = U.walkAdjOpening(p, e.sq, e.o, t)
+		if not ok then return U.fail(t, "can't reach it") end
+		local north, mine = e.o:getNorth(), ownSide(e, adj)
+		local x, y, z = e.sq:getX(), e.sq:getY(), e.sq:getZ()
+		local bsq = mine and e.sq or (north and sqAt(x, y - 1, z) or sqAt(x - 1, y, z))
+		local info = SpriteConfigManager.getObjectInfoFromSprite("carpentry_01_8")
+		if not (bsq and info) then return U.fail(t, "can't barricade it") end
+		local be = ISBuildIsoEntity:new(p, info, 1, ISInventoryPaneContextMenu.getContainers(p))
+		be.player, be.dragNilAfterPlace = p:getPlayerNum(), false   -- as IsoCell.setDrag and onBarricade set them
+		be.nSprite = mine and (north and 2 or 1) or (north and 4 or 3)
+		be.walkTo = function() return true end   -- the mod's walk is queued already
+		be:getSprite()
+		if not be:isValid(bsq) then return U.fail(t, "can't barricade it") end
+		t.same, t.planks = mine, planksOn(e.o, mine)
+		be:tryBuild(bsq:getX(), bsq:getY(), bsq:getZ())
+	end,
+	step = queueStep(3600, function(p, t, o)
+		if planksOn(o.data.o, t.same) <= t.planks then return "no plank went up" end
+	end),
+}
+-- ISWorldObjectContextMenu.onUnbarricade, with the mod's walk: a RemoveBarricade tool into the hands
+-- (ISWorldObjectContextMenu.equip), then ISUnbarricadeAction, which takes one plank off the character's side
+G.X.unbarricade = {
+	start = function(p, t, o)
+		local e = o.data
+		local ok, adj = U.walkAdjOpening(p, e.sq, e.o, t)
+		if not ok then return U.fail(t, "can't reach it") end
+		t.same = ownSide(e, adj)
+		t.planks = planksOn(e.o, t.same)
+		if t.planks == 0 then return U.fail(t, "no planks on this side") end
+		if not ISWorldObjectContextMenu.equip(p, p:getPrimaryHandItem(), removesBarricade, true) then
+			return U.fail(t, "nothing to pry it with")
+		end
+		Q(ISUnbarricadeAction:new(p, e.o))
+	end,
+	step = queueStep(3600, function(p, t, o)
+		if planksOn(o.data.o, t.same) >= t.planks then return "the planks are still up" end
+	end),
+}
 local function atWindow(make, check)
 	return {
 		start = function(p, t, o)

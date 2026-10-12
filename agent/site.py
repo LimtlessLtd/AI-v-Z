@@ -81,6 +81,8 @@ def detail(o):
         bits.append(str(o["recipe"]))
     if o.get("item"):
         bits.append("with " + str(o["item"]))
+    if o.get("verb") in ("barricade", "unbarricade") and isinstance(o.get("planks"), (int, float)):
+        bits.append(f"{o['planks']} planks up")
     if o.get("how") in ("half", "all") and isinstance(o.get("n"), (int, float)):
         bits.append(f"{o['how']} of the pile ({o['n']})")
     if o.get("from"):

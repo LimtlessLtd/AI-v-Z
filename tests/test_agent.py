@@ -521,6 +521,28 @@ class FloorStaticTest(unittest.TestCase):
         self.assertIn("act.allowedWhileDraggingCorpses = true", self.mod)   # the queue refuses other walks
 
 
+class BarricadeStaticTest(unittest.TestCase):
+    """Gym 0.4.36, backlog G14b: Barricade and Unbarricade with planks, under the menu's rules, built the way the
+    menu's cursor builds it (code only, not run in the game here)."""
+
+    def setUp(self):
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        self.src = (base / "AIvZGym.lua").read_text(encoding="utf-8")
+
+    def test_offered_under_the_menus_rules(self):
+        self.assertIn('inv:getFirstTagEvalRecurse(ItemTag.HAMMER, notBroken) ~= nil and inv:containsTypeRecurse("Plank")', self.src)
+        self.assertIn('inv:getItemCountRecurse("Base.Nails") >= 2 and not p:tooDarkToRead()', self.src)
+        self.assertIn("e.o:isBarricadeAllowed() and (not b or b:canAddPlank()) and not (isDoor and e.open)", self.src)
+        self.assertIn("if canPry and b and b:getNumPlanks() > 0 then", self.src)
+
+    def test_built_as_the_cursor_builds_it(self):
+        x = self.src[self.src.index("G.X.barricade = {"):self.src.index("G.X.unbarricade = {")]
+        self.assertIn('SpriteConfigManager.getObjectInfoFromSprite("carpentry_01_8")', x)
+        self.assertIn("be.nSprite = mine and (north and 2 or 1) or (north and 4 or 3)", x)
+        self.assertLess(x.index("U.walkAdjOpening(p, e.sq, e.o, t)"), x.index("be:tryBuild("))
+        self.assertLess(x.index("if not be:isValid(bsq)"), x.index("be:tryBuild("))
+
+
 class SpeedHoldStaticTest(unittest.TestCase):
     """AIvZ 0.5.3: the owner's speed pick survives a game restart (backlog N9) and isn't lost to an F2 unpause or the
     Pause button coming back at Play (code only, not run in the game here)."""
