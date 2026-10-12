@@ -169,7 +169,7 @@ perceivable now), **gap** (perceivable but missing).
 
 1. **Raw `stats`** (not reaching the network: `agent/features.py` is an allow-list and never reads `stats`; still in `obs.json`, the logs and the bridge) (11 exact internal values, including food sickness) in every observation. Fix: remove;
    rely on moodles (`Moodles:getMoodleLevel`).
-2. **Unseen rooms** (`go_room` options fixed in gym 0.4.15 with `RoomDef:isExplored()`, kept if the call fails; untested in game; the building opening counts are still whole-floor): `go_room` options and the building opening counts expose layout, names and state of
+2. **Unseen rooms** (`go_room` options fixed in gym 0.4.15 with `RoomDef:isExplored()`, kept if the call fails; untested in game; gym 0.4.17 counts open doors, windows and curtains only on `isSeen(pn)` squares; the smashed-window count is still whole-floor; untested in game): `go_room` options and the building opening counts expose layout, names and state of
    rooms never seen. Fix: `RoomDef:isExplored()` plus per-character memory; `IsoGridSquare:isSeen(pn)` for
    squares.
 3. **Beds in unseen rooms/floors** (fixed in gym 0.4.15: `A.beds(p, b, true)` keeps beds on `isSeen(pn)` squares; the rules baseline still sees all; untested in game) through the `sleep` option. Same fix.
