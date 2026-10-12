@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.17"
+G.VERSION = "0.4.18"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -256,7 +256,8 @@ function G.clock(p)
 	local c = { hour = gt:getHour(), min = gt:getMinutes(), digital = digital }
 	if digital then
 		c.day, c.month = gt:getDay() + 1, gt:getMonth() + 1
-		c.temp = r1(try(function() return getClimateManager():getTemperature() end) or 0)
+		-- what the clock shows: the air temperature at the character (ClimateManager.getAirTemperatureForCharacter)
+		c.temp = r1(try(function() return getClimateManager():getAirTemperatureForCharacter(p) end) or 0)
 	end
 	return c
 end
@@ -291,7 +292,7 @@ function G.observe(p, dead)
 	local l = squareLight(p:getCurrentSquare(), p:getPlayerNum())
 	o.light = { known = l ~= nil, here = l and r2(l) or nil }
 	o.asleep = try(function() return p:isAsleep() end) == true
-	o.weather = { rain = r2(try(function() return cm:getRainIntensity() end) or 0), temp = r1(try(function() return cm:getTemperature() end) or 20) }
+	o.weather = { rain = r2(try(function() return cm:getRainIntensity() end) or 0) }   -- no temperature: only a digital clock shows it (o.clock.temp)
 	o.weight, o.maxWeight = r1(p:getInventory():getCapacityWeight()), r1(p:getMaxWeight())
 	local held = p:getPrimaryHandItem()
 	o.held = held and G.itemInfo(p, held) or nil
