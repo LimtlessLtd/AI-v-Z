@@ -17,27 +17,26 @@ Each run ends with at least one merged PR that closes or advances a backlog item
 acceptable only if every step below was tried and each one has a specific blocker written down. Being unsure
 is not a blocker: if a step is possible but you hesitate, do a smaller version of it.
 
-Take the first step that has something you can do, and do more than one if time allows:
+Work the "Open" list in [BACKLOG.md](BACKLOG.md) **from the top** (the owner's rule of 2026-10-12):
 
-1. **Health.** `python -m unittest discover -s tests` passes (the network tests skip without PyTorch). Keep
-   the README current: install, run, controls, known issues.
-2. **Phase 4 gaps that don't need the game.** For example: backlog O6 (per-kind item encoding, once the gym
-   exposes item status O1-O5); N4 (flush the experience log on a timer); robustness of reading, salvage,
-   caching or the dashboard in `agent/`.
-3. **Phase 3 gaps that widen what the network can do or perceive.** Missing player actions (exercise, full
-   crafting, disassembly, vehicles, repairs, inventory organisation), hearing a player could perceive, and
-   the leaks in [OBSERVATION_AUDIT.md](OBSERVATION_AUDIT.md). A new observation field reaches the network
-   only once it is on the allow-list in `agent/features.py`.
-4. **The Python half of a blocked item.** Where the Lua half needs the game's files, still do the rest:
-   tokens in `agent/features.py`, option handling, and unit tests with a fake `obs.json`. Mark the Lua half
-   "needs the game's files" in the backlog.
-5. **Leaks shielded in Python.** Drop or coarsen a leaked field in `agent/features.py` without changing the
-   dense layout (as in commits d6e5438 and 64ae0f6).
-6. **Tests.** Cover untested code (for example `features.item_status_tokens`, `read_records` salvage,
-   `transitions`), or add a regression test for a bug recorded in the backlog.
-7. **Documentation accuracy.** Check claims in `README.md`, [BACKLOG.md](BACKLOG.md) and
-   [PHASE3_COVERAGE.md](PHASE3_COVERAGE.md) against the code: statuses, versions, line references. Mark
-   finished items done, with the commit.
+1. **Health first.** `python -m unittest discover -s tests` passes (the network tests skip without PyTorch).
+   Fix a failure before anything else.
+2. **The first row of "Work, in priority order" whose Who includes `cloud`.** Finish or advance it before
+   any lower row. Rows marked `local` only, and the "Waiting on the owner" table, are not yours: skip them.
+   A row with an open PR (`gh pr list`) is taken by another session: take the next one.
+   If the row needs a game API with no citation, do its Python half (tokens in `agent/features.py`, option
+   handling, unit tests with a fake `obs.json`) and write "Lua half needs the game's files: <what is missing>"
+   into the row's Next step; then go on to the next `cloud` row.
+3. Only when every `cloud` row is done or has a written blocker, the upkeep below, in this order:
+   - **Leaks shielded in Python.** Drop or coarsen a leaked field in `agent/features.py` without changing the
+     dense layout (as in commits d6e5438 and 64ae0f6).
+   - **Tests.** Cover untested code (for example `features.item_status_tokens`, `read_records` salvage,
+     `transitions`), or add a regression test for a bug recorded in the backlog.
+   - **Documentation accuracy.** Check claims in `README.md`, [BACKLOG.md](BACKLOG.md) and
+     [PHASE3_COVERAGE.md](PHASE3_COVERAGE.md) against the code: statuses, versions, line references. Mark
+     finished items done, with the commit.
+
+Don't reorder the backlog. A new finding goes in where its priority puts it, with the reason.
 
 ## Limits
 

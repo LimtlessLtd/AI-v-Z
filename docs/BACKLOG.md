@@ -1,6 +1,6 @@
 # Backlog
 
-What's open, in priority order, then the history and details behind each item. Status is honest: nothing
+What's open, in priority order (work it from the top: see [Open](#open)), then the history and details behind each item. Status is honest: nothing
 here is live-tested unless it says so. Phase 3 closed on 2026-10-11 (PR #25); its gaps are worked on
 alongside Phase 4.
 
@@ -16,28 +16,58 @@ game's own compiler and checks every method name against the game) and a run in 
 
 ## Open
 
-| # | Item | Who | Next step |
-|---|---|---|---|
-| N14 | **The agent must be restarted** for the policy temperature of 2026-10-12 (0.25, was 0.5): the agent started at 11:49 still picks with 0.5. Then the first hours of gym 0.4.23-0.4.24 and mod 0.5.3 (a zombie within 4 tiles asks at once; doors, windows and curtains have a direction; the speed pick survives a game restart and an F2 unpause). | owner, then local | Ctrl+C the agent window and run `scripts/start.ps1` again (it hot-reloads the mod too). Then check: `loader.txt` says `OK reloaded v0.5.3 (gym 0.4.24)`; no `AIvZ` errors in `console.txt`; `aivz/speed.txt` appears after a speed key or click and a restarted game goes back to that speed; how often decisions have the reason "zombie close" (about 5% before gym 0.4.21); the network's top pick near zombies. Then update the README's gym entry. See [Learning speed](#learning-speed-owner-decisions-2026-10-12). |
-| N2, N6 | After a few hours under reward version 3 and the changes above: does the network outlive random play (median 1.35 game hours), and does it bandage when bleeding? | local | Compare on the Learning page and in `lives.jsonl`. |
-| 6.7 | Keep the rules baseline as a comparison player, or delete it. | owner | Decide; the gym uses some of its helpers. |
-| O6 | A dense per-kind item layout for the network. Bumps `features.VERSION`, so the network starts over. | owner | Decide when; hashed tokens stand in until then. |
-| Hearing | Capture the game's audio. Needs a capture library that isn't installed. | owner | Approve a library, then local. |
-| G4, G5, G2 | `drink` follows the Drink menu (thirst, beverage, portions); `engine_on` follows the radial menu (keys, hotwire); `exercise` moves the equipment into the hands. | cloud | APIs cited in [GAP_LIST.md](GAP_LIST.md) items 2, 4 and 5. |
-| G6 | The trait screen as the game shows it: `PointToSpend()`, Next only when enabled, profession choice. Keeps the owner's option B rule. | cloud | GAP_LIST item 6. |
-| G7 | Verb prerequisites the menus apply (smash on open windows, clear_glass, equip, rest, drop, take, drink_tap, enter). | cloud | Listed under [Found in the 42.21 audit](#found-in-the-4221-audit-not-fixed-2026-10-11). |
-| L1, L11, L12 | Leaks left in the gym: raw `stats` in `obs.json` (never read by the network), the `enter` macro's window choice by lock state, the zombie visibility proxy instead of `getSpottedList()`. | cloud, then local | OBSERVATION_AUDIT.md section 5; the visibility change needs a live comparison. |
-| 6.1-6.3, 6.5 | Remove the repo's own guard rails: caps that hide choices, usefulness filters, macros, the character creation stages. | cloud, then local | [Guard rails](#guard-rails-item-6); keep the game's own prerequisites. |
-| N15 | `console.txt` logged one `FileNotFoundException` for `act.txt` ("being used by another process") at 11:31 on 2026-10-12: the game read the file while the agent's `os.replace` swapped in a new answer. Harmless (the read returns nil and is retried 2 ticks later), but Java logs a stack trace. Reads are more frequent since gym 0.4.21 (steadier decisions, respawn steps every 0.3 s). | local | Count it over a long run; if it becomes frequent, retry the read in Lua only after a short wait, or have the agent write in place. |
-| 1, N11 | Start a new game after 100 deaths in one save. | local | Audit the main-menu new-game flow; keep display and speed settings. |
-| O4, O5 | Vehicle part status (the Mechanics window); food, literature, bag, drainable and key tooltips. | local | Audit as for O1-O3 first. |
-| 5 | The game's own halo text from gym calls (e.g. "Not safe to sleep here."). `last.msg` is already kept from the network. | local | Audit which direct handler calls show text. |
-| 4 | Calibrate the light threshold (0.2, guessed) and account for held torches. | local | Compare with the screen at night. |
-| 2 | Random spawn buildings (gym 0.4.24): check in the live log that new lives start in varied buildings, and compare how long they live and how soon they meet a zombie with lives on the game's listed houses. | local | `lives.jsonl` and the first observation of each life; see item 2 under [From the owner](#from-the-owner-2026-10-11). |
-| N3 | Restart the agent if it exits on its own (it is fine when run from `start.ps1`'s window). | owner | Optional: say if you want `start.ps1` to restart it. |
-| G14 | Asked about by the owner 2026-10-12: hang a sheet on a window as a curtain (`ISAddSheetAction`), barricade, lock doors, climb fences; and disassembling furniture (G20, `ISDisassembleMenu`). None of these is an option yet. | local, then cloud | GAP_LIST items 14 and 20; the sheet is the smallest (a timed action on a window the character stands by, with a sheet in the inventory). |
-| O7 | **What a player can tell about being seen** (owner's question, 2026-10-12): the network sees each zombie in sight (where, how far, closing, down, a wall between), the light on its own square and the building's open doors, windows and curtains. It doesn't see which way a zombie faces, its own stance (sneaking, running) or noise, and it can't sneak or crouch (G13). | owner, then cloud | Facing and stance are things a player sees; as hashed tokens they need no `features.VERSION` bump. Decide, then gym and features. |
-| G8-G23 | Missing families: floor items and corpses, menus, water and stoves, medical care, reading, movement and stance, barricading, vehicles, crafting, repairs, appliances, farming and foraging, building, firearms, map and radio, the new-game flow. | local, then cloud | Audit each in the game files, then build; GAP_LIST items 8-23. |
+**Work this list from the top.** Every agent (a local session, the hourly cloud routine, Codex or another) takes
+the **first** row in "Work, in priority order" whose **Who** it can do, and finishes or advances it before
+starting a lower row. A row with an open PR is taken (`gh pr list`): take the next one. Skip a row only for a blocker you write into its "Next step" (for example "needs the
+game's files: no source for X"), so the next agent doesn't repeat the search. A new finding goes in where its
+priority puts it, with the reason; only the owner moves the existing rows. A finished row leaves the list (its
+details stay below, marked done with the PR). On 2026-10-12 the owner asked for the backlog to be worked in priority order and left the order to the local
+session: first what helps the network survive zombies, then wrong data, then care and supplies, then breadth.
+
+### Waiting on the owner
+
+Agents leave these alone until the owner decides; then the item moves into the list below.
+
+| # | Item | Next step |
+|---|---|---|
+| N14 | **Restart the agent** for the policy temperature of 2026-10-12 (0.25, was 0.5): the agent started at 11:49 still picks with 0.5. | Ctrl+C the agent window and run `scripts/start.ps1` again. Then row 1 below. |
+| Hearing | Capture the game's audio. Needs a capture library that isn't installed. | Approve a library; then it goes in at row 6. |
+| O6 | A dense per-kind item layout for the network. Bumps `features.VERSION`, so the network starts over. | Decide when; hashed tokens stand in until then. |
+| 6.7 | Keep the rules baseline as a comparison player, or delete it. | Decide; the gym uses some of its helpers. |
+| N3 | Restart the agent if it exits on its own (it is fine when run from `start.ps1`'s window). | Optional: say if you want `start.ps1` to restart it. |
+
+### Work, in priority order
+
+| Order | # | Item | Who | Next step |
+|---|---|---|---|---|
+| **Check what just changed** | | | | |
+| 1 | N14, 2 | First hours of gym 0.4.23-0.4.24 and mod 0.5.3, after the agent restart: a zombie within 4 tiles asks at once; doors, windows and curtains have a direction; the speed pick survives a game restart and an F2 unpause; new lives start in random buildings (4 of 4 did on 2026-10-12 13:32-13:36, in 3 towns). | local | `loader.txt` says `v0.5.3 (gym 0.4.24)`; no `AIvZ` errors in `console.txt`; `aivz/speed.txt` after a speed pick, and a restarted game goes back to that speed; share of "zombie close" decisions (about 5% before gym 0.4.21); the network's top pick near zombies; time to the first zombie within 4 tiles and game hours per life, against the lives on the game's listed houses (backlog item 2). Then update the README's gym entry. |
+| 2 | N2, N6 | Does the network outlive random play (median 1.35 game hours), and does it bandage when bleeding? | local | After a few hours on the changes above: the Learning page and `lives.jsonl`. |
+| **Survive zombies: not being seen, getting away** | | | | |
+| 3 | G13a | **Sneak (crouch) and stand up** as options, and the character's own stance in the observation. A sneaking player is much harder for zombies to notice; the network can't do it yet. | cloud, then local | `IsoPlayer:setSneaking(boolean)` / `isSneaking()` (already used by the mod, `A.manageSneak`); the C key in [ACTION_CATALOGUE.md](ACTION_CATALOGUE.md) section 2. Drop the gym's own `setSneaking(false)` where it overrides the choice. Tokens, no `features.VERSION` bump. |
+| 4 | O7 | **Which way each zombie in sight faces** (towards the character or not), as a player sees from its body, plus whether the character runs. In the owner's go-ahead of 2026-10-12. | local, then cloud | Gym: a `facing` field in `zombieView` from the zombie's forward direction against the direction to the character (`getForwardDirection` needs a check in the jar). Features: hashed tokens, no `features.VERSION` bump. |
+| 5 | G14a | **Hang a sheet on a window as a curtain, lock and unlock a door with its key, climb over a fence.** All three are timed actions with cited entry points. | local, then cloud | GAP_LIST item 14: `onAddSheet` → `ISAddSheetAction:new(character, item)`; `onLockDoor` / `onUnLockDoor`; `onClimbOverFence` → `ISClimbOverFence:new(character, item, direction)`. Copy the menus' prerequisites (ACTION_CATALOGUE 3.1). |
+| 6 | G8 | **Items on the ground and corpses:** pick up a weapon from the floor, loot a corpse. | local, then cloud | GAP_LIST item 8. |
+| 7 | G14b, G20 | **Barricade a window or door, and disassemble furniture** for planks and nails (the owner asked about disassembly). Both start a cursor in the menus. | local | GAP_LIST items 9 (cursors), 14 and 20 (`ISDisassembleMenu`); live test per cursor. |
+| **Wrong data: fix what the network already learns from** | | | | |
+| 8 | G2, G4, G5 | `exercise` moves the equipment into the hands (it often ends "no effort spent"); `drink` follows the Drink menu (thirst, beverage, portions); `engine_on` follows the radial menu (keys, hotwire). | cloud | APIs cited in [GAP_LIST.md](GAP_LIST.md) items 2, 4 and 5. |
+| 9 | G7 | Verb prerequisites the menus apply (smash on open windows, clear_glass, equip, rest, drop, take, drink_tap, enter). | cloud | Listed under [Found in the 42.21 audit](#found-in-the-4221-audit-not-fixed-2026-10-11). |
+| 10 | L1, L11, L12 | Leaks left in the gym: raw `stats` in `obs.json` (never read by the network), the `enter` macro's window choice by lock state, the zombie visibility proxy instead of `getSpottedList()`. | cloud, then local | OBSERVATION_AUDIT.md section 5; the visibility change needs a live comparison. |
+| 11 | G6 | The trait screen as the game shows it: `PointToSpend()`, Next only when enabled, profession choice. Keeps the owner's option B rule. | cloud | GAP_LIST item 6. |
+| **Care and supplies** | | | | |
+| 12 | G11 | Medical care beyond bandages: disinfect, stitch, splint, remove glass, pills. | cloud, then local | GAP_LIST item 11 (the removal actions' signatures are unverified). |
+| 13 | G10 | Water, washing, cooking, light: drink from and fill at a source, wash, stoves and microwaves, lights. | cloud, then local | GAP_LIST item 10. |
+| 14 | G12 | Reading (skill books, magazines), with the menu's light and literacy rules. | cloud | GAP_LIST item 12. |
+| **The gym's own limits and upkeep** | | | | |
+| 15 | 6.1-6.3, 6.5 | Remove the repo's own guard rails: caps that hide choices, usefulness filters, macros, the character creation stages. | cloud, then local | [Guard rails](#guard-rails-item-6); keep the game's own prerequisites. |
+| 16 | 1, N11 | Start a new game after 100 deaths in one save (the save is at 49). | local | Audit the main-menu new-game flow; keep display and speed settings. |
+| 17 | N15 | `console.txt` logged a `FileNotFoundException` for `act.txt` ("being used by another process") at 11:31 and again after 13:17 on 2026-10-12: the game read the file while the agent's `os.replace` swapped in a new answer. Harmless (the read returns nil and is retried 2 ticks later), but Java logs a stack trace. | local | Count it over a long run; if it becomes frequent, retry the read in Lua only after a short wait, or have the agent write in place. |
+| 18 | O4, O5 | Vehicle part status (the Mechanics window); food, literature, bag, drainable and key tooltips. | local | Audit as for O1-O3 first. |
+| 19 | 5 | The game's own halo text from gym calls (e.g. "Not safe to sleep here."). `last.msg` is already kept from the network. | local | Audit which direct handler calls show text. |
+| 20 | 4 | Calibrate the light threshold (0.2, guessed) and account for held torches. | local | Compare with the screen at night. |
+| **Breadth** | | | | |
+| 21 | G9 | A general adapter for the vanilla right-click menus: the scalable route to every menu action. | local | GAP_LIST item 9; side effects need live tests. |
+| 22 | G15-G19, G21-G23 | Vehicles beyond entering, crafting window recipes, repairs, generators and appliances, farming, foraging, fishing, trapping, firearms, map and radio, the new-game flow. | local, then cloud | Audit each in the game files, then build; GAP_LIST items 15-23. |
 
 ## Learning speed (owner decisions, 2026-10-12)
 
