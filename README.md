@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.8 (gym 0.4.41)` after reloading this update). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.8 (gym 0.4.44)` after reloading this update). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -159,7 +159,8 @@ minutes) retrains it from all the experience so far, carrying on from the last n
 to the new one at its next decision. Each training target adds up the rewards of the next 5 decisions before it
 relies on the network's own estimate (n-step returns), so a death teaches the decisions that led to it within a
 round or two. Until the first network exists it plays at random. Character creation is learned the same way:
-picking traits leads into the life they make.
+choosing a profession, then picking traits, leads into the life they make. Professions are the game's
+own list; the existing good-trait buying and bad-trait debt repayment rule stays the same.
 
 **The reward** (`agent/reward.py`, version 4, the owner's rules of 2026-10-12; research and reasons in
 [docs/REWARD_RESEARCH.md](docs/REWARD_RESEARCH.md)):
@@ -333,8 +334,10 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 - **Gym 0.4.44 adds profession choice before traits.** It offers the game's real list and uses its
   handler to apply skills, free traits and points. The existing trait debt rule stays the same. Next
   now respects the actual disabled button and known nonnegative points, and emergency debt repair
-  preserves free profession traits. All 126 tests and installed Lua checks pass; natural-respawn
-  validation is pending. Restart the agent for the selected-profession state token.
+  preserves free profession traits. All 126 tests and installed Lua checks pass. At a natural respawn
+  at 21:57, the bot chose Park Ranger from 25 professions, bought a good trait, repaid its debt and
+  started the matching life. Fallback cases remain unexercised. Restart the agent for the
+  selected-profession state token.
   [Sources and live checklist](docs/CHARACTER_CREATION_CHECK.md).
 
 - **Gym 0.4.43 uses the game's spotted zombies.** The old visibility guess listed a zombie absent

@@ -11,7 +11,7 @@ Game paths are relative to `media/lua` in Project Zomboid 42.21.0 (Steam build 2
 revision 4a0e9546ec):
 
 - `client/OptionScreens/CharacterCreationProfession.lua:434-488`, `onSelectProf`: selects the real
-  definition and applies its free traits, exclusions, skills, points and clothes. `initProfessions`
+  definition and applies its free traits, exclusions, skills, points and clothes. `populateProfessionList`
   at 871-875 fills the real list with `profession:getUIName()` and a definition as `item`.
 - The same file, `render` at 827-836: enables Next only when `PointToSpend() >= 0`. `PointToSpend`
   at 860-866 includes profession cost, sandbox free points and the negative-trait penalty.
@@ -51,3 +51,18 @@ After reloading gym 0.4.44, observe a natural death/respawn: a profession choice
 displayed points including its cost, good purchases respecting -12, bad traits only while in debt,
 Next enabled before proceeding, and the new life's profession matching the selected type. Do not
 force a death, choose a profession for the network or stage a scenario to obtain these examples.
+
+### Natural respawn checked at 21:57
+
+The loader accepted mod 0.5.8 / gym 0.4.44. At 21:57:29, decision 12753 offered 25 professions with
+eight displayed points; the bot chose Park Ranger. At 12754 its selection was done and the game
+displayed -4 points. It chose Nutritionist (cost 2), displayed points became -6, and it chose
+`done_buying`. During repayment it chose Prone to Illness (cost -4), leaving -2, then Sleepyhead
+(cost -4) to repay the remaining debt. At 21:57:37 the next life, Len Spooner, was playing with
+`profession: base:parkranger`, matching the selected type, and an empty gym error field.
+
+The actual final button state was not serialized into a decision record; proceeding passed the
+running `creationReady` guard, which requires known nonnegative game points and an enabled button.
+This verifies a normal full profession/buy/pay/start path. It does not exercise the emergency-repair,
+missing-list or timeout fallbacks. No deaths or choices were forced. Three new lives in the flushed
+sample had Park Ranger; the new profession state token still needs the owner to restart Python.
