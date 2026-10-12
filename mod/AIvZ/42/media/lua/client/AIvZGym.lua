@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.44"
+G.VERSION = "0.4.45"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -975,6 +975,16 @@ function G.options(p)
 			end
 		end
 	end
+	-- a bandage that can come off, as the health panel offers it (HRemoveBandage, ISHealthPanel.lua:1204-1220; GAP_LIST 11)
+	do
+		local parts = p:getBodyDamage():getBodyParts()
+		for i = 0, parts:size() - 1 do
+			local bp = parts:get(i)
+			if count(list, "unbandage") < 3 and bp:bandaged() then
+				add(list, "unbandage", { part = BodyPartType.ToString(bp:getType()) }, { part = bp })
+			end
+		end
+	end
 	-- rest on the nearest bed here, as the bed menu offers it (gym 0.4.39)
 	if b and not p:getVehicle() then
 		local bed = A.beds(p, b, true)[1]
@@ -1627,6 +1637,10 @@ G.X.bandage = {
 		Q(ISApplyBandage:new(p, p, band, o.data.part, true))
 	end,
 	step = queueStep(900, function(p, t, o) if not o.data.part:bandaged() then return "not bandaged" end end),
+}
+G.X.unbandage = {
+	start = function(p, t, o) Q(ISApplyBandage:new(p, p, nil, o.data.part, false)) end,
+	step = queueStep(900, function(p, t, o) if o.data.part:bandaged() then return "still bandaged" end end),
 }
 G.X.sleep = {
 	start = function(p, t, o) pcall(function() p:setSneaking(false) end) end,
