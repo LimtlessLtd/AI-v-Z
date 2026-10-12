@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.4 (gym 0.4.29)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.5 (gym 0.4.31)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -339,6 +339,17 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
+- **Gym 0.4.31 (mod 0.5.5) has only just started running in the game** (hot-reloaded at 18:32 on 2026-10-12, no
+  `AIvZ` errors). It fixes two ways a character stayed in one room for good. A door or window sits on the wall
+  between two squares and the game keeps it on the square south or east of that wall, so one on a room's east or
+  south wall belongs to the square outside; with the curtain drawn, at night or behind a closed door that square is
+  out of sight and the gym listed nothing on it. In a bathroom with a locked door the character opened the window,
+  drew the curtain, and never saw the window, the curtain or a way to climb out again. Now an opening counts when
+  the square on the near side is in sight. And some new characters start exactly on the line of a wall, where the
+  game's pathfinder finds no way anywhere: seven lives that day were stuck on the spot they started on, for up to 66
+  game hours, with a door or window a few tiles away. After two paths in a row fail there, the character now walks to the
+  middle of the nearest free square with the game's auto-walk. Gym 0.4.30 offers `engine_on` only when the radial
+  menu would (key, keys in the ignition or a hotwire); not yet seen in the game.
 - **Gym 0.4.23-0.4.29 (mod 0.5.3-0.5.4) have only just started running in the game.** Gym 0.4.29 adds
   disassembling furniture, and gym 0.4.28 makes `drink` follow the game's Drink menu (thirst, beverage or bleach,
   half and quarter portions); neither has run in the game yet. Gym 0.4.27 adds picking items up off the ground and
