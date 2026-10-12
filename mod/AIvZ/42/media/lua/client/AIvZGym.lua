@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.42"
+G.VERSION = "0.4.43"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -54,12 +54,10 @@ local DIRS = { { "N", 0, -1 }, { "NE", 1, -1 }, { "E", 1, 0 }, { "SE", 1, 1 }, {
 
 local function tick() return A.s.tick end
 local function dist(p, x, y) return math.sqrt((x - p:getX()) ^ 2 + (y - p:getY()) ^ 2) end
--- zombies the character can see right now. Unseen ones (behind walls, out of sight) are hidden world
--- state: they appear in no observation, option, direction count or decision trigger.
--- Light: a lit-enough square only. A human can't pick out a zombie standing in the dark, so a zombie on an
--- unlit square is not offered either, unless it is right next to the character. LIGHT_MIN is a guess for the
--- 0..1 square light level and has not been calibrated in game. If the light API isn't there, light is
--- unknown and only line of sight applies (obs.light.known = false says so).
+-- Zombies the game has spotted for this character: J:IsoPlayer.updateLOS/getSpottedList (installed 42.21;
+-- OBSERVATION_AUDIT section 1). The old square/light proxy disagreed in the local comparison (L12).
+-- Use this membership for observations, options, directions and close-zombie triggers, without another
+-- guessed light threshold. The light threshold below still applies to nearby objects, not zombies.
 local LIGHT_MIN, NEAR = 0.2, 1.5
 
 local function squareLight(sq, pn)
@@ -67,12 +65,16 @@ local function squareLight(sq, pn)
 end
 
 local function visibleZombies(p, R)
-	local out, pn = {}, p:getPlayerNum()
+	local out, shown = {}, {}
+	local spotted = p:getSpottedList()
+	if not spotted then return out end
+	for i = 0, spotted:size() - 1 do
+		local z = spotted:get(i)
+		if instanceof(z, "IsoZombie") then shown[z] = true end
+	end
+	-- A.zombies retains the existing same-floor, alive, distance and obstruction checks, nearest first.
 	for _, e in ipairs(A.zombies(p, R)) do
-		if e.seen then
-			local l = squareLight(e.z:getCurrentSquare(), pn)
-			if e.d <= NEAR or l == nil or l >= LIGHT_MIN then out[#out + 1] = e end
-		end
+		if shown[e.z] then out[#out + 1] = e end
 	end
 	return out
 end

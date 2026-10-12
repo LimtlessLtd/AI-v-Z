@@ -330,10 +330,17 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.43 uses the game's spotted zombies.** The old visibility guess listed a zombie absent
+  from the game's spotted list in 330 of 8,520 local samples and missed one in 66. The same corrected
+  list now feeds observations, attack/shove choices, directional counts and close-zombie decisions.
+  All 125 tests and installed Lua checks pass; after-reload comparison is pending. The nearby-object
+  light threshold is still a guess. See [the audit](docs/BACKLOG_CHECK_2026-10-12.md).
+
 - **Gym 0.4.42 follows the game's furniture Rest completion.** It gets up before changing seats and
   ends the command once the game's queue finishes sitting, instead of keeping it running another
   ten real seconds. It reports the ground fallback and includes visible furniture posture as a token
-  after an agent restart. Installed 42.21 source audit and all 125 tests pass; live checks remain open.
+  after an agent restart. Installed 42.21 source audit and all 125 tests pass. After the 21:39 reload,
+  two ground rests completed at 22 ticks with sitting true; furniture variants remain open.
   [Backlog check and learning results](docs/BACKLOG_CHECK_2026-10-12.md): the first 1,396 decisions
   after the preceding getting-up fix had no immediate path failures. The newest nine reward-4 lives
   have median survival 6.25 game hours, but bandaging is still rarely chosen and the sample is small.

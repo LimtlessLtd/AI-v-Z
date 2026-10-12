@@ -96,6 +96,10 @@ live variant checks stay in rows 1 and 2.
 
 ## Row 5 / L12: proxy versus the game's spotted list
 
+Gym 0.4.42 live follow-up at 21:42:05: 395 logged decisions, 37 terminal outcomes and zero immediate
+path failures. Two ground rests (lives 801 and 802) completed with sitting true at age 22 ticks,
+instead of the old 600-tick delay. No explicit furniture completion appeared in that window.
+
 The existing local diagnostic in `aivz/spotted.txt` was already running before this session. Its
 snapshot here contains 8,520 rows: on **330** the gym lists a zombie absent from the game's spotted
 list; on **66** the game's list has a zombie the gym omits; two rows have both discrepancies. Totals
@@ -112,3 +116,9 @@ cited in [OBSERVATION_AUDIT.md](OBSERVATION_AUDIT.md) section 1 and L12. The fie
 consumer: observed zombies, attack/shove choices, directional counts and the close-zombie decision
 trigger. The baseline's internal threat detection is separate. Compare the same diagnostic after
 the change; leave the pre-existing diagnostic edits uncommitted and preserved.
+
+Gym 0.4.43 applies this change: membership in the current player's spotted list filters the existing
+same-floor, alive, distance-sorted records. A missing spotted list yields none, without falling back
+to the old guess. Nearby-object light checks are separate and retain their existing threshold.
+All 125 tests pass, including installed-game Lua compilation and method-name checks. The next
+verification is a diagnostic comparison after reloading, including decisions with zombies present.

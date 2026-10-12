@@ -107,6 +107,10 @@ fallbacks. Detailed sources and the remaining live checks are in
 [BACKLOG_CHECK_2026-10-12.md](BACKLOG_CHECK_2026-10-12.md). General equip choices and secondary-hand
 variants remain part of the broader action limits (backlog row 10).
 
+Gym 0.4.42 was hot-reloaded at 21:39:55. In its first 395 logged decisions, two ground rests
+completed with sitting true at age 22 ticks (lives 801 and 802), rather than the old 600-tick wait;
+37 terminal outcomes had zero immediate path failures. Furniture completion is still pending.
+
 **Sitting follow-up (2026-10-12):** Mod 0.5.8 waits for getting up before common movement paths;
 gym 0.4.41 adds `get_up` and visible `obs.sitting` (a hashed token). Sources:
 `client/ISUI/ISContextMenu.lua:onGetUpAndThen` (1046),

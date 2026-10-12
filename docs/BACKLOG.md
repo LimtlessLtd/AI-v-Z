@@ -48,7 +48,7 @@ Agents leave these alone until the owner decides; then the item moves into the l
 | 3 | N2, N6 | Survival and wound care after the recent changes. | local | **21:31 audit:** [report](BACKLOG_CHECK_2026-10-12.md): random median 1.355 hours (256 deaths); all net 1.51 (532); current reward-4 cohort 6.25 (nine), zero kills. Only two bandage picks in 135 bleeding decisions offering one since 20:55; no completed bandage in that current interval. **Comparison blocker:** the current cohort is small and includes a seated stall; collect a larger natural-play cohort before attributing survival gains to learning. Bandaging remains rare; keep the owner's reward/algorithm unchanged. |
 | **Wrong data: fix what the network already learns from** | | | | |
 
-| 5 | L1, L11, L12 | Leaks left in the gym (L1, raw `stats`, is gone from the gym's `obs.json` in gym 0.4.34, in the game since 20:12 on 2026-10-12 with gym 0.4.35: no `stats` in `obs.json`; L11, the `enter` macro's window choice by lock state and unseen windows, fixed in mod 0.5.7, not yet run in the game): the zombie visibility proxy instead of `getSpottedList()`. | cloud, then local | OBSERVATION_AUDIT.md section 5; the visibility change needs a live comparison. |
+| 5 | L1, L11, L12 | Raw stats and window-selection leaks are fixed in loaded code; the zombie visibility proxy is replaced in gym 0.4.43 ([PR #83](https://github.com/LimtlessLtd/AI-v-Z/pull/83)). | local | [Comparison evidence](BACKLOG_CHECK_2026-10-12.md): in 8,520 samples the old proxy listed extra zombies in 330 and missed game-spotted ones in 66. All 125 tests and the installed Lua checks pass. Reload and compare the existing diagnostic with the game spotted list, including non-empty samples, before closing L12. No dense layout or training-setting change. |
 | 6 | G6 | The trait screen as the game shows it: `PointToSpend()`, Next only when enabled, profession choice. Keeps the owner's option B rule. | cloud | GAP_LIST item 6. |
 | **Care and supplies** | | | | |
 | 7 | G11 | Medical care beyond bandages: disinfect, stitch, splint, remove glass, pills. | cloud, then local | GAP_LIST item 11 (the removal actions' signatures are unverified). |
@@ -524,7 +524,7 @@ game (item N5):
 
 * Fixed in code: L1 raw `stats` (11 internal values, including food sickness) no longer in the gym's `obs.json`
   (gym 0.4.34; the rules baseline's own percept in `AIvZ.lua` keeps them; not run in the game).
-* Open: L11 the `enter` macro's window choice by lock state, L12 the zombie visibility proxy (`isCanSee` plus
+* Fixed in loaded code: L11 the enter macro's window selection (mod 0.5.7); L12 uses the game's spotted list in gym 0.4.43 ([PR #83](https://github.com/LimtlessLtd/AI-v-Z/pull/83)), after the local comparison proved the square/light proxy disagreed. Post-reload verification remains in Open until recorded.
   light >= 0.2 instead of the game's spotted list).
 * Fixed in code: L2 unseen rooms and openings (gym 0.4.15, 0.4.17, 0.4.19), L3 unseen beds (0.4.15),
   L4 time and temperature without a clock (0.4.6, 0.4.18), L5 objects behind walls (0.4.16), L6 poison in the

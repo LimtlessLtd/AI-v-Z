@@ -5,8 +5,8 @@ could know it from the screen, the sound, or their own memory of what they saw. 
 hidden-information leak and must not reach the learner. Hearing is not covered here beyond noting that it
 is absent ([PHASE3_COVERAGE.md](PHASE3_COVERAGE.md)). The action side is in
 [ACTION_CATALOGUE.md](ACTION_CATALOGUE.md); the ordered fixes are in [GAP_LIST.md](GAP_LIST.md).
-Everything here comes from reading the installed Lua and disassembling `projectzomboid.jar`; **none of it
-has been checked in a running game**.
+The original audit comes from reading the installed Lua and disassembling `projectzomboid.jar`.
+Dated follow-ups below distinguish subsequent live checks from source-only findings.
 
 Repo references are `file:line` under `mod/AIvZ/42/media/lua/client/`. Game Lua paths are relative to
 `media/lua/`; Java is cited as `J:class.method` with `javap` offsets.
@@ -113,7 +113,7 @@ perceivable now), **gap** (perceivable but missing).
 | `inv[].dmg`, `cond`, `range`, `twoHand` | `HandWeapon:getMaxDamage/getCondition/getMaxRange/isTwoHandWeapon` | ok (weapon tooltip shows damage, condition, range, "limited impact one-handed") | — |
 | `inv[].raw`, `rotten`, `cooked`, `hunger`, `thirst`, `unhappy` | `Food` getters | ok (tooltip and name) | — |
 | `inv[]` coverage | first 40 non-held, non-hidden items (`AIvZGym.lua:184-187`) | gap: more items are visible in the inventory window | Page or summarise instead of truncating |
-| `zombies[]` | `visibleZombies` (`AIvZGym.lua:52-61`): `isCanSee(0)` and `getLightLevel ≥ 0.2` or within 1.5 tiles | proxy that disagrees with the game's rule (see 1) | Use membership of `p:getSpottedList()` (filter `instanceof(o, "IsoZombie")`), or `z:getTargetAlpha(pn) > 0` |
+| `zombies[]` | Since gym 0.4.43, `visibleZombies` filters by the current player's `getSpottedList()` membership | Game's spotting result (section 1); existing alive/floor/radius checks retained | Replaced the square/light proxy in [PR #83](https://github.com/LimtlessLtd/AI-v-Z/pull/83); post-reload comparison pending |
 | `zombies[].closing` | per-object memory in `GS.zprev` (`AIvZGym.lua:66-76`) for up to 900 ticks | **leak**: identity is kept across occlusion through the Java object, which a player cannot do for a look-alike zombie that left view | Reset `GS.zprev[z]` whenever `z` is not on the spotted list |
 | `zombies[].facing` | gym 0.4.25: the zombie's `getForwardDirectionX/Y` against the direction to the character, 1 facing it, -1 facing away | ok (a player sees which way a zombie's body faces; the AI's target stays hidden) | — |
 | `sneaking`, `running` | gym 0.4.25: `isSneaking()`, `isRunning() or isSprinting()` of the character | ok (a player sees their own stance) | — |
@@ -193,9 +193,12 @@ perceivable now), **gap** (perceivable but missing).
     conditions.
 11. **The `enter` macro's window choice** (fixed in mod 0.5.7, not yet run in the game): it used the lock state of unseen windows (`isLocked`, `isPermaLocked`) and windows never seen; now only seen windows, tried in order.
     Fix: see the `enter` executor row in section 3.
-12. **Zombie visibility proxy** (`isCanSee` + max-light ≥ 0.2). Not a leak in the strict sense but not the
-    game's rule: it can both show zombies the screen hides (behind the player, in the dark beyond the
-    light test) and hide ones it shows. Fix: `IsoPlayer:getSpottedList()` / `getTargetAlpha(pn)`.
+12. **Zombie visibility proxy** (`isCanSee` + max-light ≥ 0.2): replaced in gym 0.4.43 with
+    `IsoPlayer:getSpottedList()` membership. The local comparison in
+    [BACKLOG_CHECK_2026-10-12.md](BACKLOG_CHECK_2026-10-12.md) found extra zombies in 330 of 8,520
+    samples and missing ones in 66. Observations, option targets, directional counts and close-zombie
+    triggers all use the same corrected helper; the baseline's threat detection stays separate.
+    Installed game compiler/method checks pass. After-reload comparison is still needed.
 
 ## 6. Perceivable things the agent does not get (gaps, not leaks)
 
