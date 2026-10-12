@@ -85,7 +85,7 @@ def q_values(net, msg):
     if not options:
         return []
     s = Pack.of([F.encode_state(msg)], F.STATE_DIM)
-    a = Pack.of([F.encode_option(o) for o in options], F.OPTION_DIM)
+    a = Pack.of([F.encode_option(o, msg.get("obs")) for o in options], F.OPTION_DIM)
     with torch.no_grad():
         hs = net.states(*s.rows([0]))
         ha = net.options(*a.rows(np.arange(len(options))))

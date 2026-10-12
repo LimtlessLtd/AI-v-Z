@@ -231,7 +231,7 @@ end
 G.X.engine_on, G.X.engine_off = engine(true), engine(false)
 
 ---------------------------------------------------------------- character creation: choosing traits
--- Called from G.respawnStep on the profession/traits screen while the agent plays. Each call (every 1.5 s)
+-- Called from G.respawnStep on the profession/traits screen while the agent plays. Each call (every 0.3 s)
 -- either asks the agent (obs.json {creation = true}), reads its answer from act.txt, or gives up waiting.
 -- Options: add one trait (with its point cost as the game states it), or stop buying. The game enforces its
 -- own exclusions: an add that doesn't take effect is reported as failed.

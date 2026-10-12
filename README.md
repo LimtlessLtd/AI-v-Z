@@ -6,9 +6,10 @@ normal gameplay action a player can take, so it learns from what happens. That c
 yet. No cloud services, no language model, no multiplayer.
 
 > **Status (2026-10-12): Phase 4, learning, is in progress.** A small network scores every option the
-> game offers and the agent plays by those scores, retraining every 15 minutes from everything it has
-> lived through. The reward was redone on 2026-10-12 (version 3, below), so the network starts over and
-> play is clumsy for the first hours. The gym (Phase 3) works end to end for 27 action types, a subset
+> game offers and the agent plays by those scores, retraining every 5 minutes from everything it has
+> lived through. The reward was redone on 2026-10-12 (version 3, below), and the same day the network got
+> to see where the zombies are and started looking several decisions ahead in training, so it starts over
+> and play is clumsy for the first hours. The gym (Phase 3) works end to end for 27 action types, a subset
 > of what a player can do; its known gaps (crafting, vehicles, repairs, hearing and more) are in the
 > [backlog](docs/BACKLOG.md). With the agent off, a hand-written **rules baseline** plays instead: it
 > loots, fights, flees, gets into locked houses through windows, keeps a home base, sleeps, bandages
@@ -23,7 +24,7 @@ yet. No cloud services, no language model, no multiplayer.
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
 | **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | Closed 2026-10-11 ([PR #25](https://github.com/LimtlessLtd/AI-v-Z/pull/25)) with 27 action types working; the gaps (more actions, hearing, the last hidden-information leaks) are filled alongside Phase 4. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
-| **4. Learning** | A small network scores every option; the reward is a big, steady gain for time alive, costs for lost health and new wounds, small bonuses for progress (places, items, kills), a death cost that outweighs everything else (charged when the Knox infection happens), and hints for health, wound care and clothing protection that can't be farmed. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 15 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
+| **4. Learning** | A small network scores every option; the reward is a big, steady gain for time alive, costs for lost health and new wounds, small bonuses for progress (places, items, kills), a death cost that outweighs everything else (charged when the Knox infection happens), and hints for health, wound care and clothing protection that can't be farmed. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 5 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
 
@@ -104,7 +105,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.2 (gym 0.4.20)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.2 (gym 0.4.21)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -138,14 +139,19 @@ baseline within ~6 s.
 
 **How it learns.** The network (`agent/net.py`, about 0.7 M weights, PyTorch on the CPU) gives every option
 on offer a score, Q: the reward it expects to follow from picking that option now. It sees what a player
-sees: the moodles first, then wounds, health, zombies in view, light, what it carries and holds, the
-place, the time only when it wears a watch, and how its last action went (`agent/features.py` lists every
-input, and what's kept out). It mostly picks the top-rated options (`--temperature`, default 0.5) and one
-pick in ten at random (`--explore 0.1`), so it keeps trying things it rates low. Every 15 minutes
-(`--train-every`) a separate low-priority process (`python -m agent.learn`, 4 CPU threads, about a minute)
-retrains it from all the experience so far, carrying on from the last network, and the agent switches to
-the new one at its next decision. Until the first network exists it plays at random. Character creation is
-learned the same way: picking traits leads into the life they make.
+sees: the moodles first, then wounds, health, the zombies in view and which way each one is, light, what it
+carries and holds, the place and its open doors and windows, the time only when it wears a watch, and how its
+last action went (`agent/features.py` lists every input, and what's kept out). Each option with a direction
+(walk, run, enter, go to a room, attack) also says how close the nearest zombie that way is. It mostly picks
+the top-rated options (`--temperature`, default 0.5) and one pick in ten at random (`--explore 0.1`), so it
+keeps trying things it rates low. While an action runs, it is asked whether to carry on about every 0.6 game
+minutes (1.5 s at 1×), and at once when the action ends. Every 5 minutes (`--train-every`, counted from the
+start of the last round) a separate low-priority process (`python -m agent.learn`, 4 CPU threads, two to three
+minutes) retrains it from all the experience so far, carrying on from the last network, and the agent switches
+to the new one at its next decision. Each training target adds up the rewards of the next 5 decisions before it
+relies on the network's own estimate (n-step returns), so a death teaches the decisions that led to it within a
+round or two. Until the first network exists it plays at random. Character creation is learned the same way:
+picking traits leads into the life they make.
 
 **The reward** (`agent/reward.py`, version 3, the owner's rules of 2026-10-12; research and reasons in
 [docs/REWARD_RESEARCH.md](docs/REWARD_RESEARCH.md)):
@@ -286,21 +292,15 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
-- **Gym 0.4.10-0.4.20 (mod 0.5.2) hasn't run in the game yet.** It came after the 2026-10-11/12 overnight
-  run. Every game call in it was checked against the 42.21 jar, and the Lua compiles with the game's own
-  compiler (`tests/test_lua.py`), but none of it has been played. It brings:
-  * no through-wall objects next to the character (0.4.16);
-  * only seen rooms, beds and openings (0.4.15, 0.4.17, 0.4.19);
-  * only seen vehicles (0.4.14);
-  * doors locked as the menu says (0.4.13);
-  * temperature only from a digital clock (0.4.18);
-  * a zombie forgotten once out of sight (0.4.10);
-  * no poison test in the drink category (0.4.12);
-  * weapon, ammo and clothing status on items (0.4.11);
-  * the protection panel and the infection flag (0.4.20).
-
-  After the first run, check `Zomboid\console.txt` for `AIvZ` errors.
-- **The reward changed on 2026-10-12 (version 3), and the network starts over.** Under version 1 it survived
+- **Gym 0.4.21 hasn't run in the game yet.** It asks the agent at a steady rate while an action runs, and
+  presses the respawn screens' buttons every 0.3 s instead of 1.5 s. Its Lua compiles with the game's own
+  compiler and every method name exists in the game (`tests/test_lua.py`). Gym 0.4.10-0.4.20 (mod 0.5.2) ran
+  from 2026-10-12 10:52 with no `AIvZ` errors in `console.txt`, and its observations carry `protection` and
+  `knox`.
+- **The reward changed on 2026-10-12 (version 3), and the network starts over.** It started over again the same
+  day for the new inputs (`features.VERSION` 3: where the zombies are, the building's openings). On the experience
+  so far, one training round with n-step targets rated decisions in line with what followed them (correlation
+  with the actual return 0.5-0.94, by distance from the end of the life) where one-step targets reached 0.14-0.69. Under version 1 it survived
   no longer than random play (median about 1.4 game hours over 32 rounds and about 250 network lives):
   discomfort cost more per minute than being alive earned, so an early death scored better
   ([backlog](docs/BACKLOG.md) N1). The first training round after the update sets the old network aside and

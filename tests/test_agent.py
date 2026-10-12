@@ -416,6 +416,36 @@ class ExerciseLuaStaticTest(unittest.TestCase):
                 self.assertLessEqual(fields, {"data", "info", "verb"}, f"{name}: {block.splitlines()[0]}")
 
 
+class DecisionRateStaticTest(unittest.TestCase):
+    """Gym 0.4.21 (owner's decision, backlog N7): while an option runs, decisions come at a steady game-time rate;
+    being hurt or a zombie coming close no longer asks at once (code only, not run in the game here)."""
+
+    def test_running_options_are_rechecked_at_a_steady_rate(self):
+        base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
+        src = (base / "AIvZGym.lua").read_text(encoding="utf-8")
+        body = src[src.index("function G.needDecision"):]
+        body = body[:body.index("\nend\n")]
+        code = "\n".join(l.split("--")[0] for l in body.splitlines())
+        self.assertIn("if GS.gt - GS.lastReq < STEADY then return nil end", code)
+        self.assertNotIn("DECIDE_GAP", src)
+        self.assertNotIn("RECHECK", src)
+        self.assertLess(code.index("STEADY"), code.index('"hurt"'))   # the gap comes first, whatever the reason
+        self.assertTrue(code.rstrip().endswith('return "still at it"'))
+
+
+class TrainerTests(unittest.TestCase):
+    def test_rounds_start_every_period_from_the_last_start(self):
+        import time
+        from agent.run import Trainer
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Trainer(tmp, every_min=5)
+            self.assertTrue(t.due())   # no network yet
+            t.last_try = time.time() - 4 * 60
+            self.assertFalse(t.due())
+            t.last_try = time.time() - 5 * 60 - 1   # a round that took 3 minutes still starts 5 after the last
+            self.assertTrue(t.due())
+
+
 class MenuPrerequisiteStaticTest(unittest.TestCase):
     """Gym 0.4.6: option prerequisites copied from the game's menus (code only, not run in the game)."""
 

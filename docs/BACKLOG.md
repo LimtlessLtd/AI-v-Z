@@ -18,9 +18,8 @@ game's own compiler and checks every method name against the game) and a run in 
 
 | # | Item | Who | Next step |
 |---|---|---|---|
-| N5 | **First run of gym 0.4.10-0.4.20 (mod 0.5.2) and reward version 3.** Checked against the 42.21 jar and compiled with the game's compiler on 2026-10-12; never played. | local | Run `scripts/start.ps1`. Then check: `Zomboid\Lua\aivz\loader.txt` says `OK v0.5.2 (gym 0.4.20)`; `Zomboid\console.txt` has no `AIvZ` errors; `obs.json` has `protection` and `knox`; `logs\model\train.log` shows a fresh round 33 without errors. Then take the gym versions that ran cleanly off the README's "hasn't run in the game yet" entry: the cloud routine writes no more Lua while 3 or more are listed there. |
-| N2, N6 | After a few hours on reward version 3: does the network outlive random play (median 1.35 game hours), and does it bandage when bleeding? | local | Compare on the Learning page and in `lives.jsonl`. |
-| 6.4, N7 | When the network may decide: keep the "hurt", "zombie close" and "still at it" triggers, or ask at a fixed rate. "hurt" is 37% of all decisions. | owner | Decide; see [Guard rails](#guard-rails-item-6) point 4. |
+| N14 | **First run of gym 0.4.21** (steady decision rate, faster respawn) and the agent's learning changes of 2026-10-12 (features version 3, n-step targets, a round every 5 minutes). | local | Check: `loader.txt` says `OK v0.5.2 (gym 0.4.21)`; no `AIvZ` errors in `console.txt`; while an action runs, decisions come about every 0.6 game minutes; the gap from a death to the next life's first decision (it was a median of 23 s); `train.log` has a round about every 5 minutes. Then take 0.4.21 off the README's "hasn't run in the game yet" entry. See [Learning speed](#learning-speed-owner-decisions-2026-10-12). |
+| N2, N6 | After a few hours under reward version 3 and the changes above: does the network outlive random play (median 1.35 game hours), and does it bandage when bleeding? | local | Compare on the Learning page and in `lives.jsonl`. |
 | 6.7 | Keep the rules baseline as a comparison player, or delete it. | owner | Decide; the gym uses some of its helpers. |
 | O6 | A dense per-kind item layout for the network. Bumps `features.VERSION`, so the network starts over. | owner | Decide when; hashed tokens stand in until then. |
 | Hearing | Capture the game's audio. Needs a capture library that isn't installed. | owner | Approve a library, then local. |
@@ -30,7 +29,6 @@ game's own compiler and checks every method name against the game) and a run in 
 | L1, L11, L12 | Leaks left in the gym: raw `stats` in `obs.json` (never read by the network), the `enter` macro's window choice by lock state, the zombie visibility proxy instead of `getSpottedList()`. | cloud, then local | OBSERVATION_AUDIT.md section 5; the visibility change needs a live comparison. |
 | 6.1-6.3, 6.5 | Remove the repo's own guard rails: caps that hide choices, usefulness filters, macros, the character creation stages. | cloud, then local | [Guard rails](#guard-rails-item-6); keep the game's own prerequisites. |
 | N9 | Remember the owner's game speed across a game restart. | cloud | Save the pick with the file calls the mod already uses. |
-| N8 | 28% of the run goes between lives (median 36 s from a death to the next decision). | local | Time each step of `G.respawnStep`. |
 | 1, N11 | Start a new game after 100 deaths in one save. | local | Audit the main-menu new-game flow; keep display and speed settings. |
 | O4, O5 | Vehicle part status (the Mechanics window); food, literature, bag, drainable and key tooltips. | local | Audit as for O1-O3 first. |
 | 5 | The game's own halo text from gym calls (e.g. "Not safe to sleep here."). `last.msg` is already kept from the network. | local | Audit which direct handler calls show text. |
@@ -38,6 +36,24 @@ game's own compiler and checks every method name against the game) and a run in 
 | 2 | Confirm every spawn region is offered at respawn, not only towns. | local | Check the live log. |
 | N3 | Restart the agent if it exits on its own (it is fine when run from `start.ps1`'s window). | owner | Optional: say if you want `start.ps1` to restart it. |
 | G8-G23 | Missing families: floor items and corpses, menus, water and stoves, medical care, reading, movement and stance, barricading, vehicles, crafting, repairs, appliances, farming and foraging, building, firearms, map and radio, the new-game flow. | local, then cloud | Audit each in the game files, then build; GAP_LIST items 8-23. |
+
+## Learning speed (owner decisions, 2026-10-12)
+
+Reviewed 2026-10-12 from `logs/experience` (44,466 decisions, 530 lives) and the reward version 3 network (round
+37). The owner approved the four proposals that touch their decisions (L-A to L-D) the same day; L-E was in the
+agent's own remit.
+
+| # | What held learning back | Evidence | Change |
+|---|---|---|---|
+| L-A | **The network couldn't see where the zombies are.** The state had only counts by distance, and the walk and run options counted every zombie within 20 tiles in their direction: one at arm's length the same as one 19 tiles off. A player sees where each one is. | `obs.zombies` carries `dx`, `dy` for each zombie in sight; `features.py` didn't read them. | `features.VERSION` 3 adds, per compass sector, the nearest zombie's nearness and the count within 10 tiles. It adds the nearest zombie's closing, down and blocked, and the building's seen open doors, windows, curtains and smashed windows. Each option with a direction gets the nearest zombie that way and how many. Python only; the network started over (round 38 on). |
+| L-B | **A death reached the decisions before it slowly.** One-step targets with a target network copied every 200 steps carry a reward back about 10 decisions a round. A life is 50-300 decisions, and the discount's half-life about 200. | Round 37's Q against the actual discounted return, by distance in decisions from the end of the life: correlation 0.15-0.47. | N-step targets, `learn.N_STEP = 5`. In a dry run on the same experience, one round with n-step targets gave correlations of 0.50-0.94. The same round with one-step targets and the new inputs gave 0.14-0.69. The decisions in between aren't corrected for the policy that made them, as in Rainbow and R2D2. |
+| L-C | **Training used about 2 minutes of every 17.** A round started 15 minutes after the last one ended. | `train.log`: rounds of 95-180 s. | A round every 5 minutes from the start of the last (`--train-every 5`): about 3 times the rounds per hour, at the same priority on the same threads. |
+| L-D (N7, guard rail 4) | **"hurt" asked about once a second while a wound bled**, 39% of all decisions, and cut off each flee. Life 530 changed course 80 times in its last 90 real seconds. | 17,180 of 44,466 decisions had the reason "hurt". | Gym 0.4.21: while an action runs, a decision every 90 game-time ticks (about 0.6 game minutes, 1.5 s at 1×) whatever happens. The reason still says what changed (hurt, zombie close, still at it). An action that ends asks at once, as before. |
+| L-E (N8) | **About 23 s from a death to the next life** (median), while lives last 1-3 real minutes. | `G.respawnStep` pressed one button every 1.5 s, and each trait pick took two presses (ask, then read the answer). | Gym 0.4.21: a step every 0.3 s. The death screen's own 3 s wait and the settling after spawning stay. A second Respawn press does nothing (`CoopCharacterCreation:newPlayerMouse` returns while a creation window exists). |
+
+N5, the first run of gym 0.4.10-0.4.20 and reward version 3, came out clean on 2026-10-12. `loader.txt` said
+`OK v0.5.2 (gym 0.4.20)` from 10:52, and `console.txt` had no `AIvZ` errors. `obs.json` had `protection` and `knox`,
+and round 37 trained a fresh network under reward version 3 without errors.
 
 ## From the owner, 2026-10-11
 
@@ -77,8 +93,8 @@ the game logs `Zomboid/Logs/logs_2026-10-11_18-33` and `2026-10-12_07-33_DebugLo
 | N4 | A killed agent loses its unflushed decisions. `ExperienceLog` flushes only when a decision arrives, so the most recent ones sit in memory. | Life 481 made 47 decisions, but only 37 are in `logs/experience/20261012-02`. | Fixed 2026-10-12: the agent's loop also flushes decisions older than 30 s while no decision arrives (`ExperienceLog.flush_stale`, with a test). A kill mid-play can still lose up to 20 decisions or 30 s, by design (each flush is a gzip member). |
 | N5 | **The game isn't running the overnight PRs.** The game loads the mod from the local checkout, which is at `80f2d69` (gym 0.4.9). PRs #27-#41, merged overnight (gym 0.4.10-0.4.19), are only on GitHub's `phase4-learning` and haven't run in game. `start.ps1` pulls `origin/main`, which stops at #26. | `obs.json` and `loader.txt` report gym 0.4.9 and mod 0.5.1. | Everything is on `main` now (owner's rule, 2026-10-12: no other long-lived branches), and `start.ps1` switches to `main`, pulls it, and hot-reloads the mod if the game is running. Checked 2026-10-12 without the game: every game call added since 0.4.9 exists in the 42.21 jar, and all the Lua compiles with the game's compiler (`tests/test_lua.py`). The first run is in [Open](#open). |
 | N6 | **Bleeding mostly goes untreated.** | 42% of decisions (10,518 of 24,710) are made while bleeding. A bandage was on offer in 505 of those and Rip Clothing in 2,982; bandage was chosen 24 times. | Not a gym bug. Rip Clothing then bandage is a two-step chain the network hasn't found. Check again after N1. |
-| N7 | "hurt" interrupts most actions. Health 0.5 below the last decision triggers a new one, at most every `DECIDE_GAP`. While a wound bleeds, health keeps falling, so walking away or eating is cut off over and over. | 37% of all decisions (9,109) have the reason "hurt". 215 of 271 deaths came straight after a "hurt" decision. | Evidence for the owner decision in [Guard rails](#guard-rails-item-6) point 4: keep the triggers, or ask at a fixed rate. |
-| N8 | About 28% of the run goes on the gaps between lives. | Median 36 s from a death to the next life's first decision (death screen, spawn select, about 10 trait picks, loading), while lives last 1-3 real minutes. | `G.respawnStep` presses one button every 1.5 s. Find what else waits, and shorten it. |
+| N7 | "hurt" interrupts most actions. Health 0.5 below the last decision triggers a new one, at most every `DECIDE_GAP`. While a wound bleeds, health keeps falling, so walking away or eating is cut off over and over. | 37% of all decisions (9,109) have the reason "hurt". 215 of 271 deaths came straight after a "hurt" decision. | The owner chose a fixed rate on 2026-10-12: gym 0.4.21 ([Learning speed](#learning-speed-owner-decisions-2026-10-12), L-D). |
+| N8 | About 28% of the run goes on the gaps between lives. | Median 36 s from a death to the next life's first decision (death screen, spawn select, about 10 trait picks, loading), while lives last 1-3 real minutes. | `G.respawnStep` pressed one button every 1.5 s; gym 0.4.21 presses one every 0.3 s ([Learning speed](#learning-speed-owner-decisions-2026-10-12), L-E). |
 | N9 | The game speed you pick isn't remembered across a game restart. It's kept in the Lua session, so a restarted game plays at 1× until F5 (or a speed button) is pressed again. | Overnight, 50% of decisions ran at 20×. Since the 07:33 restart, 1,539 of 1,540 ran at 1×. | Fine while watching. For unattended runs, pick the speed again after a restart, or save the pick to a file. |
 | N10 | Options that often fail (counts over the whole period). | walk fails 11% of the time and run 10%, mostly "no way there". curtain fails 27%, window 19%, search 15%, enter 9%. engine_on was tried 50 times and never finished: 48 were cut off while running and 2 got "engine didn't start". exercise gets "no effort spent" about 4 times an hour. The 292 "in too much pain" exercise refusals all happened before the 20:05 fix. | A player's pathfinding fails too, so those stay. engine_on goes with gap list G5. |
 | N11 | The world `2026-10-11_12-06-26` reached 277 deaths. The 100-death limit is only reported. | `world_deaths` in `logs/agent-state.json` | Owner item 1. A new world was started at 07:33. |
@@ -190,8 +206,8 @@ traits screen disabled below 0 points; climbing only where `canClimbThrough` all
      `DECIDE_GAP` and `RECHECK`.
    * `G.settled` blocks decisions for about 15 s after each new life.
 
-   **Owner decision:** keep these triggers, or ask at a fixed rate and let the network learn when to
-   change course?
+   **Owner decision (2026-10-12): ask at a fixed rate.** Done in gym 0.4.21, not yet run in game (see
+   [Learning speed](#learning-speed-owner-decisions-2026-10-12)). `G.settled` stays.
 5. **Character creation** (`AIvZGymActions.lua`):
    * the spend / repay / done stages
    * the 12-pick limit

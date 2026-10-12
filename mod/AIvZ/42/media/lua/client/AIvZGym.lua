@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.20"
+G.VERSION = "0.4.21"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -30,10 +30,14 @@ if GS.lastReq > GS.gt then GS.lastReq = -99999 end   -- reloaded over a version 
 local try, P, sqAt, Q, qlen, r1, r2 = U.try, U.P, U.sqAt, U.Q, U.qlen, U.r1, U.r2
 local H = A.hud
 
--- DECIDE_GAP and RECHECK are in game-time ticks (GS.gt: a tick at 5x speed counts five times), so the agent
--- gets the same rhythm of decisions per game minute at any speed you pick
-local DECIDE_GAP = 45      -- at most this often while something is running (interrupts)
-local RECHECK = 600        -- a long-running option gets a "continue?" decision this often
+-- While an option runs, the agent is asked whether to carry on at a steady rate, whatever happens (the owner's
+-- decision of 2026-10-12, backlog N7). Until gym 0.4.20 a drop in health or a zombie coming close asked at once,
+-- at most every 45 ticks, and otherwise every 600: while a wound bled that was about once a second, 39% of all
+-- decisions, and it cut off every flee. The reason still says what changed since the last decision ("hurt",
+-- "zombie close" or "still at it"), but no longer sets when it comes; an option that ends asks at once.
+-- STEADY is in game-time ticks (GS.gt: a tick at 5x speed counts five times), so the agent gets the same rhythm
+-- of decisions per game minute at any speed you pick: 90 is about 0.6 game minutes, 1.5 s at 1x.
+local STEADY = 90
 local ANSWER_WAIT = 600    -- real ticks: give up waiting for the agent and ask again
 local DIRECT_RECIPES = { "RipClothing", "OpenCannedFood", "OpenCannedFoodWithKnifeOrSharpStoneFlake" }
 local DIRS = { { "N", 0, -1 }, { "NE", 1, -1 }, { "E", 1, 0 }, { "SE", 1, 1 }, { "S", 0, 1 }, { "SW", -1, 1 },
@@ -1075,13 +1079,12 @@ end
 function G.needDecision(p)
 	local cur = GS.cur
 	if not cur or cur.status ~= "running" then return cur and cur.status or "idle" end
-	if GS.gt - GS.lastReq < DECIDE_GAP then return nil end
+	if GS.gt - GS.lastReq < STEADY then return nil end
 	if GS.lastHp and p:getBodyDamage():getOverallBodyHealth() < GS.lastHp - 0.5 then return "hurt" end
 	local n = 0
 	for _, e in ipairs(visibleZombies(p, 4)) do if not e.blocked then n = n + 1 end end
 	if n > (GS.lastClose or 0) then return "zombie close" end
-	if GS.gt - GS.lastReq > RECHECK then return "still at it" end
-	return nil
+	return "still at it"
 end
 
 ---------------------------------------------------------------- death and the next life
@@ -1098,10 +1101,15 @@ function G.dead(p)
 	G.respawnStep()
 end
 
--- press the death screen's and character creation's own buttons, one per second and a half
+-- press the death screen's and character creation's own buttons, one every RESPAWN_MS. Each step looks at which
+-- screen is up and presses only its button, and a second Respawn press is ignored by the game
+-- (CoopCharacterCreation:newPlayerMouse returns while a creation window exists), so nothing is pressed twice.
+-- Until gym 0.4.20 a step came every 1.5 s, and each trait pick took two (ask, then read the answer): about 23 s
+-- from a death to the next life (backlog N8). The death screen's own 3 s wait (ISPostDeathUI:update) stays.
+local RESPAWN_MS = 300
 function G.respawnStep()
 	local r = GS.respawn
-	if not r or getTimestampMs() - r.last < 1500 then return end
+	if not r or getTimestampMs() - r.last < RESPAWN_MS then return end
 	r.last = getTimestampMs()
 	local w = CoopCharacterCreation.instance
 	if not w then
