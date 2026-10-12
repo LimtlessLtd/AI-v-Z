@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.21"
+G.VERSION = "0.4.22"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -36,8 +36,10 @@ local H = A.hud
 -- decisions, and it cut off every flee. The reason still says what changed since the last decision ("hurt",
 -- "zombie close" or "still at it"), but no longer sets when it comes; an option that ends asks at once.
 -- STEADY is in game-time ticks (GS.gt: a tick at 5x speed counts five times), so the agent gets the same rhythm
--- of decisions per game minute at any speed you pick: 90 is about 0.6 game minutes, 1.5 s at 1x.
-local STEADY = 90
+-- of decisions per game minute at any speed you pick: 150 is about a game minute, 3 s at 1x. Gym 0.4.21 had 90
+-- (0.6 game minutes): a walk or run takes 3-3.6 game minutes to finish, and a young network that keeps the running
+-- option only now and then (7% of the time in the first lives) cut nearly every one short.
+local STEADY = 150
 local ANSWER_WAIT = 600    -- real ticks: give up waiting for the agent and ask again
 local DIRECT_RECIPES = { "RipClothing", "OpenCannedFood", "OpenCannedFoodWithKnifeOrSharpStoneFlake" }
 local DIRS = { { "N", 0, -1 }, { "NE", 1, -1 }, { "E", 1, 0 }, { "SE", 1, 1 }, { "S", 0, 1 }, { "SW", -1, 1 },
