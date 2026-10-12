@@ -157,6 +157,7 @@ G.X.stow = {
 ---------------------------------------------------------------- vehicles (enter, exit, engine)
 local function nearVehicles(p, radius)
 	local out, seen = {}, {}
+	local pn = p:getPlayerNum()
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
 	for dx = -radius, radius do
 		for dy = -radius, radius do
@@ -164,7 +165,9 @@ local function nearVehicles(p, radius)
 			-- logs every caught exception with a stack dump: twice in the 2026-10-11 console log)
 			local sq = sqAt(px + dx, py + dy, pz)
 			local v = sq and try(function() return sq:getVehicleContainer() end)
-			if v and not seen[v] then
+			-- only vehicles on a square the character can see now (observation audit, leak 8); vehicles are never
+			-- on the spotted list, so the square's line of sight stands in (untested in game)
+			if v and not seen[v] and try(function() return sq:isCanSee(pn) end) == true then
 				seen[v] = true
 				out[#out + 1] = { v = v, d = math.sqrt((v:getX() - p:getX()) ^ 2 + (v:getY() - p:getY()) ^ 2) }
 			end

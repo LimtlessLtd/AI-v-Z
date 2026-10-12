@@ -144,7 +144,7 @@ perceivable now), **gap** (perceivable but missing).
 | `sleep.bed`, `d` | `A.beds` over every floor of the building (`AIvZ.lua:579-597`) | **leak**: beds in unseen rooms and floors | Only beds on `isSeen(pn)` squares or explored rooms |
 | `bandage` | body parts and first bandage in the bag | ok (health panel) | — |
 | `exercise.endurance` | raw `Stats:get(CharacterStat.ENDURANCE)` (`AIvZGymActions.lua:47`, `:53`) | **leak** (precision) | Use the moodle level, as the fitness screen does |
-| `enter_vehicle` vehicles | `IsoGridSquare:getVehicleContainer()` within 4 tiles, no visibility check (`AIvZGymActions.lua:134-148`) | **leak** (vehicles behind walls or in the dark) | Vehicles are never on the spotted list (`updateLOS` skips `BaseVehicle`, offset 176); use `vehicle:getTargetAlpha(pn) > 0` (`BaseVehicle` is an `IsoObject`; **live test**) or `isCanSee(pn)` of its squares |
+| `enter_vehicle` vehicles | `IsoGridSquare:getVehicleContainer()` within 4 tiles, no visibility check (`AIvZGymActions.lua:134-148`) | **leak**, fixed in gym 0.4.14: only vehicles on a square with `isCanSee(pn)` are offered (untested in game) | Vehicles are never on the spotted list (`updateLOS` skips `BaseVehicle`, offset 176); use `vehicle:getTargetAlpha(pn) > 0` (`BaseVehicle` is an `IsoObject`; **live test**) or `isCanSee(pn)` of its squares |
 | `enter_vehicle.name` | `VehicleScript:getName()` (script id) | proxy | Prefer the display name |
 | creation `points`, `selected`, option costs | raw `pointToSpend`, trait labels/costs | costs ok; **points wrong** (see catalogue 8) | `prof:PointToSpend()` |
 
@@ -181,7 +181,7 @@ perceivable now), **gap** (perceivable but missing).
 6. **Poison in the drink category** (`FluidContainer:isPoisonous()` in `U.waterIn`). Fixed in gym 0.4.12 (the gym calls `U.waterIn(it, true)`, which skips the poison test; the rules baseline keeps it; untested in game). Original fix note: classify from
    visible fluid type only.
 7. **Window `locked`.** Fix: drop until a failed attempt; doors: `couldBeOpen(p)`.
-8. **Vehicles within 4 tiles regardless of sight.** Fix: `getTargetAlpha(pn)` (needs live check) or square
+8. **Vehicles within 4 tiles regardless of sight.** Fixed in gym 0.4.14 with the square's `isCanSee(pn)` (not the alpha; untested in game). Original fix note: `getTargetAlpha(pn)` (needs live check) or square
    `isCanSee(pn)`.
 9. **Zombie identity across occlusion** in `closing` (fixed in gym 0.4.10, not yet seen in game). Fix: forget a zombie when it leaves the spotted list.
 10. **Exact health, exact position, exact endurance in `exercise`, world age, glass under a bandage.**
