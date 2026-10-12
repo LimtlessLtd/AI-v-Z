@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.7 (gym 0.4.39)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.8 (gym 0.4.41)` after reloading this update). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -329,6 +329,13 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 ```
 
 ## Known issues (agent and gym)
+
+- **Getting up after a rest (mod 0.5.8 / gym 0.4.41):** the old `stand` option only stopped sneaking.
+  Many walks after a rest worked, but one bed rest left a character seated with hundreds of immediate
+  "no way there" failures. Common movement paths now wait for the game's getting-up action first, as
+  the right-click menu does. A seated character also gets a separate `get_up` choice and the network
+  gets a sitting token after an agent restart. The installed Lua/compiler checks and all 125 tests pass;
+  live verification is still pending. [Evidence and remaining check](docs/SITTING_CHECK.md).
 
 - **Player action coverage is incomplete.** Clothing wear/remove exists; crafting only covers some
   item recipes. Disassembly, driving, vehicle maintenance, repairs, transfers between chosen inventory

@@ -144,6 +144,17 @@ class EncodingTests(unittest.TestCase):
         self.assertEqual(sneaking[0], F.encode_state({"obs": OBS})[0])
         self.assertEqual(len(sneaking[0]), F.STATE_DIM)
 
+    def test_sitting_is_visible_without_changing_the_network_layout(self):
+        standing = F.encode_state({"obs": OBS})
+        sitting = F.encode_state({"obs": {**OBS, "sitting": True}})
+        self.assertEqual(standing[0], sitting[0])
+        self.assertEqual(len(sitting[0]), F.STATE_DIM)
+        self.assertIn(F.bucket("self:sitting"), sitting[1])
+        self.assertNotIn(F.bucket("self:sitting"), standing[1])
+        self.assertEqual(standing, F.encode_state({"obs": {**OBS, "sitting": False}}))
+        get_up = F.encode_option({"verb": "get_up"}, OBS)
+        self.assertIn(F.bucket("verb:get_up"), get_up[1])
+
     def test_pile_and_dragging_go_in_as_tokens(self):
         """Gym 0.4.35: half or all of a pile on the ground is a word on pick_up, and a corpse in tow a state token; the
         dense parts stay as they are."""

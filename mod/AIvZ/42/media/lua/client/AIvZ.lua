@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.5.7"   -- 0.5.7: the enter macro picks windows a player has seen, not by lock state (backlog L11); 0.5.6: walks while dragging a corpse, to a bag on the ground (gym 0.4.35); 0.5.5: steps off a wall line when no path starts there (gym 0.4.31); 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
+A.VERSION = "0.5.8"   -- 0.5.8: get up before pathfinding from a seat; bed properties may be nil; 0.5.7: the enter macro picks windows a player has seen, not by lock state (backlog L11)
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -181,7 +181,10 @@ local function isDoor(o)
 	return instanceof(o, "IsoDoor") or (instanceof(o, "IsoThumpable") and try(function() return o:isDoor() end) == true)
 end
 local function isWindow(o) return instanceof(o, "IsoWindow") end
-local function isBed(o) return try(function() return o:getProperties():has(IsoFlagType.bed) end) == true end
+local function isBed(o)
+	local props = o and o:getProperties()
+	return props ~= nil and props:has(IsoFlagType.bed)
+end
 local function winIs(o, m) return try(function() return o[m](o) end) == true end
 
 local function containersOn(sq)
@@ -931,11 +934,19 @@ local function pathAct(p, x, y, z)
 	return act
 end
 
+-- 42.21 client/ISUI/ISContextMenu.lua:onGetUpAndThen and
+-- client/TimedActions/ISTimedActionQueue.lua:addGetUpAndThen wait for ISWaitWhileGettingUp before the
+-- selected action. A path started from a seat can fail before the character gets up (life 789, 2026-10-12).
+-- Getting up is part of carrying out the selected move, like the player's menu, not another policy choice.
+local function queuePath(p, act)
+	if p:isSitting() then ISTimedActionQueue.addGetUpAndThen(p, act) else Q(act) end
+end
+
 local function pathTo(p, t, x, y, z)
 	t.pathFailed = false
 	local act = pathAct(p, x + 0.5, y + 0.5, z)
 	pcall(function() act:setOnFail(function() t.pathFailed = true; notePathFail(p) end) end)
-	Q(act)
+	queuePath(p, act)
 end
 
 -- The game's walk-to action (ISWalkToTimedAction, behind luautils.walkToContainer and walkAdjWindowOrDoor) is
@@ -946,7 +957,7 @@ end
 local function walkTo(p, sq, t)
 	if sq == p:getCurrentSquare() then return true end
 	if t then pathTo(p, t, sq:getX(), sq:getY(), sq:getZ())
-	else Q(pathAct(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())) end
+	else queuePath(p, pathAct(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())) end
 	return true
 end
 
