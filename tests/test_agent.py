@@ -622,3 +622,11 @@ class MenuPrerequisiteStaticTest(unittest.TestCase):
 
     def test_drop_skips_favourites(self):
         self.assertIn("isFavorite()", self.src)
+
+    def test_equip_and_drop_follow_the_inventory_menu(self):
+        """Gym 0.4.38 (backlog G7): the hand rules of doEquipOption and the vehicle rule of Drop."""
+        self.assertIn("if it:isTwoHandWeapon() and it:getCondition() > 0 then return not p:isItemInBothHands(it), true end", self.src)
+        self.assertIn("not hand:isDeepWounded() and (hand:getFractureTime() == 0 or hand:getSplintFactor() > 0)", self.src)
+        self.assertIn("ISInventoryPaneContextMenu.equipWeapon(o.data.it, true, o.data.both, p:getPlayerNum())", self.src)
+        self.assertIn("if not worn and not shut and not try(function() return it:isFavorite() end)", self.src)
+        self.assertIn("ISInventoryTransferUtil.newInventoryTransferAction(p, o.data.it, o.data.c, U.carryInv(p, o.data.it))", self.src)

@@ -172,7 +172,7 @@ G.X.stow = {
 	start = function(p, t, o)
 		local d = o.data
 		if not d.it:getContainer() then return U.fail(t, "item gone") end
-		Q(ISInventoryTransferAction:new(p, d.it, d.it:getContainer(), d.dest.c))
+		Q(ISInventoryTransferUtil.newInventoryTransferAction(p, d.it, d.it:getContainer(), d.dest.c))   -- as the loot window (gym 0.4.38)
 	end,
 	step = G.queueStep(900, function(p, t, o)
 		if o.data.it:getContainer() ~= o.data.dest.c then return "didn't move" end
