@@ -129,6 +129,9 @@ class EncodingTests(unittest.TestCase):
         self.assertEqual(len(sneaking[0]), F.STATE_DIM)
         hit = {"verb": "attack", "d": 1.0, "dx": 1.0, "dy": 0.0, "facing": -0.5}
         self.assertIn(F.bucket("attack:facing:away"), F.encode_option(hit)[1])
+        scrap = {"verb": "disassemble", "name": "Wooden Chair", "d": 1.0, "chance": 60}
+        self.assertIn(F.bucket("disassemble:chance:2"), F.encode_option(scrap)[1])
+        self.assertEqual(len(F.encode_option(scrap)[0]), F.OPTION_DIM)
         self.assertEqual([F.facing_word(x) for x in (1.0, 0.7, 0.2, -0.3, -1.0)], ["toward", "toward", "side", "away", "away"])
 
     def test_open_doors_and_windows_seen_go_in(self):

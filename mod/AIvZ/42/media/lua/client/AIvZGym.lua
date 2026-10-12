@@ -10,7 +10,7 @@
 -- direction, go into a building or another room, attack or shove a zombie, open or close a door, window or
 -- curtain, lock or unlock a door with its key, hang a sheet on a window, climb through a window, smash one,
 -- clear its glass, search a container or a corpse, take an item out of one it has searched, pick an item up
--- off the ground, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
+-- off the ground, disassemble furniture, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
 -- from a tap, bandage a wound, sleep, sneak or stand up. Nothing in here judges what's good: the agent learns
 -- that from what happens. The doing (pathfinding, swings, the game's timed actions) comes from AIvZ.lua.
 -- After a death, it starts a new character in a random building of a random town by pressing the game's own
@@ -20,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.28"
+G.VERSION = "0.4.29"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -395,12 +395,29 @@ end
 
 ---------------------------------------------------------------- the surroundings, scanned once per decision
 -- doors, windows, curtains and containers on this floor within 8 tiles
+-- What the Disassemble menu would read for an object (ISDisassembleMenu.createMenu: ISMoveableSpriteProps.fromObject,
+-- and a multi-tile object only while its whole sprite grid stands), kept per object: at 20x decisions come several
+-- times a second
+GS.moveProps = GS.moveProps or setmetatable({}, { __mode = "k" })
+local SCRAP_RANGE = 3
+local function scrapProps(o)
+	local mp = GS.moveProps[o]
+	if mp == nil then
+		-- guarded: the menu only reads objects a player clicks, and an error here would take every option down.
+		-- A failure is cached, so it is logged once per object.
+		mp = try(function() return ISMoveableSpriteProps.fromObject(o) end) or false
+		if mp and mp.isMultiSprite and not mp:getSpriteGridInfo(o:getSquare(), true) then mp = false end
+		GS.moveProps[o] = mp
+	end
+	return mp or nil
+end
+
 function G.scanAround(p)
 	if GS.around and GS.around.tick == tick() then return GS.around end
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
 	local here = p:getCurrentSquare()
 	local hb = here and here:getBuilding()
-	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {} }
+	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {} }
 	local known = seen(p)
 	for dx = -8, 8 do
 		for dy = -8, 8 do
@@ -432,6 +449,10 @@ function G.scanAround(p)
 					end
 				end
 				for _, o in ipairs(U.objList(sq)) do
+					if d <= SCRAP_RANGE and not instanceof(o, "IsoWorldInventoryObject") then
+						local mp = scrapProps(o)
+						if mp and mp.canScrap then out.scrap[#out.scrap + 1] = { o = o, mp = mp, sq = sq, d = d } end
+					end
 					if U.isDoor(o) or U.isWindow(o) then
 						local other = o:getNorth() and sqAt(sq:getX(), sq:getY() - 1, pz) or sqAt(sq:getX() - 1, sq:getY(), pz)
 						local ext = (sq:getBuilding() ~= nil) ~= (other ~= nil and other:getBuilding() ~= nil)
@@ -457,7 +478,7 @@ function G.scanAround(p)
 	end
 	local byD = function(a, b) return a.d < b.d end
 	table.sort(out.doors, byD); table.sort(out.windows, byD); table.sort(out.curtains, byD); table.sort(out.containers, byD)
-	table.sort(out.floor, byD)
+	table.sort(out.floor, byD); table.sort(out.scrap, byD)
 	out.building = hb
 	GS.around = out
 	return out
@@ -649,6 +670,18 @@ function G.options(p)
 					add(list, "take", i, { it = it, c = c.c })
 				end
 			end, 1)
+		end
+	end
+	-- Disassemble: an object within SCRAP_RANGE tiles that the menu lists (canScrapObject(...).craftValid) and allows
+	-- (.canScrap: the tools it needs are carried); "chance" is the menu's chance of getting the materials back
+	local nd = 0
+	for i, e in ipairs(ar.scrap) do
+		if nd >= 4 or i > 8 then break end
+		local result, chance = e.mp:canScrapObject(p)
+		if result.craftValid and result.canScrap then
+			nd = nd + 1
+			add(list, "disassemble", { name = Translator.getMoveableDisplayName(e.mp.name), d = r1(e.d),
+				dx = r1(e.sq:getX() + 0.5 - p:getX()), dy = r1(e.sq:getY() + 0.5 - p:getY()), chance = chance }, e)
 		end
 	end
 	-- items on the ground in sight: pick one up (the world menu's Grab, ISWorldObjectContextMenu.onGrabWItem)
@@ -1055,6 +1088,33 @@ G.X.take = {
 		else
 			U.fail(t, "didn't get it")
 		end
+	end,
+}
+-- ISDisassembleMenu.disassemble, after the mod's walk next to the object: its own walk (luautils.walkAdj) then
+-- finds the character within reach and queues nothing, and it equips the tools and queues ISMoveablesAction "scrap"
+G.X.disassemble = {
+	start = function(p, t, o)
+		local sq, here = o.data.sq, p:getCurrentSquare()
+		local near = here and math.abs(sq:getX() + 0.5 - p:getX()) <= 1.6 and math.abs(sq:getY() + 0.5 - p:getY()) <= 1.6
+			and here:canReachTo(sq)
+		if not near then
+			local adj = AdjacentFreeTileFinder.Find(sq, p)
+			if not adj then return U.fail(t, "can't reach it") end
+			U.walkTo(p, adj, t)
+		end
+	end,
+	step = function(p, t, o)
+		if t.pathFailed then return U.fail(t, "no way there") end
+		if qlen(p) > 0 and tick() - t.t0 < 3600 then return end
+		local gone = not o.data.sq:getObjects():contains(o.data.o)
+		if t.queued then
+			if gone then return U.done(t) end
+			return U.fail(t, tick() - t.t0 >= 3600 and "took too long" or "it's still there")
+		end
+		if gone then return U.fail(t, "it's gone") end
+		t.queued = true
+		ISDisassembleMenu.disassemble(p, { object = o.data.o, moveProps = o.data.mp, square = o.data.sq })
+		if qlen(p) == 0 then return U.fail(t, "couldn't start") end
 	end,
 }
 -- ISWorldObjectContextMenu.onGrabWItem, with the mod's walk (luautils.walkAdj uses ISWalkToTimedAction, which
