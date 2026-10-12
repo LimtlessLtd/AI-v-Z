@@ -1,0 +1,48 @@
+# The public page, https://limtlessltd.github.io/AI-v-Z/: the static site in site/ plus the data last published from
+# the PC that plays (scripts/publish-site.ps1 uploads it to the "site-data" release, then starts this workflow).
+# Every push to main redeploys too, with the last uploaded data.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:   # one deploy at a time; a queued one still runs, so the newest data always lands
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Add the last published data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download site-data --repo "$GITHUB_REPOSITORY" --pattern snapshot.zip --dir "$RUNNER_TEMP"; then
+            mkdir -p site/data
+            unzip -q -o "$RUNNER_TEMP/snapshot.zip" -d site/data
+          else
+            echo "No data published yet: the page says so."
+          fi
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

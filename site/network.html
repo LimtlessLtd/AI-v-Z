@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-v-Z network</title>
+<meta name="description" content="The neural network behind AI-v-Z: its layout, its weights, and a download of the current version.">
+<link rel="stylesheet" href="style.css">
+<script src="common.js"></script>
+<style>
+  .diagram { overflow-x: auto; }
+  .diagram svg { width: 100%; min-width: 660px; height: auto; display: block; }   /* readable on a phone: scrolls sideways */
+  .diagram rect.box { fill: var(--plane); stroke: var(--axis); }
+  .diagram rect.out { fill: var(--pick); stroke: var(--net); }
+  .diagram text { fill: var(--text); font-size: 13px; }
+  .diagram text.sub { fill: var(--text-2); font-size: 11px; }
+  .diagram path { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+  .spark svg { display: block; }
+  p { margin: 0 0 8px; }
+</style>
+</head>
+<body>
+<main id="main">
+  <p class="status" id="status">Loading…</p>
+</main>
+<template id="page">
+  <section class="wide">
+    <h2>How it decides</h2>
+    <p>Every few seconds the game offers the character a list of options: walk north, open that door, take the hammer,
+      keep going with what it's doing. The network gives each option a score, <b>Q</b>: the reward it expects to follow
+      from picking it now. It then mostly picks among the highest scores, and one pick in ten at random. The
+      situation and each option are read separately and then scored together, so the list can be 3 options or 60.</p>
+    <div class="diagram" id="diagram"></div>
+    <p class="note">"Hashed words" are names such as <code>inv:Base.Apple</code> or <code>take:cat:food</code>, each mapped to one of
+      <span id="buckets"></span> learned vectors, so names it has never met still get an input. It only gets what a player
+      can perceive: the moodles, wounds, the zombies in view, what it carries, the room, the clock only with a watch.</p>
+  </section>
+
+  <section class="wide">
+    <h2>Its weights <small id="total"></small></h2>
+    <div class="scroll"><table id="layers"></table></div>
+    <p class="note">Each row is one block of numbers the training adjusts. The small chart shows how its values are
+      spread (from the lowest to the highest). Every five minutes on the owner's PC, a training round starts from these
+      numbers and moves them towards better predictions, using everything it has experienced so far.</p>
+  </section>
+
+  <section class="wide">
+    <h2>Download it</h2>
+    <p id="download"></p>
+    <pre>import numpy as np
+w = np.load("qnet.npz")
+for name in w.files:
+    print(name, w[name].shape)</pre>
+    <p class="note">Plain arrays (NumPy's .npz), named as in <a href="https://github.com/LimtlessLtd/AI-v-Z/blob/main/agent/net.py">agent/net.py</a>.
+      To turn a situation into its inputs you also need <a href="https://github.com/LimtlessLtd/AI-v-Z/blob/main/agent/features.py">agent/features.py</a>.</p>
+  </section>
+</template>
+<script>
+const GROUP = { s_tok: "situation: hashed words", a_tok: "option: hashed words", s: "situation: layers", a: "option: layers", head: "head: scores the pair" };
+
+function diagram(n) {
+  const z = n.sizes, w = name => n.layers.filter(l => l.name.startsWith(name + ".")).reduce((a, l) => a + l.count, 0);
+  const box = (x, y, bw, bh, title, sub, cls = "box") => `<rect class="${cls}" x="${x}" y="${y}" width="${bw}" height="${bh}" rx="6"/>` +
+    `<text x="${x + 10}" y="${y + 20}">${esc(title)}</text>` + sub.map((t, i) => `<text class="sub" x="${x + 10}" y="${y + 38 + i * 15}">${esc(t)}</text>`).join("");
+  const arrow = (x1, y1, x2, y2) => `<path d="M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}" marker-end="url(#ah)"/>`;
+  const W = 880, H = 300;
+  let g = `<defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">` +
+    `<path d="M0,0 L8,4 L0,8" style="fill:none;stroke:var(--muted);stroke-width:1.5"/></marker></defs>`;
+  g += box(0, 20, 210, 100, "The situation", [`${z.state_dim} numbers: moodles, wounds,`, "zombies by direction, openings…", `+ hashed words → ${z.emb}`]);
+  g += box(0, 180, 210, 100, "Each option on offer", [`${z.option_dim} numbers: distance,`, "zombies that way, open, locked…", `+ hashed words → ${z.emb}`]);
+  g += box(260, 20, 200, 100, "Situation summary", [`${z.state_dim + z.emb} → ${z.hidden} → ${z.out}`, `${fmt(w("s") + w("s_tok"), 0)} weights`]);
+  g += box(260, 180, 200, 100, "Option summary", [`${z.option_dim + z.emb} → ${z.hidden} → ${z.out}`, `${fmt(w("a") + w("a_tok"), 0)} weights`, "(once per option)"]);
+  g += box(510, 100, 190, 100, "Head", [`both, and their product:`, `${3 * z.out} → 64 → 1`, `${fmt(w("head"), 0)} weights`]);
+  g += box(740, 110, 140, 80, "Q", ["expected reward", "for that option"], "out");
+  g += arrow(210, 70, 258, 70) + arrow(210, 230, 258, 230) + arrow(460, 70, 508, 140) + arrow(460, 230, 508, 160) + arrow(700, 150, 738, 150);
+  $("diagram").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="The situation and each option are summarised separately, then the head scores each pair as Q">${g}</svg>`;
+}
+
+function spark(l) {
+  const max = Math.max(1, ...l.hist), bw = 120 / l.hist.length;
+  return `<svg width="120" height="26" viewBox="0 0 120 26">` + l.hist.map((c, i) => {
+    const h = c ? Math.max(1, 24 * Math.sqrt(c / max)) : 0;
+    return `<rect x="${i * bw}" y="${26 - h}" width="${Math.max(1, bw - 1)}" height="${h}" fill="var(--net)"/>`;
+  }).join("") + `</svg>`;
+}
+
+function layers(n) {
+  $("total").textContent = `${fmt(n.total, 0)} in all`;
+  $("layers").innerHTML = `<tr><th>block</th><th>name</th><th class="n">shape</th><th class="n">weights</th><th class="n">spread (sd)</th><th>values</th></tr>` +
+    n.layers.map(l => `<tr><td class="muted">${esc(GROUP[l.name.split(".")[0]] || "")}</td><td><code>${esc(l.name)}</code></td>` +
+      `<td class="n">${esc(l.shape.join(" × "))}</td><td class="n">${fmt(l.count, 0)}</td><td class="n">${fmt(l.std, 3)}</td>` +
+      `<td class="spark" title="from ${esc(l.range[0])} to ${esc(l.range[1])}">${spark(l)}</td></tr>`).join("");
+}
+
+$("main").insertAdjacentHTML("afterbegin", header("network.html"));
+(async () => {
+  const n = await load("data/net.json");
+  if (!n) { $("status").remove(); return noData($("main")); }
+  if (!n.available) { $("status").textContent = `No network to show: ${n.why}.`; return; }
+  $("status").textContent = `Round ${n.round}, trained ${when(n.trained_at)} from ${fmt(n.decisions, 0)} decisions · ` +
+    `${fmt(n.total, 0)} weights · input layout version ${n.features_v}`;
+  $("main").append($("page").content.cloneNode(true));
+  $("buckets").textContent = fmt(n.sizes.buckets, 0);
+  diagram(n);
+  layers(n);
+  $("download").innerHTML = `<a href="data/qnet.npz" download>qnet.npz</a>: the network as it was at round ${esc(n.round)} ` +
+    `(${fmt(n.total, 0)} numbers). Q comes out in hundreds of points: multiply by ${esc(n.scale)}.`;
+})();
+</script>
+</body>
+</html>

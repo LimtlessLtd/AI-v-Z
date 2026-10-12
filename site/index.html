@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-v-Z learning</title>
+<meta name="description" content="A neural network teaching itself to survive in Project Zomboid: how its learning is going.">
+<link rel="stylesheet" href="style.css">
+<script src="common.js"></script>
+</head>
+<body>
+<main id="main">
+  <p class="status" id="status">Loading…</p>
+</main>
+<template id="page">
+  <section class="wide">
+    <h2>Lives by who played them</h2>
+    <div class="scroll"><table id="compare"></table></div>
+    <p class="note">"random" picked options at random: the experience the network first learned from. "net" is the
+      network, with one pick in ten still made at random so it keeps trying things. "rules" is the hand-written
+      baseline it is measured against.</p>
+  </section>
+
+  <section class="wide">
+    <h2>Game hours survived per life <small id="hoursNote"></small></h2>
+    <div class="legend"><span><i class="key" style="background:var(--random)"></i>random</span>
+      <span><i class="key" style="background:var(--net)"></i>net</span>
+      <span><i class="key line" style="background:var(--text)"></i>average of the last 20 lives</span></div>
+    <div class="chart" id="hours"></div>
+    <p class="note">Square-root scale, so short lives stay visible next to long ones. Hover a column for that life.</p>
+  </section>
+
+  <section>
+    <h2>Training loss per round</h2>
+    <div class="chart" id="loss"></div>
+    <p class="note">How far its predictions were from what happened, at the end of each training round. Lower is better,
+      but it also rises when new kinds of experience arrive.</p>
+  </section>
+
+  <section>
+    <h2>Mean predicted reward per round</h2>
+    <div class="chart" id="qmean"></div>
+    <p class="note">The reward it expects on average from the options it is offered. Rising means it expects to do
+      better. Reward version 3 made a death cost 1000 points instead of 20, so expectations dropped there.</p>
+  </section>
+
+  <section class="wide">
+    <h2>How its preferences changed <small>each kind of option against the average option in the same situation, per training round</small></h2>
+    <div class="legend"><span><i class="key" style="background:var(--div-pos)"></i>rated above average</span>
+      <span><i class="key" style="background:var(--div-neg)"></i>rated below average</span>
+      <span><i class="key" style="background:var(--div-mid);outline:1px solid var(--axis)"></i>about average</span></div>
+    <div class="chart" id="heat"></div>
+  </section>
+
+  <section>
+    <h2>What it rates highest now <small id="verbsNote"></small></h2>
+    <div class="scroll tall"><table id="verbs"></table></div>
+  </section>
+
+  <section>
+    <h2>Training rounds</h2>
+    <div class="scroll tall"><table id="rounds"></table></div>
+  </section>
+</template>
+<script>
+const words = v => String(v).replace(/_/g, " ");
+
+function compare(lives) {
+  const groups = {};
+  for (const l of lives) (groups[l.policy] = groups[l.policy] || []).push(l);
+  const mn = (ls, k) => { const v = ls.map(l => l[k]).filter(x => x != null); return v.length ? fmt(mean(v)) : "–"; };
+  const rows = [];
+  for (const p of ["random", "net", "rules"].filter(p => groups[p]).concat(Object.keys(groups).filter(p => !POLICY[p]))) {
+    const ls = groups[p];
+    rows.push([p, "all", ls]);
+    if (ls.length > 20) rows.push([p, "last 20", ls.slice(-20)]);
+  }
+  $("compare").innerHTML = `<tr><th>played by</th><th class="n">lives</th><th class="n">median hours</th><th class="n">mean hours</th>` +
+    `<th class="n">best hours</th><th class="n">mean reward</th><th class="n">mean kills</th></tr>` +
+    rows.map(([p, which, ls]) => `<tr><td><i class="key" style="background:${POLICY[p] || "var(--muted)"}"></i>${esc(p)} <span class="muted">(${which})</span></td>` +
+      `<td class="n">${ls.length}</td><td class="n">${fmt(median(ls.map(l => l.hours)))}</td><td class="n">${fmt(mean(ls.map(l => l.hours)))}</td>` +
+      `<td class="n">${fmt(Math.max(...ls.map(l => l.hours)))}</td><td class="n">${mn(ls, "reward")}</td><td class="n">${fmt(mean(ls.map(l => l.kills)))}</td></tr>`).join("");
+}
+
+function hours(lives) {
+  const own = lives.filter(l => l.policy !== "rules");   // the baseline's lives are a separate run: in the table only
+  const avg = own.map((l, i) => mean(own.slice(Math.max(0, i - 19), i + 1).map(x => x.hours)));
+  const max = Math.max(1, ...own.map(l => l.hours));
+  $("hoursNote").textContent = `${own.length} lives · longest ${fmt(max)} h`;
+  columns($("hours"), own.map(l => ({ v: l.hours, color: POLICY[l.policy] || "var(--muted)",
+    tip: `<b>Life ${esc(l.life)}</b> (${esc(l.policy)})<br>${fmt(l.hours, 2)} game hours · ${esc(l.kills)} kills` +
+      (l.reward != null ? `<br>reward ${fmt(l.reward)}` : "") })),
+    { height: 200, sqrt: true, line: avg, ticks: [0, 1, 5, 10, 25, 50, 100].filter(t => t <= max), fmtY: t => t + " h" });
+}
+
+function training(h) {
+  const pts = (k, unit) => h.map(r => ({ x: "round " + r.round, y: r[k],
+    tip: `<b>Round ${esc(r.round)}</b> · ${esc(when(r.trained_at))}<br>${esc(unit)} ${fmt(r[k], 3)}<br>${fmt(r.decisions, 0)} decisions learned from` +
+      `<br>reward version ${esc(r.reward_v || 1)}` }));
+  // a new version of the reward re-scores all experience, so loss and Q jump there
+  const marks = h.map((r, i) => i && (r.reward_v || 1) !== (h[i - 1].reward_v || 1) ? { i, label: `reward v${r.reward_v}` } : null).filter(Boolean);
+  lineChart($("loss"), pts("loss", "loss"), { fmtY: v => fmt(v, 2), marks });
+  lineChart($("qmean"), pts("q_mean", "mean Q"), { fmtY: v => fmt(v, 0), marks });
+}
+
+function preferences(h) {
+  const withVerbs = h.filter(r => r.verbs && Object.keys(r.verbs).length);
+  if (!withVerbs.length) { $("heat").innerHTML = '<p class="muted">no training rounds yet</p>'; return; }
+  const last = withVerbs[withVerbs.length - 1].verbs;
+  const all = new Set(withVerbs.flatMap(r => Object.keys(r.verbs)));
+  const rows = [...all].sort((a, b) => (last[b] ?? -1e9) - (last[a] ?? -1e9));
+  const vals = withVerbs.flatMap(r => Object.values(r.verbs)).map(Math.abs).sort((a, b) => a - b);
+  const clip = vals[Math.floor(vals.length * 0.9)] || 1;   // the top tenth all show at full colour
+  heatmap($("heat"), rows, withVerbs, (verb, r) => r.verbs[verb] ?? null, {
+    clip, rowLabel: words, colLabel: r => "round " + r.round,
+    tip: (verb, r, v) => `<b>${esc(words(verb))}</b>, round ${esc(r.round)}<br>` +
+      (v == null ? "not offered in that round's experience" : `${v >= 0 ? "+" : ""}${fmt(v)} points against the average option`) });
+  const big = Math.max(0.01, ...Object.values(last).map(Math.abs));
+  $("verbsNote").textContent = `round ${withVerbs[withVerbs.length - 1].round}`;
+  $("verbs").innerHTML = Object.entries(last).sort((a, b) => b[1] - a[1]).map(([verb, q]) =>
+    `<tr><td>${esc(words(verb))}</td><td class="n">${q >= 0 ? "+" : ""}${fmt(q)}</td><td style="width:50%">` +
+    `<div style="height:10px;border-radius:2px;width:${100 * Math.abs(q) / big}%;background:var(${q < 0 ? "--div-neg" : "--div-pos"})"></div></td></tr>`).join("");
+}
+
+function rounds(h) {
+  $("rounds").innerHTML = `<tr><th>round</th><th>trained</th><th class="n">decisions</th><th class="n">loss</th><th class="n">mean Q</th></tr>` +
+    h.slice().reverse().map(r => `<tr><td>${esc(r.round)}</td><td class="muted">${esc(when(r.trained_at).slice(5))}</td>` +
+      `<td class="n">${fmt(r.decisions, 0)}</td><td class="n">${fmt(r.loss_first, 3)} → ${fmt(r.loss, 3)}</td><td class="n">${fmt(r.q_mean)}</td></tr>`).join("");
+}
+
+$("main").insertAdjacentHTML("afterbegin", header("index.html"));
+(async () => {
+  const s = await load("data/summary.json");
+  if (!s) { $("status").remove(); return noData($("main")); }
+  const h = s.history || [], last = h[h.length - 1], p = s.playing;
+  $("status").textContent = `Snapshot from ${when(s.generated)} · ` +
+    (last ? `network round ${last.round}, trained ${when(last.trained_at)}` : "no network trained yet") +
+    (p ? ` · now playing life ${p.life} (${p.who}), ${fmt(p.hours)} game hours so far` : "");
+  $("main").append($("page").content.cloneNode(true));
+  compare(s.lives || []);
+  hours(s.lives || []);
+  training(h);
+  preferences(h);
+  rounds(h);
+})();
+</script>
+</body>
+</html>

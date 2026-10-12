@@ -5,7 +5,7 @@ and each option are encoded apart, then a small head scores each pair. That fits
 from one decision to the next (3 doors here, 40 items there). Q estimates the reward to come, discounted by the
 game time until it comes (learn.py), if that option is picked now and play goes on as the network would play it.
 
-Sizes are small on purpose (about 0.7 M weights, most in the token tables): it trains on the CPU while the game
+Sizes are small on purpose (about 0.32 M weights, most in the token tables): it trains on the CPU while the game
 runs and answers a decision in a few milliseconds.
 """
 
