@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.36"
+G.VERSION = "0.4.37"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -981,8 +981,8 @@ function G.drinkable(p, it)
 		local pf = try(function() return fc:getPrimaryFluid() end)
 		if not pf then return nil end
 		local beverage = try(function() return pf:isCategory(FluidCategory.Beverage) end)
-		-- FluidType.Bleach is compared by name (getFluidTypeString is already read for obs); unmatched = not offered
-		local bleach = try(function() return pf:getFluidTypeString() end) == "Bleach"
+		-- the menu's own test, getFluidType() == FluidType.Bleach (gym 0.4.37; until then the name from getFluidTypeString)
+		local bleach = pf:getFluidType() == FluidType.Bleach
 		if not (beverage or bleach) then return nil end
 	end
 	local opening = nil

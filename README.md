@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.6 (gym 0.4.36)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.6 (gym 0.4.37)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -342,7 +342,10 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
-- **Gym 0.4.36 is new**: barricading a door or window with planks (hammer, plank, 2 nails) and prying the planks
+- **Gym 0.4.37 is new**: `exercise` puts the equipment in the hands first and takes worn bags off, as the fitness
+  screen does; a driver without the key can hotwire a car with Electricity 1 and Mechanics 2 or the Burglar trait;
+  `drink` tests for bleach as the Drink menu does (backlog G2, G5, G4).
+- **Gym 0.4.36**: barricading a door or window with planks (hammer, plank, 2 nails) and prying the planks
   off with a hammer, crowbar, axe or tire iron (backlog G14b), as the game's menus allow them.
 - **Gym 0.4.35 (mod 0.5.6)** (hot-reloaded on 2026-10-12 evening). Picking up half or all of a pile on the
   ground, looking into a bag lying on the ground and taking from it, and dragging a corpse and letting go of it
