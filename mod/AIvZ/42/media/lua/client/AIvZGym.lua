@@ -8,8 +8,8 @@
 --
 -- The implemented options approximate a subset of the right-click menus: wait, rest, walk or run in a
 -- direction, go into a building or another room, attack or shove a zombie, open or close a door, window or
--- curtain, climb through a window, smash one, clear its glass, search a container, take an item out of one
--- it has searched, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
+-- curtain, lock or unlock a door with its key, hang a sheet on a window, climb through a window, smash one,
+-- clear its glass, search a container, take an item out of one it has searched, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
 -- from a tap, bandage a wound, sleep, sneak or stand up. Nothing in here judges what's good: the agent learns
 -- that from what happens. The doing (pathfinding, swings, the game's timed actions) comes from AIvZ.lua.
 -- After a death, it starts a new character in a random building of a random town by pressing the game's own
@@ -19,7 +19,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.25"
+G.VERSION = "0.4.26"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -571,12 +571,26 @@ function G.options(p)
 	local function at(e)
 		return r1(e.sq:getX() + 0.5 - p:getX()), r1(e.sq:getY() + 0.5 - p:getY())
 	end
+	local inv = p:getInventory()
 	for i = 1, math.min(4, #ar.doors) do
 		local e = ar.doors[i]
 		local dx, dy = at(e)
 		add(list, "door", { d = r1(e.d), dx = dx, dy = dy, open = e.open, locked = e.locked, exterior = e.exterior }, e)
+		-- Lock or Unlock: a closed door whose key is in the inventory (J:ISWorldObjectContextMenuLogic.doDoorMenu:
+		-- not IsOpen, the door's key id, haveThisKeyId; Lock unless isLockedByKey). The key id as ISLockDoor:isValid
+		-- reads it.
+		if not e.open then
+			local id = instanceof(e.o, "IsoDoor") and e.o:checkKeyId() or e.o:getKeyId()
+			if id and id ~= -1 and inv:haveThisKeyId(id) then
+				add(list, e.o:isLockedByKey() and "unlock_door" or "lock_door",
+					{ d = r1(e.d), dx = dx, dy = dy, exterior = e.exterior }, e)
+			end
+		end
 	end
-	local nw, nc, ns, ng = 0, 0, 0, 0
+	-- Add Sheet: a window with no curtain, with a sheet anywhere in the inventory (doWindowMenu: HasCurtains() is
+	-- nil and containsTypeRecurse("Sheet")). The curtain it makes then has its own open and close option.
+	local sheet = inv:containsTypeRecurse("Sheet")
+	local nw, nc, ns, ng, nh = 0, 0, 0, 0, 0
 	for _, e in ipairs(ar.windows) do
 		if not e.barricaded then
 			-- the lock state is not shown for a window (the game tells you only when you try it), so it is not listed
@@ -590,6 +604,9 @@ function G.options(p)
 			if e.d < 2.5 and not e.smashed and not e.open and ns < 2 then ns = ns + 1; add(list, "smash", { d = info.d, dx = dx, dy = dy, exterior = e.exterior }, e) end
 			-- Remove Glass Shards needs something in the primary hand (the menu greys it out otherwise)
 			if e.d < 2.5 and e.glass and p:getPrimaryHandItem() and ng < 1 then ng = ng + 1; add(list, "clear_glass", { d = info.d, dx = dx, dy = dy }, e) end
+			if sheet and nh < 2 and e.o:HasCurtains() == nil then
+				nh = nh + 1; add(list, "hang_sheet", { d = info.d, dx = dx, dy = dy, exterior = e.exterior }, e)
+			end
 		end
 	end
 	for i = 1, math.min(3, #ar.curtains) do
@@ -909,6 +926,33 @@ G.X.curtain = {
 	end,
 	step = queueStep(600, toggled),
 }
+-- ISWorldObjectContextMenu.onAddSheet, with the mod's walk (the game's ISWalkToTimedAction fails at 20x and 40x):
+-- stand on the square the sheet goes up from if it is free, else next to the window; the sheet into the main
+-- inventory if it is in a bag (ISAddSheetAction:isValid looks there); then the timed action
+G.X.hang_sheet = {
+	start = function(p, t, o)
+		local w = o.data.o
+		local sheet = p:getInventory():getFirstTypeRecurse("Sheet")
+		if not sheet then return U.fail(t, "no sheet") end
+		local sq = w:getAddSheetSquare(p)
+		if sq and sq:isFree(false) then U.walkTo(p, sq, t)
+		elseif not U.walkAdjOpening(p, o.data.sq, w, t) then return U.fail(t, "can't reach it") end
+		ISWorldObjectContextMenu.transferIfNeeded(p, sheet)
+		Q(ISAddSheetAction:new(p, w))
+	end,
+	step = queueStep(900, function(p, t, o) if o.data.o:HasCurtains() == nil then return "no curtain went up" end end),
+}
+-- ISWorldObjectContextMenu.onLockDoor / onUnLockDoor, with the mod's walk
+local function lockDoor(lock)
+	return {
+		start = function(p, t, o)
+			if not U.walkAdjOpening(p, o.data.sq, o.data.o, t) then return U.fail(t, "can't reach it") end
+			Q(ISLockDoor:new(p, o.data.o, lock))
+		end,
+		step = queueStep(600, function(p, t, o) if o.data.o:isLockedByKey() ~= lock then return "the lock didn't turn" end end),
+	}
+end
+G.X.lock_door, G.X.unlock_door = lockDoor(true), lockDoor(false)
 local function atWindow(make, check)
 	return {
 		start = function(p, t, o)

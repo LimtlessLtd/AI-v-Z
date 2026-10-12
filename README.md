@@ -105,7 +105,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.3 (gym 0.4.25)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.3 (gym 0.4.26)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -299,16 +299,18 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
-- **Gym 0.4.23-0.4.25 (mod 0.5.3) have only just started running in the game.** Gym 0.4.25 adds sneaking and
-  standing up as options, and gives the network its own stance and which way each zombie in sight faces (not yet
-  run in the game). Gym 0.4.24 starts a new life in a random building of the picked town (see Lives above): the
-  first 4 lives after the hot reload at 13:31 started on 4 new squares in 3 towns. Gym 0.4.23 asks at once when a zombie it can see comes within
-  4 tiles (gym 0.4.21-0.4.22 left that to the steady rate, so a zombie that appeared 2 tiles away could bite before
-  the next decision), gives doors, windows and curtains a direction, and keeps your speed pick across a game restart
-  and an F2 unpause. The Lua compiles with the game's own compiler, and every method name exists in the game
-  (`tests/test_lua.py`). Gym 0.4.21-0.4.22 ran from 2026-10-12 11:27: decisions came a game minute apart while an
-  action ran, and a death led to the next life in about 11 s (18-45 s that morning). Gym 0.4.10-0.4.20 (mod 0.5.2)
-  ran from 10:52 with no `AIvZ` errors in `console.txt`.
+- **Gym 0.4.23-0.4.26 (mod 0.5.3) have only just started running in the game.** Gym 0.4.26 adds hanging a sheet on
+  a window as a curtain and locking or unlocking a door with its key (not yet run in the game). Gym 0.4.25 adds
+  sneaking and standing up, and gives the network its own stance and which way each zombie in sight faces: live from
+  13:43 on 2026-10-12, the network was crouched in 21 of its first 72 decisions. Gym 0.4.24 starts a new life in a
+  random building of the picked town (see Lives above): the first 4 lives after the hot reload at 13:31 started on 4
+  new squares in 3 towns. Gym 0.4.23 asks at once when a zombie it can see comes within 4 tiles (gym 0.4.21-0.4.22
+  left that to the steady rate, so a zombie that appeared 2 tiles away could bite before the next decision), gives
+  doors, windows and curtains a direction, and keeps your speed pick across a game restart and an F2 unpause. The Lua
+  compiles with the game's own compiler, and every method name exists in the game (`tests/test_lua.py`). Gym
+  0.4.21-0.4.22 ran from 11:27: decisions came a game minute apart while an action ran, and a death led to the next
+  life in about 11 s (18-45 s that morning). Gym 0.4.10-0.4.20 (mod 0.5.2) ran from 10:52 with no `AIvZ` errors in
+  `console.txt`.
 - **The reward changed on 2026-10-12 (version 3), and the network starts over.** It started over again the same
   day for the new inputs (`features.VERSION` 3: where the zombies are, the building's openings). On the experience
   so far, one training round with n-step targets rated decisions in line with what followed them (correlation
