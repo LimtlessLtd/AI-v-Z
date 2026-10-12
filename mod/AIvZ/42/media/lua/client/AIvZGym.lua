@@ -20,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.27"
+G.VERSION = "0.4.28"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -675,12 +675,15 @@ function G.options(p)
 				info.open = nil
 			end
 		end
-		if count(list, "drink") < 2 then
-			local amount, opening = G.drinkable(p, it)
+		if count(list, "drink") < 6 then
+			local amount, opening, portions = G.drinkable(p, it)
 			if amount then
 				info.open = opening ~= nil
-				add(list, "drink", info, { it = it, opening = opening })
-				info.open = nil
+				for _, portion in ipairs(portions) do
+					info.portion = portion
+					add(list, "drink", info, { it = it, opening = opening, portion = portion })
+				end
+				info.open, info.portion = nil, nil
 			end
 		end
 		if instanceof(it, "HandWeapon") and count(list, "equip") < 3 then add(list, "equip", info, { it = it }) end
@@ -763,13 +766,26 @@ function G.eatable(p, it)
 	return it:getCustomMenuOption() ~= nil and not it:getRequireInHandOrInventory(), nil
 end
 
--- Match the game's Drink fluid menu: filled, player-usable containers up to three litres, with an opening
--- recipe when a sealed container needs one. This includes soda and other drinks, not only clean water.
+-- Match the game's Drink fluid menu (ISInventoryPaneContextMenu.createMenu :437-444, GAP_LIST item 4): a water
+-- source only while thirst > 0.1, any other fluid only if its primary fluid is a beverage or bleach; containers
+-- up to three litres, with an opening recipe when a sealed container needs one. Returns the amount, the opening
+-- recipe and the portions offered (1 = all; 0.5 and 0.25 when the container is at least that full).
 function G.drinkable(p, it)
 	local fc = try(function() return it:getFluidContainer() end)
 	if not fc then return nil end
 	local amount = try(function() return fc:getAmount() end) or 0
-	if amount < 0.05 or (try(function() return fc:getCapacity() end) or 99) > 3 then return nil end
+	local capacity = try(function() return fc:getCapacity() end) or 99
+	if amount < 0.05 or capacity > 3 then return nil end
+	if try(function() return it:isWaterSource() end) then
+		if (U.stat(p, "THIRST") or 0) <= 0.1 then return nil end
+	else
+		local pf = try(function() return fc:getPrimaryFluid() end)
+		if not pf then return nil end
+		local beverage = try(function() return pf:isCategory(FluidCategory.Beverage) end)
+		-- FluidType.Bleach is compared by name (getFluidTypeString is already read for obs); unmatched = not offered
+		local bleach = try(function() return pf:getFluidTypeString() end) == "Bleach"
+		if not (beverage or bleach) then return nil end
+	end
 	local opening = nil
 	if try(function() return it:isSealed() end) then
 		local name = try(function() return it:getOpeningRecipe() end)
@@ -783,7 +799,10 @@ function G.drinkable(p, it)
 	end
 	if not opening and not try(function() return fc:canPlayerEmpty() end) then return nil end
 	if U.moodle(p, "FOOD_EATEN") >= 3 and (try(function() return fc:getProperties():getHungerChange() end) or 0) ~= 0 then return nil end
-	return amount, opening
+	local portions = { 1 }
+	if capacity > 0 and amount / capacity >= 0.5 then portions[#portions + 1] = 0.5 end
+	if capacity > 0 and amount / capacity >= 0.25 then portions[#portions + 1] = 0.25 end
+	return amount, opening, portions
 end
 
 -- an item's own recipes, the ones the game lets it do right now (the right-click menu's craft options)
@@ -1082,7 +1101,7 @@ G.X.eat = {
 G.X.drink = {
 	start = function(p, t, o)
 		t.fluid = try(function() return o.data.it:getFluidContainer():getAmount() end) or 0
-		ISInventoryPaneContextMenu.onDrinkFluid(o.data.it, 1, p, o.data.opening, o.data.it)
+		ISInventoryPaneContextMenu.onDrinkFluid(o.data.it, o.data.portion or 1, p, o.data.opening, o.data.it)
 	end,
 	step = queueStep(1200, function(p, t, o)
 		if has(p, o.data.it) and (try(function() return o.data.it:getFluidContainer():getAmount() end) or 0) > t.fluid - 0.01 then return "didn't drink" end

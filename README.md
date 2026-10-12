@@ -105,7 +105,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.4 (gym 0.4.27)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.4 (gym 0.4.28)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -299,7 +299,7 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
-- **Gym 0.4.23-0.4.27 (mod 0.5.3-0.5.4) have only just started running in the game.** Gym 0.4.27 adds picking
+- **Gym 0.4.23-0.4.28 (mod 0.5.3-0.5.4) have only just started running in the game.** Gym 0.4.27 adds picking
   items up off the ground and searching and taking from corpses (not yet run in the game). Gym 0.4.26 adds hanging a sheet on
   a window as a curtain and locking or unlocking a door with its key (not yet run in the game). Gym 0.4.25 adds
   sneaking and standing up, and gives the network its own stance and which way each zombie in sight faces: live from

@@ -48,7 +48,7 @@ Agents leave these alone until the owner decides; then the item moves into the l
 | 4 | G8 | **Items on the ground and corpses:** the rest. Picking an item up off the ground and searching and taking from corpses are done (gym 0.4.27, not yet run in the game). Left: half or all of a stack, bags lying on the ground (their contents), placing an item on the ground, dragging corpses. | local, then cloud | GAP_LIST item 8 (`onGrabHalfWItems`, `onGrabAllWItems`, `onPlaceItemOnGround`); `ISInventoryPage:refreshBackpacks` adds a floor bag's inventory as its own container. |
 | 5 | G14b, G20 | **Barricade a window or door, and disassemble furniture** for planks and nails (the owner asked about disassembly). Both start a cursor in the menus. | local | GAP_LIST items 9 (cursors), 14 and 20 (`ISDisassembleMenu`); live test per cursor. |
 | **Wrong data: fix what the network already learns from** | | | | |
-| 6 | G2, G4, G5 | `exercise` moves the equipment into the hands (it often ends "no effort spent"); `drink` follows the Drink menu (thirst, beverage, portions); `engine_on` follows the radial menu (keys, hotwire). | cloud | APIs cited in [GAP_LIST.md](GAP_LIST.md) items 2, 4 and 5. |
+| 6 | G2, G5 | `exercise` moves the equipment into the hands (it often ends "no effort spent"); `engine_on` follows the radial menu (keys, hotwire). | cloud | APIs cited in [GAP_LIST.md](GAP_LIST.md) items 2 and 5. G4 `drink` is done (gym 0.4.28, not yet run in the game; local check: `FluidType.Bleach` is matched by the name "Bleach" from `getFluidTypeString()`, so bleach may not be offered if the string differs). |
 | 7 | G7 | Verb prerequisites the menus apply (smash on open windows, clear_glass, equip, rest, drop, take, drink_tap, enter). | cloud | Listed under [Found in the 42.21 audit](#found-in-the-4221-audit-not-fixed-2026-10-11). |
 | 8 | L1, L11, L12 | Leaks left in the gym: raw `stats` in `obs.json` (never read by the network), the `enter` macro's window choice by lock state, the zombie visibility proxy instead of `getSpottedList()`. | cloud, then local | OBSERVATION_AUDIT.md section 5; the visibility change needs a live comparison. |
 | 9 | G6 | The trait screen as the game shows it: `PointToSpend()`, Next only when enabled, profession choice. Keeps the owner's option B rule. | cloud | GAP_LIST item 6. |
@@ -417,7 +417,7 @@ game (item N5):
 * G2 `exercise`: fixed in code by gym 0.4.4 and 0.4.5 (see C1), apart from moving the equipment into the
   hands. Not yet run in game.
 * G3 `sleep`: follows the menu's conditions since gym `sleepBlock` (2026-10-11), not run in game.
-* G4 `drink` lacks the thirst > 0.1 and beverage/bleach rules and the half/quarter portions.
+* G4 `drink`: fixed in code by gym 0.4.28 (thirst > 0.1 for water sources, beverage or bleach otherwise, half and quarter portions as `portion`); not run in the game.
 * G5 `engine_on` lacks the key/hotwire/working-engine check; no Hotwire.
 * G6 Trait points:
   * the gym reads the field `pointToSpend`, not `PointToSpend()`
