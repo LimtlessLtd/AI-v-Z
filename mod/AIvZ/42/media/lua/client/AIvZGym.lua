@@ -9,7 +9,8 @@
 -- The implemented options approximate a subset of the right-click menus: wait, rest, walk or run in a
 -- direction, go into a building or another room, attack or shove a zombie, open or close a door, window or
 -- curtain, lock or unlock a door with its key, hang a sheet on a window, climb through a window, smash one,
--- clear its glass, search a container, take an item out of one it has searched, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
+-- clear its glass, search a container or a corpse, take an item out of one it has searched, pick an item up
+-- off the ground, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
 -- from a tap, bandage a wound, sleep, sneak or stand up. Nothing in here judges what's good: the agent learns
 -- that from what happens. The doing (pathfinding, swings, the game's timed actions) comes from AIvZ.lua.
 -- After a death, it starts a new character in a random building of a random town by pressing the game's own
@@ -19,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.26"
+G.VERSION = "0.4.27"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -399,7 +400,7 @@ function G.scanAround(p)
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
 	local here = p:getCurrentSquare()
 	local hb = here and here:getBuilding()
-	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {} }
+	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {} }
 	local known = seen(p)
 	for dx = -8, 8 do
 		for dy = -8, 8 do
@@ -412,6 +413,23 @@ function G.scanAround(p)
 					local key = (px + dx) .. "," .. (py + dy) .. "," .. pz .. "," .. n
 					out.containers[#out.containers + 1] = { c = c, sq = sq, d = d, key = key, known = known[key] == true,
 						indoors = sq:getBuilding() ~= nil, type = tostring(c:getType()) }
+				end
+				-- items on the ground and corpses, as the loot window lists them (ISInventoryPage:refreshBackpacks:
+				-- getWorldObjects() and getStaticMovingObjects() with a container) (gym 0.4.27)
+				local wobs = sq:getWorldObjects()
+				for i = 0, wobs:size() - 1 do
+					local w = wobs:get(i)
+					local it = w:getItem()
+					if it then out.floor[#out.floor + 1] = { w = w, it = it, sq = sq, d = d } end
+				end
+				local sobs = sq:getStaticMovingObjects()
+				for i = 0, sobs:size() - 1 do
+					local c = sobs:get(i):getContainer()
+					if c then
+						local key = "body:" .. (px + dx) .. "," .. (py + dy) .. "," .. pz .. "," .. i
+						out.containers[#out.containers + 1] = { c = c, sq = sq, d = d, key = key, known = known[key] == true,
+							indoors = sq:getBuilding() ~= nil, type = "corpse" }
+					end
 				end
 				for _, o in ipairs(U.objList(sq)) do
 					if U.isDoor(o) or U.isWindow(o) then
@@ -439,6 +457,7 @@ function G.scanAround(p)
 	end
 	local byD = function(a, b) return a.d < b.d end
 	table.sort(out.doors, byD); table.sort(out.windows, byD); table.sort(out.curtains, byD); table.sort(out.containers, byD)
+	table.sort(out.floor, byD)
 	out.building = hb
 	GS.around = out
 	return out
@@ -631,6 +650,13 @@ function G.options(p)
 				end
 			end, 1)
 		end
+	end
+	-- items on the ground in sight: pick one up (the world menu's Grab, ISWorldObjectContextMenu.onGrabWItem)
+	for i = 1, math.min(6, #ar.floor) do
+		local f = ar.floor[i]
+		local info = G.itemInfo(p, f.it)
+		info.d, info.dx, info.dy = r1(f.d), r1(f.sq:getX() + 0.5 - p:getX()), r1(f.sq:getY() + 0.5 - p:getY())
+		add(list, "pick_up", info, f)
 	end
 	-- the inventory
 	local held = p:getPrimaryHandItem()
@@ -984,6 +1010,12 @@ G.X.search = {
 		if t.pathFailed then return U.fail(t, "no way there") end
 		if qlen(p) > 0 and tick() - t.t0 < 900 then return end
 		if dist(p, o.data.sq:getX() + 0.5, o.data.sq:getY() + 0.5) > 2.5 then return U.fail(t, "couldn't reach it") end
+		-- looking in fills a container the first time, as the loot window does (ISInventoryPage:checkExplored,
+		-- singleplayer): a corpse's pockets, or a cupboard the loot window hasn't listed yet
+		if not o.data.c:isExplored() then
+			ItemPicker.fillContainer(o.data.c, p)
+			o.data.c:setExplored(true)
+		end
 		seen(p)[o.data.key] = true
 		local n = 0
 		U.eachItem(o.data.c, function() n = n + 1 end, 1)
@@ -1000,6 +1032,31 @@ G.X.take = {
 		if qlen(p) > 0 and tick() - t.t0 < 900 then return end
 		if has(p, o.data.it) then
 			A.event("took " .. o.data.it:getDisplayName())
+			U.done(t)
+		else
+			U.fail(t, "didn't get it")
+		end
+	end,
+}
+-- ISWorldObjectContextMenu.onGrabWItem, with the mod's walk (luautils.walkAdj uses ISWalkToTimedAction, which
+-- fails at 20x and 40x): onto the item's square or next to it, then ISGrabItemAction with the game's grab time
+G.X.pick_up = {
+	start = function(p, t, o)
+		local w, sq = o.data.w, o.data.sq
+		if not w:getSquare() then return U.fail(t, "it's gone") end
+		local here = p:getCurrentSquare()
+		if sq ~= here and (not here or sq:DistToProper(here) >= 1.5) then
+			local to = sq:isFree(false) and sq or AdjacentFreeTileFinder.Find(sq, p)
+			if not to then return U.fail(t, "can't reach it") end
+			U.walkTo(p, to, t)
+		end
+		Q(ISGrabItemAction:new(p, w, ISWorldObjectContextMenu.grabItemTime(p, w)))
+	end,
+	step = function(p, t, o)
+		if t.pathFailed then return U.fail(t, "no way there") end
+		if qlen(p) > 0 and tick() - t.t0 < 900 then return end
+		if has(p, o.data.it) then
+			A.event("picked up " .. o.data.it:getDisplayName())
 			U.done(t)
 		else
 			U.fail(t, "didn't get it")

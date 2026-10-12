@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.5.3"   -- 0.5.3: the speed pick survives a game restart and an F2 unpause (gym 0.4.23)
+A.VERSION = "0.5.4"   -- 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -937,7 +937,9 @@ end
 local function walkToContainer(p, c, t)
 	local obj = c:getParent()
 	if c:getType() == "floor" or not obj or not obj:getSquare() or c:isInCharacterInventory(p) then return true end
-	if instanceof(obj, "BaseVehicle") or instanceof(obj, "IsoDeadBody") then return luautils.walkToContainer(c, p:getPlayerNum()) end
+	-- a corpse is walked to like any object, next to its square (luautils.walkToContainer uses ISWalkToTimedAction,
+	-- which fails at 20x and 40x; until 0.5.3 corpses went that way)
+	if instanceof(obj, "BaseVehicle") then return luautils.walkToContainer(c, p:getPlayerNum()) end
 	if obj:getSquare():DistToProper(p:getCurrentSquare()) < 2 then return true end
 	local adj = AdjacentFreeTileFinder.Find(obj:getSquare(), p)
 	if not adj then return false end

@@ -130,10 +130,10 @@ first (`luautils.walkAdj*`).
 
 | Action | Vanilla source | Prerequisites / parameters | Repo status |
 |---|---|---|---|
-| Grab one / half / all of an item on the ground | `handleGrabWorldItem` → `onGrabWItem` (`:1436`), `onGrabHalfWItems` (`:1448`), `onGrabAllWItems` (`:1466`) | Item visible on a square without a wall between (`isWallTo`) | **missing**: floor items are never listed (`U.containersOn` reads only object containers, `AIvZ.lua:183-193`) |
+| Grab one / half / all of an item on the ground | `handleGrabWorldItem` → `onGrabWItem` (`:1436`), `onGrabHalfWItems` (`:1448`), `onGrabAllWItems` (`:1466`) | Item visible on a square without a wall between (`isWallTo`) | **partial** since gym 0.4.27 (2026-10-12, not yet run in the game): `pick_up` grabs one item on a square in sight within 8 tiles (the nearest 6), with `ISGrabItemAction:new(character, worldItem, grabItemTime)` after the mod's walk onto the square or next to it. Not yet: half or all of a stack, containers lying on the ground |
 | Extended 3D placement | `handleGrabWorldItem` → `onExtendedPlacement` (`:331`) | Item on the ground | **missing** |
 | Grab / drop corpse | `handleGrabWorldItem` (offsets 51, 527) → `onGrabCorpseItem` (`:1488`), `handleGrabWorldItem_onDropCorpse` (`:249`) | Not in a vehicle; Interact hold also works | **missing** |
-| Loot a corpse | Loot window lists `IsoDeadBody` containers (`ISInventoryPage.lua` `refreshBackpacks`) | Adjacent, reachable | **missing**: corpses are not in `U.containersOn` (they are static moving objects) |
+| Loot a corpse | Loot window lists `IsoDeadBody` containers (`ISInventoryPage.lua` `refreshBackpacks`) | Adjacent, reachable | **partial** since gym 0.4.27 (not yet run in the game): corpses on squares in sight are containers of type `corpse` for `search` (which fills them as `ISInventoryPage:checkExplored` does) and then `take`; walked to with the mod's walk |
 | Burn corpse | `doBurnBodyMenu` → `onBurnCorpse` (`:1634`) | `START_FIRE` tag item, lighter or matches; fuel (not audited) | **missing** |
 | Dig graves / bury corpse / fill grave | `doShovelAndRackMenu`, `doBuryCorpseMenu` → `onDigGraves` (`:2760`), `onBuryCorpse` (`:2767`), `onFillGrave` (`:2785`) | Shovel-type item (`DIG_GRAVE` tag) in hand; grave capacity 5; distance check | **missing** |
 | Drop corpse into / grab corpse from a container | `shared/BodyDragging/corpseStorageCheck.lua:73`, `:171` | Dragging a corpse; suitable container | **missing** |
