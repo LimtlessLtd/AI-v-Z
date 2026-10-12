@@ -3,8 +3,10 @@
 Only what a player could perceive goes in (an allow-list, so a new field in the observation stays out until it
 is added here on purpose). Moodles are the main body input, as the player's own moodle icons are. Not used:
 the raw stats behind them (hunger 0.09, temperature 37.3), the world clock (`t.hour`, `t.age`; the time is
-seen only on a worn watch or clock, `obs.clock`), the air temperature, map coordinates, and `last.msg` (a
-text explanation of a failure the player wouldn't be given).
+seen only on a worn watch or clock, `obs.clock`), the air temperature, map coordinates, `last.msg` (a
+text explanation of a failure the player wouldn't be given), and `obs.knox` (the hidden Knox infection, which only
+the reward reads). Used since version 2: `obs.protection`, the protection panel's bite and scratch defence per body
+part, and each garment's tooltip (defence, holes, condition) on its own options and tied to it when worn.
 
 Each side is a dense vector of fixed meaning plus a bag of hashed tokens ("inv:Base.Apple", "take:cat:food"),
 so item and place names the network has never seen still get an input without a fixed vocabulary.
@@ -18,7 +20,8 @@ import math
 import zlib
 from pathlib import Path
 
-VERSION = 1           # bump when the encoding changes: cached features and saved networks are rebuilt
+VERSION = 2           # bump when the encoding changes: cached features and saved networks are rebuilt
+                      # 2 (2026-10-12, with reward version 3): protection per body part, clothing status on options
 BUCKETS = 4096        # hashed-token buckets per side
 
 MOODLES = ("hungry", "thirst", "tired", "endurance", "panic", "pain", "sick", "wet", "hypothermia", "hyperthermia",
@@ -35,11 +38,16 @@ OPTION_NUMBERS = {
     "visited": 1, "rooms": 10, "tainted": 1, "worn": 1, "hunger": 50, "thirst": 50, "unhappy": 50, "rotten": 1,
     "cooked": 1, "raw": 1, "sealed": 1, "age": 30, "unavailable": 1, "bleeding": 1, "running": 1, "bed": 1,
     "endurance": 1, "cap": 50, "cond": 10, "dmg": 5, "range": 5, "ranged": 1, "twoHand": 1, "med": 1, "seat": 4,
+    "bite": 100, "scratch": 100, "holes": 5, "patches": 5,   # a garment's tooltip: what wearing it would add
 }
 OPTION_WORDS = ("name", "type", "cat", "dir", "recipe", "part", "trait", "what", "area", "from", "to", "toKind",
                 "fluidType", "item", "list", "ammo", "mag", "slot", "fire")
 
-STATE_DIM = len(MOODLES) + len(WOUNDS) + len(REASONS) + len(STATUSES) + 32
+# the protection panel's body parts (BodyPartType order); obs.protection gives each one's bite and scratch defence
+PARTS = ("Hand_L", "Hand_R", "ForeArm_L", "ForeArm_R", "UpperArm_L", "UpperArm_R", "Torso_Upper", "Torso_Lower", "Head",
+         "Neck", "Groin", "UpperLeg_L", "UpperLeg_R", "LowerLeg_L", "LowerLeg_R", "Foot_L", "Foot_R")
+
+STATE_DIM = len(MOODLES) + len(WOUNDS) + len(REASONS) + len(STATUSES) + 32 + 2 * len(PARTS)
 OPTION_DIM = len(OPTION_NUMBERS) + 1
 
 
@@ -164,11 +172,20 @@ def encode_state(msg):
         min(len(_l(obs.get("selected"))), 20) / 10 if creation else 0.0,
         1.0 if creation and obs.get("stage") == "pay" else 0.0,
     ]
+    # the protection panel: bite and scratch defence of each body part (gym 0.4.20), 0 where unknown
+    prot = {_d(x).get("part"): _d(x) for x in _l(obs.get("protection"))}
+    for part in PARTS:
+        x = prot.get(part, {})
+        v += [min(_num(x.get("bite")), 100.0) / 100, min(_num(x.get("scratch")), 100.0) / 100]
     for it in _l(obs.get("inv")):
         it = _d(it)
         toks.append(f"inv:{it.get('type') or it.get('name')}")
         if it.get("worn"):
-            toks.append(f"worn:{it.get('type') or it.get('name')}")
+            kind = it.get('type') or it.get('name')
+            toks.append(f"worn:{kind}")
+            # the same status tied to this garment, so a worn-out or torn piece is told apart from the rest
+            toks += [f"worn:{kind}:{t.split(':', 1)[1]}" for t in item_status_tokens(it, "inv")
+                     if t.startswith(("inv:cond:", "inv:holes:", "inv:patched", "inv:defence:"))]
         toks += item_status_tokens(it, "inv")
     held = obs.get("held")
     if isinstance(held, dict):

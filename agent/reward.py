@@ -1,41 +1,57 @@
-"""What the agent is rewarded for (the owner's rule, 2026-10-12): staying alive is a big, steady gain; being
-damaged or hurt costs; dying costs so much that it outweighs everything else. Feeling bad (hunger, thirst,
-pain, panic and the other moodles) costs nothing in itself: it matters only through the damage it leads to.
+"""What the agent is rewarded for (the owner's rules of 2026-10-12; research in docs/REWARD_RESEARCH.md).
 
-The reward says what hurts and what counts as progress, never what to do about it. Between two
-observations of the same life:
+Staying alive is a big, steady gain, dying costs most, and feeling bad (hunger, pain, panic and the other moodles)
+costs nothing in itself. Per stretch between two observations of the same life:
 
   alive       +1 per game minute survived (60 a game hour)
-  hurt        -2 per health point lost (healing earns nothing back)
-  wounds      for each new wound the body shows: scratch or glass -10, laceration -20, deep wound -30,
-              bite or fracture -50
   kills       +10 per zombie killed
   progress    +3 the first time each kind of item is in the bag this life, +5 the first time it's inside
               each building, +0.5 the first time it looks into each container
-  death       -1000
+  infection   -1000 when the Knox infection happens: it kills 2-3 days later, beyond what the network looks ahead,
+              so the death is charged then, and the death itself costs nothing more
+  death       -1000 (less whatever an infection already charged)
 
-Losing all 100 health costs 200 and a life of 16 game hours earns 960, so a death costs more than either.
-Kills and progress keep the same size next to being alive as in version 1.
+These decide what is truly best. On top of them, the body's condition counts through a value Φ of each moment,
+and the reward is its change (potential-based shaping, Ng, Harada & Russell 1999):
 
-Version 1 (2026-10-09 to 2026-10-12) paid 0.1 a game minute alive, charged every bad moodle each minute
-(discomfort) and death only 20, so a long uncomfortable life scored worse than an early death (BACKLOG.md
-N1). Every part is logged separately, and `rescore` turns a record logged under version 1 into the current
-weights, so training learns the current reward from all the experience.
+  Φ = 2 x (health - 100)       getting hurt costs, healing pays the same back
+      - 10 x untreated wounds   body parts with an open wound and no bandage
+      + 100 x protection        the protection panel's bite and scratch defence, averaged over the 17 body parts
+                                (0-1): putting clothing on pays what taking it off costs, and a hole, a patch or a
+                                worn-out garment costs its share as it happens
+  and Φ is 0 once dead.
+
+Any loop that ends where it started earns nothing from Φ, and Ng et al. prove such terms never change which play
+is best: they are hints that make learning faster. The infection is a real event instead, so that a bite counts
+as the death it is; it can't be undone, so there is nothing to farm.
+
+Records from before gym 0.4.20 have no infection flag: for them the infection is the expected chance from the
+zombie wounds seen (scratch 7%, laceration 25%, bite 100%: BodyPart.setScratched, setCut, SetBitten in 42.21).
+
+Version 1 (to 2026-10-12) charged every bad moodle per minute and death only 20, so dying early scored best.
+Version 2 (2026-10-12) counted health and wounds only as losses and death as the only real cost. `rescore` and
+learn.Data turn a logged record of any version into the current reward, so training learns it from all the
+experience.
 """
 
-VERSION = 2
+VERSION = 3
 
 ALIVE_PER_MIN = 1.0
-HURT_PER_HP = 2.0
-WOUNDS = {"scratch": 10.0, "glass": 10.0, "laceration": 20.0, "deep wound": 30.0, "bite": 50.0, "fracture": 50.0}
 KILL = 10.0
 NEW_ITEM = 3.0
 NEW_BUILDING = 5.0
 NEW_CONTAINER = 0.5
 DEATH = -1000.0
 
-# version 1's weights, to read its logged parts back as counts
-V1 = {"alive": 0.1, "health": 0.2, "kills": 1.0, "new_items": 0.3, "new_building": 0.5, "new_containers": 0.05}
+PER_HEALTH = 2.0      # Φ per health point below 100 (0 at full health, so a healthy body costs nothing to keep)
+PER_UNTREATED = 10.0  # Φ lost per body part with an open wound and no bandage
+PROTECTION = 100.0    # Φ for full bite and scratch cover everywhere
+
+OPEN_WOUNDS = ("bleeding", "scratch", "laceration", "bite", "deep wound")
+INFECTION_CHANCE = {"scratch": 0.07, "laceration": 0.25, "bite": 1.0}   # BodyPart.setScratched/setCut/SetBitten
+
+BASE_PARTS = ("alive", "kills", "new_items", "new_building", "new_containers")   # infection and death: from the observations
+V1 = {"alive": 0.1, "kills": 1.0, "new_items": 0.3, "new_building": 0.5, "new_containers": 0.05}
 
 
 def _d(v):
@@ -44,6 +60,10 @@ def _d(v):
 
 def _l(v):
     return v if isinstance(v, list) else []
+
+
+def _num(v, default=0.0):
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
 
 
 def _item_key(it):
@@ -62,36 +82,76 @@ class LifeProgress:
         self.items, self.buildings, self.containers = set(), set(), 0
 
 
-def _wounds_of(obs):
-    return {(w.get("part"), f) for w in _l(_d(obs).get("body")) for f in _l(w.get("flags")) if f in WOUNDS}
+def body(obs):
+    """What Φ and the infection are worked out from in one observation, or None without one (creation, death):
+    {health, untreated, protection 0-1, knox True/False/None, zombie_wounds: [(part, kind)]}."""
+    obs = _d(obs)
+    if obs.get("dead") or obs.get("health") is None:
+        return None
+    untreated, zw = 0, []
+    for w in _l(obs.get("body")):
+        flags = _l(_d(w).get("flags"))
+        if "bandaged" not in flags and any(f in OPEN_WOUNDS for f in flags):
+            untreated += 1
+        zw += [(_d(w).get("part"), f) for f in flags if f in INFECTION_CHANCE]
+    prot = _l(obs.get("protection"))
+    cover = sum(min(100.0, _num(_d(x).get("bite"))) + min(100.0, _num(_d(x).get("scratch"))) for x in prot)
+    return {"health": _num(obs.get("health")), "untreated": untreated,
+            "protection": cover / (200.0 * len(prot)) if prot else 0.0,
+            "knox": obs["knox"] if isinstance(obs.get("knox"), bool) else None, "zombie_wounds": zw}
 
 
-def new_wounds(prev, cur):
-    """The cost of the wounds `cur` shows that `prev` didn't, as (body part, kind) pairs. A wound stays listed under
-    a bandage, so bandaging one doesn't make it new again; a wound that healed and comes back counts again."""
-    return sum(WOUNDS[kind] for _, kind in _wounds_of(cur) - _wounds_of(prev))
+def infected(prev_infected, prev_body, cur_body):
+    """The infection (0-1) after `cur_body`: the game's flag when the record has it, else the chance carried so far
+    combined with the infection chance of each zombie wound that wasn't there before. It never goes down: the
+    infection has no cure."""
+    if cur_body["knox"] is not None:
+        return max(prev_infected, 1.0 if cur_body["knox"] else 0.0)
+    p = prev_infected
+    seen = {tuple(w) for w in prev_body["zombie_wounds"]} if prev_body else set()   # lists after a JSON round trip
+    for part, kind in {tuple(w) for w in cur_body["zombie_wounds"]} - seen:
+        p = 1 - (1 - p) * (1 - INFECTION_CHANCE[kind])
+    return p
 
 
-def step(prev, cur, progress, searched=0):
-    """Reward for what happened between observation `prev` and observation `cur` (same life).
+def potential_parts(b):
+    """Φ of one moment, by part (they sum to Φ); all zero once dead (b None)."""
+    if b is None:
+        return {"health": 0.0, "wounds": 0.0, "protection": 0.0}
+    return {"health": PER_HEALTH * (min(b["health"], 100.0) - 100.0), "wounds": -PER_UNTREATED * b["untreated"],
+            "protection": PROTECTION * b["protection"]}
 
-    `searched` is how many new containers the last action looked into. Returns (total, parts)."""
+
+def potential(b):
+    return sum(potential_parts(b).values())
+
+
+def step(prev, cur, progress, searched=0, inf=0.0):
+    """Reward for what happened between observation `prev` and observation `cur` (same life), with the change in Φ
+    undiscounted (training discounts it by the game time in between). `inf` is the infection (0-1) after `prev`.
+    `searched` is how many new containers the last action looked into. Returns (total, parts, infection after)."""
     parts = {}
+    pb = body(prev)
+    before = potential_parts(pb)
     if cur.get("dead"):
-        parts["death"] = DEATH
+        parts["death"] = DEATH * (1 - inf)   # an infection already charged its share
         kills = (cur.get("kills") or 0) - (prev.get("kills") or 0)
         if kills > 0:
             parts["kills"] = KILL * kills
-        return round(sum(parts.values()), 4), parts
+        parts["body"] = -sum(before.values())   # Φ is 0 once dead
+        parts = {k: round(v, 4) for k, v in parts.items() if abs(v) > 1e-9}
+        return round(sum(parts.values()), 4), parts, inf
     minutes = max(0.0, ((cur.get("t") or {}).get("age", 0) - (prev.get("t") or {}).get("age", 0)) * 60)
     minutes = min(minutes, 24 * 60)   # a day asleep at most; guards against a clock jump
     parts["alive"] = ALIVE_PER_MIN * minutes
-    dh = (cur.get("health") or 0) - (prev.get("health") or 0)
-    if dh < 0:
-        parts["hurt"] = HURT_PER_HP * dh
-    w = new_wounds(prev, cur)
-    if w:
-        parts["wounds"] = -w
+    cb = body(cur)
+    after_inf = infected(inf, pb, cb) if cb else inf
+    if after_inf > inf:
+        parts["infection"] = DEATH * (after_inf - inf)
+    if pb and cb:
+        after = potential_parts(cb)
+        for k in after:
+            parts[k] = after[k] - before[k]
     kills = (cur.get("kills") or 0) - (prev.get("kills") or 0)
     if kills > 0:
         parts["kills"] = KILL * kills
@@ -110,39 +170,33 @@ def step(prev, cur, progress, searched=0):
     if searched > 0:
         progress.containers += searched
         parts["new_containers"] = NEW_CONTAINER * searched
-    parts = {k: round(v, 4) for k, v in parts.items() if v}
-    return round(sum(parts.values()), 4), parts
+    parts = {k: round(v, 4) for k, v in parts.items() if abs(v) > 1e-9}
+    return round(sum(parts.values()), 4), parts, after_inf
 
 
-def rescore(rec, prev_obs=None):
-    """A logged decision record's reward under the current weights, and the game minutes it covers (alive).
-
-    Records of this version are taken as logged. Version 1 records (no `reward_v`) are rebuilt from their parts:
-    the minutes alive, the health change, kills and first-time counts come back exactly; moodle discomfort and
-    bleeding are dropped; new wounds come from comparing the observation with `prev_obs` (the same life's previous
-    observation), so without it they count nothing. A record the agent marked 'resumed' earns nothing."""
+def rescore(rec):
+    """A logged record's alive, kills and progress reward under the current weights, and the game minutes it covers.
+    Training adds the infection, the death and the change in Φ itself, from the observations of each life in order
+    (learn.Data). Versions 2 and 3 logged these parts at today's weights; version 1 records (no `reward_v`) are
+    converted. A record the agent marked 'resumed' earns nothing."""
     if rec.get("resumed"):
         return 0.0, 0.0
     parts = _d(rec.get("parts"))
-    if rec.get("reward_v") == VERSION:
-        return float(rec.get("reward") or 0.0), parts.get("alive", 0.0) / ALIVE_PER_MIN
+    if rec.get("reward_v") in (2, 3):
+        return round(sum(_num(parts.get(k)) for k in BASE_PARTS), 4), _num(parts.get("alive")) / ALIVE_PER_MIN
     if rec.get("dead"):
-        r = DEATH + KILL * parts.get("kills", 0.0) / V1["kills"]
-        return round(r, 4), 0.0
-    minutes = parts.get("alive", 0.0) / V1["alive"]
-    dh = parts.get("health", 0.0) / V1["health"]
-    r = ALIVE_PER_MIN * minutes + HURT_PER_HP * min(0.0, dh)
-    r += KILL * parts.get("kills", 0.0) / V1["kills"]
-    r += NEW_ITEM * parts.get("new_items", 0.0) / V1["new_items"]
-    r += NEW_BUILDING * parts.get("new_building", 0.0) / V1["new_building"]
-    r += NEW_CONTAINER * parts.get("new_containers", 0.0) / V1["new_containers"]
-    if prev_obs and rec.get("obs"):
-        r -= new_wounds(prev_obs, rec["obs"])
+        return round(KILL * _num(parts.get("kills")) / V1["kills"], 4), 0.0
+    minutes = _num(parts.get("alive")) / V1["alive"]
+    r = ALIVE_PER_MIN * minutes + KILL * _num(parts.get("kills")) / V1["kills"]
+    r += NEW_ITEM * _num(parts.get("new_items")) / V1["new_items"]
+    r += NEW_BUILDING * _num(parts.get("new_building")) / V1["new_building"]
+    r += NEW_CONTAINER * _num(parts.get("new_containers")) / V1["new_containers"]
     return round(r, 4), minutes
 
 
 def start_life(first_obs, progress):
-    """Count what a new character starts with, so its own clothes don't earn 'new item' bonuses."""
+    """Count what a new character starts with, so its own clothes don't earn 'new item' bonuses. Returns the
+    infection it starts with (0 unless the record's flag says it's infected)."""
     for it in _l(first_obs.get("inv")) + ([first_obs["held"]] if isinstance(first_obs.get("held"), dict) else []):
         key = _item_key(it)
         if key:
@@ -150,3 +204,5 @@ def start_life(first_obs, progress):
     b = _d(first_obs.get("where")).get("building")
     if b:
         progress.buildings.add(b)
+    fb = body(first_obs)
+    return 1.0 if fb and fb["knox"] else 0.0

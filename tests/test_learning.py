@@ -67,6 +67,17 @@ class EncodingTests(unittest.TestCase):
         d = F.encode_state({"obs": {**OBS, "clock": {"hour": 22, "min": 0}}})[0]
         self.assertNotEqual(a, d)   # the time counts once a watch shows it
 
+    def test_protection_goes_in_and_the_infection_stays_out(self):
+        base = {**OBS, "protection": [{"part": "Torso_Upper", "bite": 0, "scratch": 0}]}
+        jacket = {**OBS, "protection": [{"part": "Torso_Upper", "bite": 40, "scratch": 60}]}
+        self.assertNotEqual(F.encode_state({"obs": base})[0], F.encode_state({"obs": jacket})[0])
+        self.assertEqual(F.encode_state({"obs": {**OBS, "knox": True}}), F.encode_state({"obs": {**OBS, "knox": False}}))
+        worn = {"name": "Jacket", "type": "Jacket_Leather", "cat": "clothing", "worn": True, "cond": 0.1, "holes": 2}
+        toks = F.encode_state({"obs": {**OBS, "inv": [worn]}})[1]
+        self.assertIn(F.bucket("worn:Jacket_Leather:holes:2"), toks)   # the wear is tied to the garment
+        k = list(F.OPTION_NUMBERS).index("bite")
+        self.assertEqual(F.encode_option({"verb": "wear", "bite": 40})[0][k], 0.4)
+
     def test_what_the_screen_doesnt_show_stays_out(self):
         self.assertEqual(F.encode_state({"obs": {"health": 87.3}})[0], F.encode_state({"obs": {"health": 82.0}})[0])
         self.assertNotEqual(F.encode_state({"obs": {"health": 87.3}})[0], F.encode_state({"obs": {"health": 40.0}})[0])
@@ -143,8 +154,8 @@ class NetworkTests(unittest.TestCase):
                 c = rng.randrange(len(OPTIONS))
                 recs.append({"life": life, "reason": "done", "obs": later(OBS, 5 * k), "options": OPTIONS, "choice": c,
                              "reward": 0.0, "reward_v": R.VERSION, "dead": False, "new_life": k == 0, "resumed": False})
-                if k:
-                    recs[-1]["reward"] = 100.0 if recs[-2]["choice"] == 0 else -100.0
+                if k:   # training reads the parts (a first item stands in for any pay-off)
+                    recs[-1]["parts"] = {"new_items": 100.0 if recs[-2]["choice"] == 0 else -100.0}
         with tempfile.TemporaryDirectory() as tmp:
             write_experience(tmp, recs)
             rec = learn.train(tmp, steps=400, quiet=True)
@@ -170,6 +181,39 @@ class NetworkTests(unittest.TestCase):
             self.assertAlmostEqual(float(data.disc[1]), learn.GAMMA ** 5, places=5)
             self.assertAlmostEqual(learn.GAMMA ** learn.HALF_LIFE_MIN, 0.5, places=6)
 
+    def test_the_infection_and_the_body_value_go_through_each_life(self):
+        """Life 1 is bitten (gym 0.4.20 flag) at its 2nd decision and dies at its 4th; a jacket goes on and off."""
+        from agent import learn, net as N
+        recs = life_records(1, 4)
+        for r in recs[1:4]:
+            r["obs"]["knox"] = True
+            r["obs"]["body"] = [{"part": "ForeArm_R", "flags": ["bite"]}]
+        recs[0]["obs"]["knox"] = False
+        events, phi, has = learn.Data.body_values([learn._meta(r) for r in recs])
+        self.assertEqual(list(events), [0.0, R.DEATH, 0.0, 0.0, 0.0])   # charged once, the death costs nothing more
+        self.assertEqual(list(has), [True, True, True, True, False])
+        self.assertAlmostEqual(phi[1] - phi[0], -R.PER_UNTREATED)
+        jacket = life_records(2, 3, die=False)
+        jacket[1]["obs"]["protection"] = [{"part": "Torso_Upper", "bite": 50, "scratch": 50}]
+        for r in (jacket[0], jacket[2]):
+            r["obs"]["protection"] = [{"part": "Torso_Upper", "bite": 0, "scratch": 0}]
+        _, phi, _ = learn.Data.body_values([learn._meta(r) for r in jacket])
+        self.assertAlmostEqual((phi[1] - phi[0]) + (phi[2] - phi[1]), 0.0)   # on, then off: nothing gained
+
+    def test_an_out_of_date_cache_is_rebuilt(self):
+        """A version change makes every cached hour out of date; rebuilding one replaces the file it just read."""
+        from agent import learn
+        with tempfile.TemporaryDirectory() as tmp:
+            write_experience(tmp, life_records(1, 3))
+            learn.Data(tmp)   # writes the cache (the file's hour isn't the current one)
+            old = R.VERSION
+            try:
+                R.VERSION = old + 100
+                data = learn.Data(tmp)   # out of date: read, closed, rebuilt
+            finally:
+                R.VERSION = old
+            self.assertEqual(len(data.meta), 4)
+
     def test_a_network_of_another_reward_is_set_aside(self):
         from agent import learn, net as N
         with tempfile.TemporaryDirectory() as tmp:
@@ -178,6 +222,8 @@ class NetworkTests(unittest.TestCase):
             rec = learn.train(tmp, steps=20, quiet=True)
             self.assertTrue(rec["fresh"])
             self.assertEqual((rec["round"], rec["reward_v"]), (32, R.VERSION))
+            (Path(tmp) / "model" / "qnet.pt").unlink()   # an encoding change: the saved network can't even be loaded
+            self.assertEqual(learn.train(tmp, steps=20, quiet=True)["round"], 33)   # the count goes on from the history
 
 
 @needs_torch
@@ -241,7 +287,7 @@ class TraitRuleLuaTest(unittest.TestCase):
         v1, t1 = F.encode_state(base)
         self.assertEqual(len(v1), F.STATE_DIM)
         self.assertGreater(len(t1), 2)
-        self.assertEqual(F.VERSION, 1)   # token additions keep the layout and the trained network
+        self.assertEqual(F.VERSION, 2)   # 2: protection per body part and clothing status on options (reward version 3)
 
 
 if __name__ == "__main__":

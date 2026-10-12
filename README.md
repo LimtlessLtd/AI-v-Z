@@ -27,7 +27,7 @@ yet. No cloud services, no language model, no multiplayer.
 | 1. First watchable run | Mod, bridge, HUD, dashboard | Done |
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
 | **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | In progress: 27 implemented action types exercised; full action and hearing coverage missing. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
-| **4. Learning** | A small network scores every option; the reward is a big, steady gain for time alive, costs for lost health and new wounds, small bonuses for progress (places, items, kills), and a death cost that outweighs everything else. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 15 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
+| **4. Learning** | A small network scores every option; the reward is a big, steady gain for time alive, costs for lost health and new wounds, small bonuses for progress (places, items, kills), a death cost that outweighs everything else (charged when the Knox infection happens), and hints for health, wound care and clothing protection that can't be farmed. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 15 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
 
@@ -148,13 +148,25 @@ retrains it from all the experience so far, carrying on from the last network, a
 the new one at its next decision. Until the first network exists it plays at random. Character creation is
 learned the same way: picking traits leads into the life they make.
 
-**The reward** (`agent/reward.py`, version 2, the owner's rule of 2026-10-12): +1 for every game minute alive;
--2 for every health point lost; for each new wound, -10 (scratch, glass) to -50 (bite, fracture); +10 a kill;
-small first-time bonuses for items, buildings and containers; -1000 for dying, more than a 16-hour life earns.
-Feeling bad (hunger, pain, panic and the other moodles) costs nothing in itself, only through the damage it
-leads to. Training re-scores older experience under the current reward. It discounts the future by game time
-(a reward two game hours away counts half), so a long action such as sleeping doesn't look better just
-because it lasts longer.
+**The reward** (`agent/reward.py`, version 3, the owner's rules of 2026-10-12; research and reasons in
+[docs/REWARD_RESEARCH.md](docs/REWARD_RESEARCH.md)):
+
+| | Points |
+|---|---|
+| Being alive | +1 per game minute |
+| Dying | −1000 |
+| The Knox infection (a bite always, a laceration 25%, a zombie scratch 7%) | −1000 when it happens; the death it causes 2-3 days later then costs nothing more |
+| Health | −2 per point lost, +2 per point healed |
+| Each body part with an open wound and no bandage | −10 when it appears, +10 when bandaged |
+| Clothing protection (the protection panel, averaged over the body) | up to +100; putting clothing on pays what taking it off costs, and a hole, a patch or a worn-out garment costs its share |
+| A kill; first items, buildings and containers | +10; +3, +5, +0.5 |
+| Hunger, pain, panic and the other moodles | 0 |
+
+The health, wound and protection terms count changes in the body's state, so a loop that ends where it started
+(on, off, on again) earns nothing; they are hints that speed up learning, never a reason on their own. The
+infection flag is hidden from the player and so from the network; only the reward reads it. Training re-scores
+older experience under the current reward. It discounts the future by game time (a reward two game hours away
+counts half), so a long action such as sleeping doesn't look better just because it lasts longer.
 
 The dashboard shows each option's Q and the chance it had of being picked. The **Learning** page,
 <http://127.0.0.1:8799/learning>, compares lives by who played them (random policy vs network), charts game
@@ -274,13 +286,17 @@ docs/               SPECS, REVIEW; Phase 3 coverage, verification and backlog; A
 - **Temperature** is no longer in the observation unless a digital watch or clock is worn or held (`clock.temp`, the air temperature at the character; gym 0.4.18; not run in game, reload the mod).
 - **Unseen rooms and beds** are filtered from the options since gym 0.4.15 (`go_room` by `RoomDef:isExplored()`, beds by `isSeen`); not run in game, reload the mod.
 - **Item status is new.** Gym 0.4.11 adds weapon, ammo and clothing status to item records (not run in game; reload the mod to get it). The network sees it only as hashed tokens, and has never trained on it.
-- **The reward changed on 2026-10-12 (version 2), and the network starts over.** Under version 1 it survived
+- **The reward changed on 2026-10-12 (version 3), and the network starts over.** Under version 1 it survived
   no longer than random play (median about 1.4 game hours over 32 rounds and about 250 network lives):
   discomfort cost more per minute than being alive earned, so an early death scored better
   ([backlog](docs/BACKLOG.md) N1). The first training round after the update sets the old network aside and
-  trains a new one from all the experience, re-scored. Lives that ended before the update keep their
-  version 1 reward totals in `lives.jsonl`; the Learning page shows "–" for their reward and still compares
-  their hours and kills.
+  trains a new one from all the experience, re-scored (round numbers carry on). Lives that ended under an
+  older reward keep their totals in `lives.jsonl`; the Learning page shows "–" for their reward and still
+  compares their hours and kills. Experience from before gym 0.4.20 has no protection or infection readings:
+  there, the infection is the expected chance from the zombie wounds seen.
+- **Clothing protection is new (gym 0.4.20, not run in game; reload the mod).** The network sees the
+  protection panel's bite and scratch defence per body part, and each garment's defence, holes and condition,
+  on its own wear/take-off options and tied to it when worn. A full per-item layout is still open (backlog O6).
 - **Run the agent in its own window** (`scripts/start.ps1`). Started as a background task of a Claude
   session, it is killed when that session shuts down: on 2026-10-12 this stopped it at 02:13 (backlog N3).
 - **Traits are learned slowly.** Each life's observations list the character's traits (gym 0.4.7, as the

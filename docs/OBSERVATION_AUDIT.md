@@ -221,3 +221,10 @@ trained network is kept; the values it sees change a little, so it adapts over t
 * Overall health goes in as the health panel's band, not the exact figure (leak item 10, precision).
 
 The Lua side still reports these fields; fixing them at the source is separate and needs the game.
+
+**Added with reward version 3 (gym 0.4.20, `features.VERSION` 2, 2026-10-12):**
+
+* `obs.protection`: the protection panel's own numbers (`IsoGameCharacter:getBodyPartClothingDefense`,
+  `client/XpSystem/ISUI/ISCharacterProtection.lua:77-78`). A player sees these, so they go into the network.
+* `obs.knox`: whether the character carries the Knox infection (`BodyDamage:IsInfected`). The game doesn't tell
+  the player, so the allow-list keeps it out of the network (a test checks this); only the reward reads it.
