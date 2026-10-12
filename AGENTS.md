@@ -47,4 +47,7 @@ mod (the gym). Start with [README.md](README.md) (current state, how to run, kno
   (an owner decision, backlog O6).
 * Run the agent from `scripts/start.ps1` in its own window, never as a background task of an AI coding
   session: the task dies with the session (backlog N3).
-* Record what you find in `docs/BACKLOG.md`: in "Open" with who can take it, details below it.
+* Pick work from the "Open" list in `docs/BACKLOG.md` **from the top**: the first row whose "Who" you can do.
+  Skip a row only for a blocker you write into it. Only the owner reorders the list.
+* Record what you find in `docs/BACKLOG.md`: in "Open" at the place its priority puts it, with who can take it,
+  details below it.
