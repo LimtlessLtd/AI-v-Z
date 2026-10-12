@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.37"
+G.VERSION = "0.4.38"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -585,6 +585,29 @@ local function planksOn(o, same)
 	return b and b:getNumPlanks() or 0
 end
 
+-- The inventory menu's equip entries (ISInventoryPaneContextMenu.createMenu :426-436, doEquipOption :4129-4151):
+-- Equip Two Hands for a two-handed weapon in working condition not already in both hands; Equip Primary while the
+-- right hand has no deep wound and no fracture, or a splinted one, unless it's the primary item alone already.
+-- Returns whether it's offered and whether with both hands. (gym 0.4.38)
+local function equipEntry(p, it)
+	if it:isTwoHandWeapon() and it:getCondition() > 0 then return not p:isItemInBothHands(it), true end
+	if p:isPrimaryHandItem(it) and not p:isSecondaryHandItem(it) then return false end
+	local hand = p:getBodyDamage():getBodyPart(BodyPartType.Hand_R)
+	return not hand:isDeepWounded() and (hand:getFractureTime() == 0 or hand:getSplintFactor() > 0), false
+end
+
+-- Drop from inside a vehicle needs the seat's door, or that door's window, open: the menu greys Drop out otherwise
+-- (ISInventoryPaneContextMenu.createMenu :351-371, :641-651, "ContextMenu_DropFromVehicle"). (gym 0.4.38)
+local function shutIn(p)
+	local v = p:getVehicle()
+	if not v then return false end
+	local doorPart = v:getPassengerDoor(v:getSeat(p))
+	local windowPart = VehicleUtils.getChildWindow(doorPart)
+	local door = doorPart and doorPart:getDoor()
+	local window = windowPart and windowPart:getWindow()
+	return (door and not door:isOpen() and window and not (window:isOpen() or window:isDestroyed())) and true or false
+end
+
 local function zombiesToward(zs, dname)
 	local n = 0
 	for _, e in ipairs(zs) do if e.d < 20 and U.dir8(e.dx, e.dy) == dname then n = n + 1 end end
@@ -858,6 +881,7 @@ function G.options(p)
 		end
 	end
 	-- the inventory
+	local shut = shutIn(p)
 	local held = p:getPrimaryHandItem()
 	if held then add(list, "unequip", G.itemInfo(p, held), { it = held }) end
 	local crafts = 0
@@ -885,10 +909,13 @@ function G.options(p)
 				info.open, info.portion = nil, nil
 			end
 		end
-		if instanceof(it, "HandWeapon") and count(list, "equip") < 3 then add(list, "equip", info, { it = it }) end
+		if instanceof(it, "HandWeapon") and count(list, "equip") < 3 then
+			local ok, both = equipEntry(p, it)
+			if ok then add(list, "equip", info, { it = it, both = both }) end
+		end
 		if (instanceof(it, "Clothing") or U.isBackBag(it)) and not worn and count(list, "wear") < 3 then add(list, "wear", info, { it = it }) end
 		if worn and count(list, "take_off") < 4 then add(list, "take_off", info, { it = it }) end
-		if not worn and not try(function() return it:isFavorite() end) and count(list, "drop") < 6 then add(list, "drop", info, { it = it }) end
+		if not worn and not shut and not try(function() return it:isFavorite() end) and count(list, "drop") < 6 then add(list, "drop", info, { it = it }) end
 		if crafts < 5 then
 			for _, r in ipairs(G.recipes(p, it)) do
 				if crafts < 5 then
@@ -1376,7 +1403,9 @@ G.X.search = {
 G.X.take = {
 	start = function(p, t, o)
 		if not U.walkToContainer(p, o.data.c, t) then return U.fail(t, "can't reach it") end
-		Q(ISInventoryTransferAction:new(p, o.data.it, o.data.c, U.carryInv(p, o.data.it)))
+		-- the loot window's own constructor (ISInventoryTransferUtil, gym 0.4.38): ISInventoryTransferAction, or
+		-- ISGrabCorpseItem for a corpse item
+		Q(ISInventoryTransferUtil.newInventoryTransferAction(p, o.data.it, o.data.c, U.carryInv(p, o.data.it)))
 	end,
 	step = function(p, t, o)
 		if t.pathFailed then return U.fail(t, "no way there") end
@@ -1508,7 +1537,7 @@ G.X.drink_tap = {
 	end),
 }
 G.X.equip = {
-	start = function(p, t, o) ISInventoryPaneContextMenu.equipWeapon(o.data.it, true, o.data.it:isTwoHandWeapon(), p:getPlayerNum()) end,
+	start = function(p, t, o) ISInventoryPaneContextMenu.equipWeapon(o.data.it, true, o.data.both, p:getPlayerNum()) end,
 	step = queueStep(300, function(p, t, o) if p:getPrimaryHandItem() ~= o.data.it then return "not in hand" end end),
 }
 G.X.unequip = {
