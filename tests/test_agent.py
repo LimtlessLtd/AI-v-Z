@@ -559,6 +559,18 @@ class BarricadeStaticTest(unittest.TestCase):
         self.assertLess(x.index("if not be:isValid(bsq)"), x.index("be:tryBuild("))
 
 
+class EnterMacroStaticTest(unittest.TestCase):
+    """Mod 0.5.7 (backlog L11): the enter macro chooses among windows a player has seen, without their lock state."""
+
+    def test_no_lock_state_and_only_seen_windows(self):
+        src = (Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client/AIvZ.lua").read_text(encoding="utf-8")
+        start = src.index("local function entryWindows")
+        code = "\n".join(l.split("--")[0] for l in src[start:src.index("function A.travelStep")].splitlines())
+        self.assertNotIn("isLocked", code)
+        self.assertNotIn("isPermaLocked", code)
+        self.assertIn("(sq:isSeen(pn) or other:isSeen(pn))", code)
+
+
 class SpeedHoldStaticTest(unittest.TestCase):
     """AIvZ 0.5.3: the owner's speed pick survives a game restart (backlog N9) and isn't lost to an F2 unpause or the
     Pause button coming back at Play (code only, not run in the game here)."""
