@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.18"
+G.VERSION = "0.4.19"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -323,7 +323,7 @@ function G.observe(p, dead)
 			return n
 		end
 		o.where.doorsOpen, o.where.windowsOpen, o.where.curtainsOpen = seen(info.doorsOpen), seen(info.windowsOpen), seen(info.curtainsOpen)
-		o.where.smashed = info.smashed
+		o.where.smashed = info.smashedAt and seen(info.smashedAt) or info.smashed
 	end
 	-- what it remembers is in containers it has looked into nearby
 	o.near = { food = 0, drink = 0, medical = 0, weapon = 0, items = 0 }
