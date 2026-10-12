@@ -66,6 +66,20 @@ Agents leave these alone until the owner decides; then the item moves into the l
 | **Breadth** | | | | |
 | 19 | G9 | A general adapter for the vanilla right-click menus: the scalable route to every menu action. | local | GAP_LIST item 9; side effects need live tests. |
 | 20 | G15-G19, G21-G23 | Vehicles beyond entering, crafting window recipes, repairs, generators and appliances, farming, foraging, fishing, trapping, firearms, map and radio, the new-game flow. | local, then cloud | Audit each in the game files, then build; GAP_LIST items 15-23. |
+| **Watching it** | | | | |
+| 21 | P1 | The [public page](#public-page-owner-request-2026-10-12)'s replay radar shows the character, its path and the zombies, but no walls, doors or buildings: the observation has no geometry. | local, then cloud | Decide what a player sees that could be drawn (the room's openings already have counts, not positions); any new field reaches the page only when added to `agent/site.py`. |
+
+## Public page (owner request, 2026-10-12)
+
+The owner asked to see the learning from anywhere. <https://limtlessltd.github.io/AI-v-Z/> (README "Public page")
+has the Learning charts, a verbs × rounds heatmap of how its preferences changed, replays of real lives (the
+radar, what it perceived, the top 10 options by Q and its pick) and the network (layout, weights, `qnet.npz`).
+Owner decisions: replays of real lives rather than a toy simulation (the network would act outside anything it
+learned from); GitHub Pages deployed by Actions from `site/` on `main`, with the data in the `site-data` release
+so it stays out of git history; refreshed after merges on the owner's PC with `scripts/publish-site.ps1`.
+
+Found while building it: the network has 322,945 weights, not the "about 0.7 M" the README and `agent/net.py`
+said (corrected). The verb heatmap and the mean-Q chart jump at round 37, the first round under reward version 3.
 
 ## Learning speed (owner decisions, 2026-10-12)
 

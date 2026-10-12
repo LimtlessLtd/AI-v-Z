@@ -192,3 +192,34 @@ class Lives:
         cur.kills = obs.get("kills", cur.kills)
         cur.age = (obs.get("t") or {}).get("age", cur.age)
         return cur, r, parts, False, finished
+
+
+def rules_lives(log_dir, last=400):
+    """Lives the rules baseline played (written by the bridge to logs/lives-rules.jsonl), for comparison."""
+    try:
+        lines = (Path(log_dir) / "lives-rules.jsonl").read_text(encoding="utf-8").splitlines()
+        recs = [json.loads(x) for x in lines[-last if last else 0:] if x.strip()]
+    except (OSError, ValueError):
+        return []
+    return [{"life": x.get("life"), "policy": "rules", "hours": x.get("hours", 0), "reward": x.get("reward"),
+             "kills": x.get("kills", 0), "items": x.get("items_seen"), "buildings": x.get("buildings"),
+             "decisions": x.get("decisions", 0)} for x in recs if x.get("ended") == "died"]
+
+
+def learning_data(log_dir, history, rounds=200, lives=400):
+    """The Learning page's data: training rounds, and lives compared by the policy that played them. The dashboard
+    shows the last `rounds` and `lives`; the public page (agent/site.py) passes None for all of them."""
+    hist = []
+    try:
+        lines = (Path(log_dir) / "model" / "history.jsonl").read_text(encoding="utf-8").splitlines()
+        hist = [json.loads(x) for x in lines[-rounds if rounds else 0:] if x.strip()]
+    except (OSError, ValueError):
+        pass
+    # a reward total is shown only in the current reward's points; older lives keep their hours and kills
+    out = [{"life": x.get("life"), "policy": x.get("policy") or "random", "hours": x.get("hours", 0),
+            "reward": x.get("reward", 0) if x.get("reward_v", 1) == reward.VERSION else None,
+            "kills": x.get("kills", 0), "items": x.get("items_seen", 0),
+            "buildings": x.get("buildings", 0), "decisions": x.get("decisions", 0)}
+           for x in history if x.get("ended") == "died"]
+    out += rules_lives(log_dir, lives)
+    return {"history": hist, "lives": out[-lives if lives else 0:]}

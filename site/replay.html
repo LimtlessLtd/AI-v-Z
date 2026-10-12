@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-v-Z replays</title>
+<meta name="description" content="Step through real lives of a neural network playing Project Zomboid: what it saw, what it rated each option, what it picked.">
+<link rel="stylesheet" href="style.css">
+<script src="common.js"></script>
+<style>
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .controls input[type="range"] { flex: 1 1 220px; min-width: 0; accent-color: var(--net); }
+  .controls .where { flex: 1 1 100%; color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 14px; font-size: 13px; }
+  .kv > span:nth-child(odd) { color: var(--text-2); }
+  .radar { max-width: 440px; margin: 0 auto; }
+  .radar text { fill: var(--muted); font-size: 11px; }
+  tr.picked td { background: var(--pick); }
+  tr.picked td:first-child { font-weight: 600; }
+  .qbar { height: 8px; border-radius: 2px; background: var(--net); min-width: 2px; }
+  .pos { color: var(--good); } .neg { color: var(--bad); }
+  #life { max-width: 100%; }
+</style>
+</head>
+<body>
+<main id="main">
+  <p class="status" id="status">Loading…</p>
+</main>
+<template id="page">
+  <section class="wide">
+    <h2>Pick a life</h2>
+    <select id="life" aria-label="Life to replay"></select>
+    <p class="note" id="lifeNote"></p>
+  </section>
+
+  <section class="wide">
+    <div class="controls">
+      <button id="first" title="First step" aria-label="First step">⏮</button>
+      <button id="prev" title="Previous step (←)" aria-label="Previous step">◀</button>
+      <button id="play" title="Play or pause (space)" aria-label="Play">▶ Play</button>
+      <button id="next" title="Next step (→)" aria-label="Next step">▶</button>
+      <button id="last" title="Last step" aria-label="Last step">⏭</button>
+      <select id="speed" aria-label="Playback speed">
+        <option value="2">2 steps/s</option><option value="5" selected>5 steps/s</option>
+        <option value="10">10 steps/s</option><option value="25">25 steps/s</option>
+      </select>
+      <input type="range" id="scrub" min="0" value="0" aria-label="Step">
+      <div class="where" id="where"></div>
+    </div>
+    <h2 style="margin-top:12px">Reward collected during the replay <small>click to jump there</small></h2>
+    <div class="chart" id="reward"></div>
+  </section>
+
+  <section>
+    <h2>Around the character <small>north up, 25 tiles to the edge</small></h2>
+    <div class="legend"><span><i class="key" style="background:var(--me)"></i>the character</span>
+      <span><i class="key line" style="background:var(--me);opacity:.5"></i>where it came from</span>
+      <span><i class="key" style="background:var(--zombie)"></i>zombie</span>
+      <span><i class="key" style="border:2px solid var(--zombie)"></i>knocked down</span>
+      <span><i class="key" style="background:var(--zombie);opacity:.4"></i>behind a wall</span>
+      <span>— a tick points at the character when the zombie faces it</span></div>
+    <div class="radar chart" id="radar"></div>
+  </section>
+
+  <section>
+    <h2>What it perceived</h2>
+    <div class="kv" id="seen"></div>
+    <h2 style="margin-top:14px">Reward for this step</h2>
+    <div class="kv" id="stepReward"></div>
+  </section>
+
+  <section class="wide">
+    <h2>The options and its pick <small id="optNote"></small></h2>
+    <div class="scroll"><table id="options"></table></div>
+    <p class="note">Q is the reward it expected to follow from picking that option now. It picks by chance, weighted
+      towards the highest Q ("chance" column), and one pick in ten at random.</p>
+  </section>
+</template>
+<script>
+const R = 25;   // tiles from the centre to the radar's edge
+const WHY = { "still at it": "its action was still running", done: "its last action finished",
+  failed: "its last action failed", hurt: "it got hurt", "zombie close": "a zombie came close", idle: "it was idle",
+  died: "it died" };
+const FACING = f => f == null ? "" : f >= 0.7 ? "facing it" : f <= -0.3 ? "facing away" : "side-on";
+const words = v => String(v ?? "").replace(/_/g, " ");
+let index = [], summary = null, life = null, at = 0, timer = null, cum = [];
+
+function kv(rows) {
+  return rows.filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) => `<span>${esc(k)}</span><span>${v}</span>`).join("");
+}
+
+function radar(step, prevSteps) {
+  onWidth($("radar"), W => {
+    const S = Math.min(W, 440), c = S / 2, k = (c - 14) / R;
+    const s = svg(S, S);
+    let g = [5, 10, 20].map(r => `<circle cx="${c}" cy="${c}" r="${r * k}" fill="none" stroke="var(--line)"/>` +
+      `<text x="${c + r * k * 0.71 + 3}" y="${c - r * k * 0.71 - 3}">${r}</text>`).join("");
+    g += `<line x1="${c}" x2="${c}" y1="8" y2="${S - 8}" stroke="var(--line)"/><line y1="${c}" y2="${c}" x1="8" x2="${S - 8}" stroke="var(--line)"/>`;
+    g += `<text x="${c + 4}" y="12">N</text>`;
+    const p = step.pos;
+    if (p) {   // the trail: the last 60 positions on this floor, relative to now
+      const pts = prevSteps.filter(q => q.pos && q.pos[2] === p[2]).map(q => [(q.pos[0] - p[0]), (q.pos[1] - p[1])])
+        .filter(([dx, dy]) => Math.hypot(dx, dy) <= R).map(([dx, dy]) => `${c + dx * k},${c + dy * k}`);
+      if (pts.length > 1) g += `<polyline points="${pts.join(" ")} ${c},${c}" fill="none" stroke="var(--me)" stroke-opacity=".5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
+    const zs = (step.z || []).map(([dx, dy, f, down, blocked]) => {
+      const d = Math.hypot(dx, dy), far = d > R, sc = far ? R / d : 1;
+      return { x: c + dx * sc * k, y: c + dy * sc * k, d, f, down, blocked, far };
+    });
+    for (const z of zs.slice().reverse()) {
+      const op = z.blocked ? ' opacity=".4"' : "";
+      if (z.f != null && z.f >= 0.7 && !z.down && z.d > 0.5) {
+        const ux = (c - z.x) / Math.hypot(c - z.x, c - z.y), uy = (c - z.y) / Math.hypot(c - z.x, c - z.y);
+        g += `<line x1="${z.x}" y1="${z.y}" x2="${z.x + ux * 11}" y2="${z.y + uy * 11}" stroke="var(--zombie)" stroke-width="2" stroke-linecap="round"${op}/>`;
+      }
+      g += z.down ? `<circle cx="${z.x}" cy="${z.y}" r="${z.far ? 3 : 4.5}" fill="var(--surface)" stroke="var(--zombie)" stroke-width="2"${op}/>`
+        : `<circle cx="${z.x}" cy="${z.y}" r="${z.far ? 3.5 : 5}" fill="var(--zombie)" stroke="var(--surface)" stroke-width="2"${op}/>`;
+    }
+    g += `<circle cx="${c}" cy="${c}" r="6" fill="var(--me)" stroke="var(--surface)" stroke-width="2"/>`;
+    g += zs.map((z, i) => `<circle class="zhit" data-i="${i}" cx="${z.x}" cy="${z.y}" r="11" fill="transparent"/>`).join("");
+    s.innerHTML = g;
+    s.querySelectorAll(".zhit").forEach(el => {
+      const z = zs[+el.dataset.i];
+      el.addEventListener("pointermove", e => showTip(e, `<b>Zombie</b>, ${fmt(z.d)} tiles away` +
+        [FACING(z.f), z.down ? "knocked down" : "", z.blocked ? "behind a wall" : "", z.far ? "(beyond the edge)" : ""].filter(Boolean).map(x => "<br>" + x).join("")));
+      el.addEventListener("pointerleave", hideTip);
+    });
+    $("radar").replaceChildren(s);
+  });
+}
+
+function show(i) {
+  const data = life.data;
+  at = Math.max(0, Math.min(data.length - 1, i));
+  const s = data[at], t = s.t || [], born = life.born ?? data[0].age;
+  $("scrub").value = at;
+  const clock = t[1] != null ? `day ${t[0]} ${String(t[1]).padStart(2, "0")}:${String(t[2]).padStart(2, "0")}` : "";
+  const into = s.age != null && born != null ? `${fmt(s.age - born, 2)} game hours into the life` : "";
+  $("where").textContent = `Step ${at + 1} of ${data.length}` + (clock ? ` · ${clock}` : "") + (into ? ` · ${into}` : "");
+  radar(s, data.slice(Math.max(0, at - 60), at));
+  const moods = Object.entries(s.m || {}).map(([k, v]) => `${words(k)} ${v}`).join(", ");
+  const wounds = (s.w || []).map(([part, flags]) => `${words(part)}: ${flags.join("/")}`).join("; ");
+  const zs = s.z || [];
+  const last = s.last ? `${words(s.last[0])}: ${esc(s.last[1])}` + (s.last[2] ? ` <span class="muted">(${esc(s.last[2])})</span>` : "") : "";
+  $("seen").innerHTML = kv([["asked because", esc(WHY[s.why] || s.why)], ["health", s.hp], ["moodles", esc(moods || "none")],
+    ["wounds", esc(wounds || "none")], ["where", s.in === undefined ? "" : s.in === "" ? "outside" : "inside, " + esc(words(s.in))],
+    ["holding", esc(s.held || "nothing")], ["moving", esc(s.mv || "walking pace")],
+    ["zombies in sight", zs.length ? `${zs.length}, nearest ${fmt(Math.hypot(zs[0][0], zs[0][1]))} tiles` : "none"],
+    ["last action", last], ["played by", esc(s.pol || "random")]]) + (s.dead ? `<span>outcome</span><span class="neg">died here</span>` : "");
+  const sign = v => v == null ? "–" : v > 0 ? `<span class="pos">+${fmt(v, 2)}</span>` : v < 0 ? `<span class="neg">${fmt(v, 2)}</span>` : fmt(v, 2);
+  $("stepReward").innerHTML = kv([["this step", sign(s.r)], ...Object.entries(s.parts || {}).map(([k, v]) => [words(k), sign(v)]),
+    ["so far in the replay", sign(cum[at])]]);
+  const qs = s.o.map(o => o[3]).filter(q => q != null), lo = Math.min(...qs), hi = Math.max(...qs);
+  // the export keeps the 10 best by Q, and the pick after them when it wasn't among them (the first 10 without Q)
+  $("optNote").textContent = s.n <= s.o.length ? `all ${s.n}` : (qs.length ? `the 10 best rated of ${s.n}` : `10 of ${s.n}, not scored`) +
+    (s.o.length > 10 ? ", plus its pick" : "");
+  $("options").innerHTML = `<tr><th>option</th><th>on</th><th>detail</th><th class="n">Q</th><th style="width:18%"></th><th class="n">chance</th></tr>` +
+    s.o.map(([verb, label, detail, q, p, picked]) => `<tr class="${picked ? "picked" : ""}"><td>${picked ? "✓ " : ""}${esc(words(verb))}</td>` +
+      `<td>${esc(label)}</td><td class="muted">${esc(detail)}</td><td class="n">${fmt(q)}</td>` +
+      `<td>${q == null ? "" : `<div class="qbar" style="width:${hi > lo ? 8 + 92 * (q - lo) / (hi - lo) : 100}%"></div>`}</td>` +
+      `<td class="n">${p == null ? "–" : fmt(100 * p, 1) + "%"}</td></tr>`).join("") +
+    (s.o.length ? "" : `<tr><td colspan="6" class="muted">no options: ${s.dead ? "the character died" : "nothing to choose"}</td></tr>`);
+  lineChart($("reward"), life.pts, { height: 110, zero: true, fmtY: v => fmt(v, 0), cursor: at, onPick: i => { pause(); show(i); } });
+  history.replaceState(null, "", `#life=${life.life}&step=${at + 1}`);
+}
+
+function pause() { if (timer) { clearInterval(timer); timer = null; } $("play").textContent = "▶ Play"; $("play").setAttribute("aria-label", "Play"); }
+function play() {
+  if (at >= life.data.length - 1) show(0);
+  timer = setInterval(() => { if (at >= life.data.length - 1) pause(); else show(at + 1); }, 1000 / +$("speed").value);
+  $("play").textContent = "❚❚ Pause"; $("play").setAttribute("aria-label", "Pause");
+}
+
+async function open(n, step = 0) {
+  pause();
+  const meta = index.find(x => x.life === n) || index[0];
+  $("life").value = meta.life;
+  $("lifeNote").textContent = "Loading…";
+  const r = await load(`data/lives/${meta.life}.json`);
+  if (!r || !r.data || !r.data.length) { $("lifeNote").textContent = "This replay could not be loaded."; return; }
+  life = r;
+  let sum = 0;
+  cum = r.data.map(s => (sum += s.r || 0));
+  life.pts = r.data.map((s, i) => ({ x: "", y: cum[i], tip: `Step ${i + 1}: ${fmt(cum[i], 1)} points so far` }));
+  life.pts[0].x = "start";
+  life.pts[life.pts.length - 1].x = r.ended === "playing" ? "now" : r.ended || "end";
+  $("scrub").max = r.data.length - 1;
+  const late = r.born != null && r.data[0].age != null ? r.data[0].age - r.born : 0;
+  $("lifeNote").innerHTML = `${esc(r.who)} · played by ${esc(r.policy)} · ${fmt(r.hours, 2)} game hours · ${esc(r.kills)} kills · ` +
+    `${r.ended === "playing" ? "still playing when published" : esc(r.ended)}` + (r.reward != null ? ` · reward ${fmt(r.reward)}` : "") +
+    (r.traits && r.traits.length ? `<br>Traits: ${esc(r.traits.join(", "))}` : "") +
+    (late > 0.5 ? `<br>The experience log only starts ${fmt(late, 1)} game hours into this life, so the replay does too.` : "") +
+    (summary && r.reward_v && r.reward_v !== summary.reward_v ? `<br>Rewards are shown as they were scored then (reward version ${esc(r.reward_v)}); ` +
+      `training re-scores them under version ${esc(summary.reward_v)}.` : "");
+  show(step);
+}
+
+$("main").insertAdjacentHTML("afterbegin", header("replay.html"));
+(async () => {
+  index = await load("data/lives/index.json");
+  summary = await load("data/summary.json");
+  if (!index || !index.length) { $("status").remove(); return noData($("main")); }
+  $("status").textContent = `Snapshot from ${when(summary && summary.generated)} · ${index.length} lives with a replay: the last ten, the longest, and the one being played when this was published.`;
+  $("main").append($("page").content.cloneNode(true));
+  const tag = { recent: "recent", longest: "one of the longest", playing: "playing now" };
+  $("life").innerHTML = index.slice().sort((a, b) => b.life - a.life).map(x => `<option value="${x.life}">Life ${x.life} · ${esc(x.who)} · ` +
+    `${fmt(x.hours, 1)} h · ${esc(x.ended)} · ${esc(x.policy)} · ${esc((x.picked || []).map(w => tag[w] || w).join(", "))}</option>`).join("");
+  $("life").addEventListener("change", e => open(+e.target.value));
+  $("first").onclick = () => { pause(); show(0); };
+  $("last").onclick = () => { pause(); show(life.data.length - 1); };
+  $("prev").onclick = () => { pause(); show(at - 1); };
+  $("next").onclick = () => { pause(); show(at + 1); };
+  $("play").onclick = () => timer ? pause() : play();
+  $("speed").onchange = () => { if (timer) { pause(); play(); } };
+  $("scrub").addEventListener("input", e => { pause(); show(+e.target.value); });
+  document.addEventListener("keydown", e => {
+    const tag = document.activeElement.tagName;   // a focused slider, list or button handles its own keys
+    if (!life || tag === "SELECT" || tag === "INPUT" || (tag === "BUTTON" && e.key === " ")) return;
+    if (e.key === "ArrowLeft") { pause(); show(at - 1); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { pause(); show(at + 1); e.preventDefault(); }
+    else if (e.key === " ") { timer ? pause() : play(); e.preventDefault(); }
+  });
+  const h = new URLSearchParams(location.hash.slice(1));
+  // by default the longest life the network played (the page is about the network), else the longest of all
+  const byHours = index.slice().sort((a, b) => b.hours - a.hours), start = byHours.find(x => x.policy === "net") || byHours[0];
+  open(+h.get("life") || start.life, Math.max(0, (+h.get("step") || 1) - 1));
+})();
+</script>
+</body>
+</html>

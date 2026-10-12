@@ -306,20 +306,23 @@ def encode_option(o, obs=None):
 def read_records(path):
     """Every decision record in one experience file. A file that two agents wrote at once (2026-10-11 11h and
     12h) has broken gzip members or plain text in it: whatever whole lines can still be read are kept."""
+    out = []
+    for line in read_lines(path):
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            pass
+    return out
+
+
+def read_lines(path):
+    """The record lines of one experience file, still as text (see read_records)."""
     data = Path(path).read_bytes()
     try:
         text = gzip.decompress(data).decode("utf-8", errors="replace")
     except (OSError, EOFError, zlib.error):
         text = _salvage(data)
-    out = []
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                out.append(json.loads(line))
-            except ValueError:
-                pass
-    return out
+    return [line for line in (x.strip() for x in text.splitlines()) if line.startswith("{")]
 
 
 def _salvage(data):

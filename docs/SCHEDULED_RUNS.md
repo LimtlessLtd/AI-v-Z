@@ -57,6 +57,9 @@ Don't reorder the backlog. A new finding goes in where its priority puts it, wit
   - the game's speed and display settings.
 - **Local only.** Everything binds to 127.0.0.1. Use the dependencies already installed; ask before
   installing anything.
+- **The public page.** A merge into `main` redeploys <https://limtlessltd.github.io/AI-v-Z/> with the data last
+  published from the owner's PC. A run without `logs/` can't refresh that data, and doesn't need to: don't run
+  `scripts/publish-site.ps1` from the cloud.
 - **Small and sound.** Run the tests before every push. One clean merged PR beats a large unfinished one.
 
 ## Report

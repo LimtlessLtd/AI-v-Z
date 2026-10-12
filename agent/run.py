@@ -41,7 +41,7 @@ if str(ROOT) not in sys.path:
 
 from agent.link import DEFAULT_LUA_DIR, GameLink  # noqa: E402
 from agent.hearing import Hearing  # noqa: E402
-from agent.lives import Lives  # noqa: E402
+from agent.lives import Lives, learning_data  # noqa: E402
 from agent import reward  # noqa: E402
 from agent.policies import NetPolicy, ProbePolicy, RandomPolicy  # noqa: E402
 
@@ -235,34 +235,10 @@ class Agent:
                 "lives": self.lives.history[-60:], "recent": list(self.recent),
             }
 
-    def _rules_lives(self):
-        """Lives the rules baseline played (written by the bridge to logs/lives-rules.jsonl), for comparison."""
-        try:
-            lines = (self.log_dir / "lives-rules.jsonl").read_text(encoding="utf-8").splitlines()
-            recs = [json.loads(x) for x in lines[-400:] if x.strip()]
-        except (OSError, ValueError):
-            return []
-        return [{"life": x.get("life"), "policy": "rules", "hours": x.get("hours", 0), "reward": x.get("reward"),
-                 "kills": x.get("kills", 0), "items": x.get("items_seen"), "buildings": x.get("buildings"),
-                 "decisions": x.get("decisions", 0)} for x in recs if x.get("ended") == "died"]
-
     def learning(self):
         """The Learning page's data: training rounds, and lives compared by the policy that played them."""
-        hist = []
-        try:
-            lines = (self.log_dir / "model" / "history.jsonl").read_text(encoding="utf-8").splitlines()
-            hist = [json.loads(x) for x in lines[-200:] if x.strip()]
-        except (OSError, ValueError):
-            pass
-        # a reward total is shown only in the current reward's points; older lives keep their hours and kills
-        lives = [{"life": x.get("life"), "policy": x.get("policy") or "random", "hours": x.get("hours", 0),
-                  "reward": x.get("reward", 0) if x.get("reward_v", 1) == reward.VERSION else None,
-                  "kills": x.get("kills", 0), "items": x.get("items_seen", 0),
-                  "buildings": x.get("buildings", 0), "decisions": x.get("decisions", 0)}
-                 for x in self.lives.history if x.get("ended") == "died"]
-        lives += self._rules_lives()
-        return {"history": hist, "lives": lives[-400:], "trainer": self.trainer.status() if self.trainer else None,
-                "policy": self.policy.name}
+        return learning_data(self.log_dir, self.lives.history) | {
+            "trainer": self.trainer.status() if self.trainer else None, "policy": self.policy.name}
 
     def server(self):
         """The dashboard's HTTP server, bound to 127.0.0.1 (raises OSError if the port is taken)."""

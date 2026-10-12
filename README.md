@@ -5,6 +5,9 @@ in real time while you watch. The intended environment gives it what a player ca
 normal gameplay action a player can take, so it learns from what happens. That coverage is not complete
 yet. No cloud services, no language model, no multiplayer.
 
+**Watch it learn:** <https://limtlessltd.github.io/AI-v-Z/>, with its learning charts, replays of its lives and the
+network itself (a snapshot the owner publishes from the PC that plays; see [Public page](#public-page)).
+
 > **Status (2026-10-12): Phase 4, learning, is in progress.** A small network scores every option the
 > game offers and the agent plays by those scores, retraining every 5 minutes from everything it has
 > lived through. The reward was redone on 2026-10-12 (version 3, below), and the same day the network got
@@ -26,7 +29,7 @@ yet. No cloud services, no language model, no multiplayer.
 | **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | Closed 2026-10-11 ([PR #25](https://github.com/LimtlessLtd/AI-v-Z/pull/25)) with 27 action types working; the gaps (more actions, hearing, the last hidden-information leaks) are filled alongside Phase 4. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
 | **4. Learning** | A small network scores every option; the reward is a big, steady gain for time alive, costs for lost health and new wounds, small bonuses for progress (places, items, kills), a death cost that outweighs everything else (charged when the Knox infection happens), and hints for health, wound care and clothing protection that can't be farmed. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 5 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
 | 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
-| 6. Watchability | HUD shows what it's weighing; replays of its best lives | |
+| 6. Watchability | HUD shows what it's weighing; replays of its best lives | Replays of real lives are on the [public page](#public-page) (2026-10-12) |
 
 Decisions so far: it learns from natural play only (no staged practice situations), and only from its own
 experience (it never watches a human play).
@@ -139,7 +142,7 @@ ground-floor room of any building of that town, away from where the last 20 live
 list has only about 10 houses per town for a character without a profession). Stopping the agent (Ctrl+C) hands the character back to the
 baseline within ~6 s.
 
-**How it learns.** The network (`agent/net.py`, about 0.7 M weights, PyTorch on the CPU) gives every option
+**How it learns.** The network (`agent/net.py`, about 0.32 M weights, PyTorch on the CPU) gives every option
 on offer a score, Q: the reward it expects to follow from picking that option now. It sees what a player
 sees: the moodles first, then wounds, health, the zombies in view and which way each one is, light, what it
 carries and holds, the place and its open doors and windows, whether it is sneaking or running and which way each
@@ -217,6 +220,38 @@ Measured on this PC on 2026-10-09 (a one-minute sample, time awake only; PZ runs
 while the character sleeps): at 20× the character got through about 270 game minutes per real minute
 and 176 decisions, against roughly 20–30 game minutes and 80 decisions at 1×.
 
+## Public page
+
+<https://limtlessltd.github.io/AI-v-Z/> shows the learning from anywhere. It has three pages:
+
+- **Learning:** the Learning page's charts, plus loss and mean Q per round and how its liking for each kind of option
+  changed over the training rounds.
+- **Replays:** real lives, step by step: a top-down radar of the character, its path and the zombies in sight,
+  what it perceived, every option with its Q, and its pick.
+- **The network:** its layout and weights, and `qnet.npz` to download (plain arrays, no pickle).
+
+It is a snapshot, not live. The page's code is `site/` on `main`; the data comes from the PC that plays:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/publish-site.ps1
+```
+
+The script does three things:
+
+1. Exports an allow-listed snapshot of `logs/` with `python -m agent.site`: the training rounds, every life's
+   summary, replays of the last 10 lives, the 10 longest and the one in progress, and the network.
+2. Uploads it to the `site-data` release, a pre-release that only holds this data.
+3. Starts the Pages deploy (`.github/workflows/pages.yml`, using GitHub's own `checkout`, `configure-pages`,
+   `upload-pages-artifact` and `deploy-pages` actions).
+
+Every push to `main` also redeploys, but with the last uploaded data, so run the script after merging a PR when the
+page should catch up. `-DryRun` builds the snapshot without uploading it. Publishing needs the GitHub CLI (`gh`)
+signed in.
+
+Left out of the export on purpose: the hearing snapshot (wall-clock times), save names, the inventory, the
+protection panel, the raw stats behind the moodles and the hidden Knox flag. Experience is kept from 2026-10-09
+15:00, so older lives have no replay, and a replay of a life that began earlier starts partway through.
+
 ## Controls (in game)
 
 | Key | Effect |
@@ -230,8 +265,10 @@ and 176 decisions, against roughly 20–30 game minutes and 80 decisions at 1×.
 
 The IPC files let **any program running as you drive your character**, which is the same trust level as
 your mods folder. Nothing in AI-v-Z executes code from those files. Both dashboards bind `127.0.0.1`,
-reject other `Host` headers, and change nothing. Don't expose port 8799. The review of the two repos
-this builds on, and what was left out for safety, is in [docs/REVIEW.md](docs/REVIEW.md).
+reject other `Host` headers, and change nothing. Don't expose port 8799. The one thing that leaves the PC is
+the [public page](#public-page)'s data: a one-way, allow-listed export that you publish yourself. The agent never
+talks to the internet, and nothing is read back from the page. The review of the two repos this builds on, and
+what was left out for safety, is in [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Development
 
@@ -275,11 +312,14 @@ mod/AIvZ/           the Build 42 Lua mod (AIvZ.lua: reflex, tactics, HUD; AIvZGy
                     observations and respawns; AIvZLoader.lua: events, hot reload)
 agent/              the self-taught agent: run.py (loop, logs, dashboard, trainer), link.py (the files), reward.py,
                     lives.py, policies.py (net, random, probe), features.py (what the network sees),
-                    net.py (the network), learn.py (a training round), agent.html, learning.html
+                    net.py (the network), learn.py (a training round), agent.html, learning.html,
+                    site.py (the public page's export)
+site/               the public page (static HTML/JS: Learning, Replays, The network); data/ is added at deploy
+.github/workflows/  pages.yml: deploys site/ and the last published data to GitHub Pages
 bridge/             bridge.py (rules baseline decision loop, dashboard server) and mind.html
 brain/              baseline decision code: goals, rules, percept conversion, strategy
 tests/              unit tests, the 31 benchmark situations, LuaCheck.java (the Lua compile check)
-scripts/            start.ps1 (one-click start), install-mod.ps1, reload-mod.ps1
+scripts/            start.ps1 (one-click start), install-mod.ps1, reload-mod.ps1, publish-site.ps1 (the public page)
 docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and verification; ACTION_CATALOGUE,
                     OBSERVATION_AUDIT and GAP_LIST (audit against the installed game); REWARD_RESEARCH (reward
                     version 3); archive/ (BENCHMARK and DECISION_MODELS: the Phase 0 record, Qwen era)

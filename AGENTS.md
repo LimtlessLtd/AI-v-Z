@@ -15,7 +15,10 @@ mod (the gym). Start with [README.md](README.md) (current state, how to run, kno
 * Commit at each milestone, and keep the README current: install steps, how to run, controls (F7, manual
   override), known issues. Pin the tested game build in the README's "Tested against" table.
 * Local only: the IPC files in `%USERPROFILE%\Zomboid\Lua\aivz\` let any local program drive the character,
-  and the dashboards bind 127.0.0.1. Nothing read from those files is ever executed.
+  and the dashboards bind 127.0.0.1. Nothing read from those files is ever executed. The one exception, the
+  owner's decision of 2026-10-12, is the public page (`site/`, <https://limtlessltd.github.io/AI-v-Z/>): a
+  one-way export of the fields `agent/site.py` names, published with `scripts/publish-site.ps1`. Nothing is
+  read back from it, and the agent itself never talks to the internet.
 * Unvetted code from elsewhere is read before it is run, and anything unsafe reported. Keep the MIT notices in
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 * Speed or memory numbers from blogs are estimates: measure on the owner's PC.
@@ -47,6 +50,9 @@ mod (the gym). Start with [README.md](README.md) (current state, how to run, kno
   (an owner decision, backlog O6).
 * Run the agent from `scripts/start.ps1` in its own window, never as a background task of an AI coding
   session: the task dies with the session (backlog N3).
+* After merging a PR into `main` on the owner's PC (the one with `logs/`), run `scripts/publish-site.ps1` so the
+  public page shows current data. A push alone redeploys the page with the last uploaded data. A new field on
+  the page is added to `agent/site.py` on purpose (it is an allow-list, like `agent/features.py`).
 * Pick work from the "Open" list in `docs/BACKLOG.md` **from the top**: the first row whose "Who" you can do.
   Skip a row only for a blocker you write into it. Only the owner reorders the list.
 * Record what you find in `docs/BACKLOG.md`: in "Open" at the place its priority puts it, with who can take it,
