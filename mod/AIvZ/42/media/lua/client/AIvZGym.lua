@@ -18,7 +18,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.23"
+G.VERSION = "0.4.24"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -1104,6 +1104,9 @@ function G.needDecision(p)
 end
 
 ---------------------------------------------------------------- death and the next life
+local SPAWN_MARGIN, DEATH_CLEAR, DEATHS_KEPT = 150, 40, 20   -- tiles, tiles, lives (G.spawnPoint)
+GS.deaths = GS.deaths or {}
+GS.towns = GS.towns or {}
 function G.dead(p)
 	if not GS.deadSent then
 		GS.deadSent = true
@@ -1113,8 +1116,95 @@ function G.dead(p)
 		GS.cur, GS.waiting, GS.opts = nil, false, nil
 		GS.respawn = { last = getTimestampMs() }
 		H.goal, H.action, H.why = "", "DEAD", "starting a new character..."
+		-- where it died: the next lives start clear of it (G.spawnPoint)
+		GS.deaths[#GS.deaths + 1] = { x = p:getX(), y = p:getY() }
+		if #GS.deaths > DEATHS_KEPT then table.remove(GS.deaths, 1) end
 	end
 	G.respawnStep()
+end
+
+-- Where a new life starts (the owner's decision of 2026-10-12). The game's respawn puts a character without a
+-- profession in one of the few houses its town lists (Muldraugh lists 10; Riverside, Rosewood and West Point
+-- about as many): 576 lives up to that day started on 61 squares. With G.RANDOM_SPAWN on, the town is still
+-- picked at random on the game's own spawn screen, and then the region's listed points are swapped for one
+-- square in a random ground-floor room of a random building of that town: any building whose middle is within
+-- SPAWN_MARGIN tiles of the box round the town's listed points, and none within DEATH_CLEAR tiles of where one
+-- of the last DEATHS_KEPT lives died (kept for this game session only). CoopCharacterCreation:accept1 then
+-- spawns there as it would at a listed point. IsoMetaGrid:getRandomRoomNotInRange and getRandomIndoorCoord
+-- would do this but are empty stubs in 42.21 (they return null), and getBuildingsIntersecting only searches
+-- the cell of its corner, so the building list is filtered here.
+-- A standing spot inside a room can hold furniture; the character steps off it first (A.stepOff).
+G.RANDOM_SPAWN = true
+local function pointXY(sp)
+	if sp.worldX then return sp.worldX * 300 + sp.posX, sp.worldY * 300 + sp.posY end
+	return sp.posX, sp.posY
+end
+
+-- the town's buildings, worked out once per region and game session
+local function townBuildings(region)
+	local key = region.key or region.name
+	if GS.towns[key] then return GS.towns[key] end
+	local x1, y1, x2, y2
+	for _, list in pairs(region.points or {}) do
+		for _, sp in ipairs(list) do
+			local x, y = pointXY(sp)
+			if x and y then
+				x1, y1 = math.min(x1 or x, x), math.min(y1 or y, y)
+				x2, y2 = math.max(x2 or x, x), math.max(y2 or y, y)
+			end
+		end
+	end
+	if not x1 then return nil end
+	local out = {}
+	local all = getWorld():getMetaGrid():getBuildings()
+	for i = 0, all:size() - 1 do
+		local b = all:get(i)
+		local bx, by = b:getX() + b:getW() / 2, b:getY() + b:getH() / 2
+		if bx >= x1 - SPAWN_MARGIN and bx <= x2 + SPAWN_MARGIN and by >= y1 - SPAWN_MARGIN and by <= y2 + SPAWN_MARGIN then
+			out[#out + 1] = b
+		end
+	end
+	GS.towns[key] = out
+	return out
+end
+
+-- one square in a random ground-floor room of a random building of the town, clear of recent deaths, or nil
+function G.spawnPoint(region)
+	local list = region and townBuildings(region)
+	if not list or #list == 0 then return nil end
+	for _ = 1, 40 do
+		local b = list[ZombRand(#list) + 1]
+		local bx, by = b:getX() + b:getW() / 2, b:getY() + b:getH() / 2
+		local clear = true
+		for _, d in ipairs(GS.deaths) do
+			if math.abs(d.x - bx) < DEATH_CLEAR and math.abs(d.y - by) < DEATH_CLEAR then clear = false; break end
+		end
+		if clear then
+			local rooms, rs = {}, b:getRooms()
+			for i = 0, rs:size() - 1 do
+				local r = rs:get(i)
+				if r:getZ() == 0 and not r:isEmptyOutside() and r:getRects():size() > 0 then rooms[#rooms + 1] = r end
+			end
+			if #rooms > 0 then
+				local rects = rooms[ZombRand(#rooms) + 1]:getRects()
+				local rc = rects:get(ZombRand(rects:size()))
+				return { posX = rc:getX() + ZombRand(math.max(1, rc:getW())), posY = rc:getY() + ZombRand(math.max(1, rc:getH())), posZ = 0 }
+			end
+		end
+	end
+	return nil
+end
+
+-- after the spawn screen's Next: the picked region with every profession's points swapped for one random square
+local function randomizeSpawn(sel)
+	local reg = sel.selectedRegion
+	local pt = reg and reg.points and G.spawnPoint(reg)
+	if not pt then return end
+	local points = { unemployed = { pt } }
+	for k in pairs(reg.points) do points[k] = { pt } end
+	sel.selectedRegion = { name = reg.name, key = reg.key, file = reg.file, points = points }
+	GS.spawnAt = pt
+	A.event("new life in " .. tostring(reg.name) .. " at " .. pt.posX .. "," .. pt.posY)
 end
 
 -- press the death screen's and character creation's own buttons, one every RESPAWN_MS. Each step looks at which
@@ -1139,6 +1229,7 @@ function G.respawnStep()
 		for i, item in ipairs(lb and lb.items or {}) do if item.item and item.item.region then towns[#towns + 1] = i end end
 		if #towns > 0 then lb.selected = towns[ZombRand(#towns) + 1] end
 		w.mapSpawnSelect:clickNext()
+		if G.RANDOM_SPAWN then randomizeSpawn(w.mapSpawnSelect) end
 	elseif w.charCreationProfession and w.charCreationProfession:isVisible() then
 		-- with the agent playing and G.CHOOSE_TRAITS on, it picks traits here (AIvZGymActions.lua); otherwise, or if that fails, Next
 		local handled = G.CHOOSE_TRAITS and G.creation and G.active() and select(2, pcall(G.creation, w.charCreationProfession))

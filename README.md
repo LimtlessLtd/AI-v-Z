@@ -134,7 +134,9 @@ python -m agent.run
 ```
 
 Its dashboard is at <http://127.0.0.1:8799/>. Load your game. Within a few seconds the agent takes over from the baseline; when the character dies it
-starts a new one in a random town by itself, choosing its traits. Stopping the agent (Ctrl+C) hands the character back to the
+starts a new one by itself, choosing its traits: in a random town from the game's spawn screen, in a random
+ground-floor room of any building of that town, away from where the last 20 lives died (gym 0.4.24; the game's own
+list has only about 10 houses per town for a character without a profession). Stopping the agent (Ctrl+C) hands the character back to the
 baseline within ~6 s.
 
 **How it learns.** The network (`agent/net.py`, about 0.7 M weights, PyTorch on the CPU) gives every option
