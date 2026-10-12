@@ -76,6 +76,12 @@ class EncodingTests(unittest.TestCase):
         self.assertEqual(F.encode_option({"verb": "exercise", "endurance": 1})[0][e], 0.0)
         self.assertEqual(len(F.encode_option({"verb": "window"})[0]), F.OPTION_DIM)
 
+    def test_glass_under_a_bandage_stays_out(self):
+        def enc(flags):
+            return F.encode_state({"obs": {"body": [{"part": "Hand_L", "flags": flags}]}})
+        self.assertEqual(enc(["glass", "bandaged"]), enc(["bandaged"]))
+        self.assertNotEqual(enc(["glass"]), enc([]))
+
     def test_traits_look_the_same_at_creation_and_in_the_life(self):
         at_creation = F.encode_state({"obs": {"selected": ["Athletic"]}, "reason": "creation"})[1]
         in_life = F.encode_state({"obs": {**OBS, "traits": ["Athletic"]}})[1]

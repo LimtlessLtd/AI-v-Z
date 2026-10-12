@@ -184,7 +184,7 @@ perceivable now), **gap** (perceivable but missing).
 8. **Vehicles within 4 tiles regardless of sight.** Fixed in gym 0.4.14 with the square's `isCanSee(pn)` (not the alpha; untested in game). Original fix note: `getTargetAlpha(pn)` (needs live check) or square
    `isCanSee(pn)`.
 9. **Zombie identity across occlusion** in `closing` (fixed in gym 0.4.10, not yet seen in game). Fix: forget a zombie when it leaves the spotted list.
-10. **Exact health, exact position, exact endurance in `exercise`, world age, glass under a bandage.** (Network side: health goes in as the panel's band, and position, world age and exercise endurance are not read; the wound flag `glass` is still read, so glass under a bandage can still leak.)
+10. **Exact health, exact position, exact endurance in `exercise`, world age, glass under a bandage.** (Network side: health goes in as the panel's band, and position, world age and exercise endurance are not read; the wound flag `glass` is dropped for a body part that is bandaged, as the health panel hides it; the mod still reports it in `obs.json`.)
     Fix: bands and coarse or no values as listed in section 2; wound flags with the health panel's
     conditions.
 11. **The `enter` macro's window choice** uses lock state of unseen windows (`AIvZ.lua:1322-1353`).
