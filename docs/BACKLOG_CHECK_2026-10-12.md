@@ -128,3 +128,8 @@ passively over 90 seconds): 77 were nonempty, with 391 zombie appearances on eac
 extra-zombie samples and zero missing-zombie samples. These are appearances across decisions,
 not 391 different zombies. This verifies the running helper against the game's spotting result;
 it is not a pixel-by-pixel check of every fade transition. L12's code/comparison item is closed.
+
+The final integrated PC check found a false positive in the old chase-target source guard:
+`getTargetAlpha` in the preserved local diagnostic matched its substring ban on `getTarget`.
+The guard now rejects the exact `getTarget` name (including indirect references) and permits the visible fade
+result already cited in observation-audit section 1. The diagnostic itself remains unchanged.
