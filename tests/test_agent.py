@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 from agent import reward  # noqa: E402
 from agent.link import GameLink  # noqa: E402
 from agent.lives import Lives  # noqa: E402
-from agent.policies import ProbePolicy, RandomPolicy  # noqa: E402
+from agent.policies import ProbePolicy, RandomPolicy, robust_spread  # noqa: E402
 
 OBS = {
     "who": {"name": "Chris Hooks", "save": "test"}, "born": 26.0,
@@ -100,7 +100,29 @@ class RewardTests(unittest.TestCase):
 
     def test_a_death_outweighs_a_long_life_and_all_its_damage(self):
         self.assertGreater(-reward.DEATH, reward.ALIVE_PER_MIN * 16 * 60)
-        self.assertGreater(-reward.DEATH, reward.PER_HEALTH * 100 + reward.PER_UNTREATED * 17 + reward.PROTECTION)
+        # dying gives back what the body's value is below 0 (Φ is 0 once dead): at most all the health and wounds.
+        # Clothing and a weapon only add to Φ, so they make a death cost more, never less (reward version 4 puts
+        # full cover above a death on purpose: 2,000).
+        self.assertGreater(-reward.DEATH, reward.PER_HEALTH * 100 + reward.PER_UNTREATED * 17)
+        _, parts, _ = self.step(later(OBS, 1, health=0), {"dead": True, "kills": 0})
+        self.assertLess(parts["death"] + parts["body"], 0)
+
+    def test_a_weapon_in_the_hands_pays_by_its_damage_and_unequipping_costs_the_same(self):
+        bat = {"name": "Baseball Bat", "cat": "weapon", "dmg": 1.1, "ranged": False}
+        armed = later(OBS, 1, held=bat)
+        on = self.step(OBS, armed)[1]["weapon"]
+        self.assertAlmostEqual(on, reward.WEAPON * 1.1 / reward.WEAPON_FULL, places=3)   # parts are kept to 4 places
+        self.assertAlmostEqual(on + self.step(armed, later(OBS, 2))[1]["weapon"], 0.0)
+        axe = dict(bat, dmg=3.0)
+        self.assertAlmostEqual(reward.body(later(OBS, held=axe))["weapon"], 1.0)   # capped
+        for held in (dict(bat, ranged=True), {"name": "Apple", "cat": "food"}):
+            self.assertEqual(reward.body(later(OBS, held=held))["weapon"], 0.0)   # a gun without ammo actions, food
+
+    def test_version_4_makes_a_garment_worth_more_than_minutes(self):
+        shoes = later(OBS, 1, protection=[{"part": f, "bite": 10, "scratch": 20} for f in ("Foot_L", "Foot_R")]
+                      + [{"part": "Head", "bite": 0, "scratch": 0}] * 15)
+        bare = later(OBS, 0, protection=[{"part": "Head", "bite": 0, "scratch": 0}] * 17)
+        self.assertGreater(self.step(bare, shoes)[1]["protection"], 30)   # shoes: about 35, half an hour of being alive
 
     def test_older_records_are_rescored(self):
         v1 = {"reward": -5.6, "parts": {"alive": 1.0, "health": -2.0, "discomfort": -5.0, "bleeding": -0.1, "new_building": 0.5}}
@@ -230,6 +252,16 @@ class PolicyTests(unittest.TestCase):
         i, probs, _ = pol.choose(msg)
         self.assertAlmostEqual(sum(probs), 1.0)
         self.assertEqual(pol.choose({"options": []})[0], None)
+
+    def test_one_far_off_score_does_not_flatten_the_choice(self):
+        # 2026-10-12: one option at -6,729 among -500 to -1,000 stretched the standard deviation, and every pick
+        # came out near 1/n (the owner chose the median distance instead)
+        q = [-500.0, -600.0, -700.0, -800.0, -900.0, -1000.0, -6729.0]
+        mean = sum(q) / len(q)
+        sd = math.sqrt(sum((x - mean) ** 2 for x in q) / len(q))
+        self.assertLess(robust_spread(q), sd / 5)
+        self.assertAlmostEqual(robust_spread([1.0, 2.0, 3.0]), 1.4826)
+        self.assertGreater(robust_spread([0.0, 0.0, 0.0, 0.0, 9.0]), 0)   # most equal: the standard deviation
 
 
 class ProbeTests(unittest.TestCase):
@@ -445,32 +477,21 @@ class DecisionRateStaticTest(unittest.TestCase):
         self.assertIn("GS.lastClose = n", req[:req.index("\nend\n")])
 
 
-class RandomSpawnStaticTest(unittest.TestCase):
-    """Gym 0.4.24 (owner's decision, 2026-10-12): a new life starts in a random building of the picked town, clear of
-    recent deaths (code only, not run in the game here)."""
+class SpawnStaticTest(unittest.TestCase):
+    """Gym 0.4.33 (owner's decision, 2026-10-12 evening): a new life starts at one of the game's own start points of a
+    town picked at random on the spawn screen. Gym 0.4.24-0.4.32 swapped them for a random room square, and lives
+    started on wall lines and water (code only, not run in the game here)."""
 
     def setUp(self):
         base = Path(__file__).resolve().parent.parent / "mod/AIvZ/42/media/lua/client"
         self.src = (base / "AIvZGym.lua").read_text(encoding="utf-8")
 
-    def test_the_picked_region_gets_one_random_point_after_next(self):
-        self.assertIn("G.RANDOM_SPAWN = true", self.src)
+    def test_a_random_town_then_the_games_own_points(self):
         step = self.src[self.src.index("function G.respawnStep"):]
         step = step[:step.index("\nend\n")]
-        self.assertLess(step.index("w.mapSpawnSelect:clickNext()"), step.index("randomizeSpawn(w.mapSpawnSelect)"))
-        swap = self.src[self.src.index("local function randomizeSpawn"):]
-        swap = swap[:swap.index("\nend\n")]
-        self.assertIn("unemployed = { pt }", swap)   # CoopCharacterCreation:accept1 falls back to it
-        self.assertIn("for k in pairs(reg.points) do points[k] = { pt } end", swap)
-
-    def test_deaths_are_kept_and_avoided(self):
-        dead = self.src[self.src.index("function G.dead"):]
-        dead = dead[:dead.index("\nend\n")]
-        self.assertIn("GS.deaths[#GS.deaths + 1]", dead)
-        pick = self.src[self.src.index("function G.spawnPoint"):]
-        pick = pick[:pick.index("\nend\n")]
-        self.assertIn("DEATH_CLEAR", pick)
-        self.assertIn("r:getZ() == 0", pick)
+        self.assertLess(step.index("lb.selected = towns[ZombRand(#towns) + 1]"), step.index("w.mapSpawnSelect:clickNext()"))
+        for gone in ("randomizeSpawn", "G.RANDOM_SPAWN", "selectedRegion =", "GS.deaths"):
+            self.assertNotIn(gone, self.src)
 
 
 class SpeedHoldStaticTest(unittest.TestCase):

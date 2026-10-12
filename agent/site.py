@@ -73,7 +73,8 @@ def detail(o):
     if "open" in o and o.get("verb") in ("door", "window", "curtain"):
         bits.append("open" if o["open"] else "closed")
     for k, word in (("locked", "locked"), ("exterior", "outside"), ("smashed", "smashed"), ("rotten", "rotten"),
-                    ("worn", "worn"), ("bed", "bed"), ("visited", "visited"), ("bleeding", "bleeding")):
+                    ("worn", "worn"), ("bed", "bed"), ("visited", "visited"), ("bleeding", "bleeding"),
+                    ("tall", "tall"), ("drop", "a drop beyond"), ("door", "on a door")):
         if o.get(k) is True:
             bits.append(word)
     if o.get("recipe"):

@@ -193,6 +193,8 @@ lock/unlock doors `onLockDoor(worldobjects, playerNum, door)` (`:1514`), `onUnLo
 playerNum, door, doorKeyId)` (`:1521`); climb over fences `onClimbOverFence(worldobjects, fence, direction,
 playerNum)` (`:2347`) → `ISClimbOverFence:new(character, item, direction)`; add sheet `onAddSheet`
 (`:2193`) → `ISAddSheetAction:new(character, item)`; door curtains and window frames (catalogue 3.1).
+Done in code: lock and unlock (gym 0.4.26), sheets on windows (0.4.26), fences, sheets and curtains on doors and
+taking sheets down (0.4.33). Left: barricades, window frames.
 
 ### 15. Vehicles beyond entering
 Switch seat `ISSwitchVehicleSeat:new(character, seatTo, seatFrom)`; headlights

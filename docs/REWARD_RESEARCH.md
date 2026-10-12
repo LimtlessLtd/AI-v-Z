@@ -1,4 +1,4 @@
-# Reward research and reward version 3 (2026-10-12)
+# Reward research and reward versions 3 and 4 (2026-10-12)
 
 The owner asked how our reward compares with other game-playing networks. Three points were raised:
 
@@ -187,3 +187,27 @@ A dry run on a copy of the 43,910 logged decisions:
 * Project Zomboid infection odds: `projectzomboid.jar` 42.21 (`generateZombieInfection(7)` for scratches,
   `(25)` for lacerations, bites always, gated by `SandboxOptions.lore.transmission`). Player guides agree:
   <https://pzfans.com/bitten_in_pz_build_41_vs_42_survival_hacks_unveiled/>
+
+## 7. Version 4 (2026-10-12 evening, the owner's decision)
+
+The owner saw the network keep taking its clothes off and never pick up a weapon, and asked for both to count.
+From the logs of that day (51,045 decisions): the median protection cover was 0.006 (0.6 points at 100), shoes
+were worth 1.8 points and jeans 4.4, a few game minutes of being alive; `take_off` was chosen 1,710 times and
+`wear` 800; a weapon was in the hands in 1% of decisions.
+
+* **Protection x20:** Φ gains 2,000 x protection (shoes about 35, jeans 88, full cover everywhere 2,000).
+* **A weapon in the hands:** Φ gains 100 x min(1, max damage / 1.5) for a melee weapon in the primary hand (the
+  gym's item record: `cat` "weapon", `dmg`, `ranged`): a hatchet 100, a crowbar 77, a baseball bat 73, a kitchen
+  knife 35, a pen 7. A gun counts 0 until the gym can aim and load one. The weapon's condition doesn't count, so
+  wearing it down in a fight costs nothing.
+
+Both are potentials like the others, so a loop (equip, unequip, equip) earns nothing, and as section 6 says they
+can't change which play is best in the long run: they make the link between clothing or a weapon and what
+follows quicker to learn. What makes them truly worth having is the bites they prevent and the zombies a weapon
+kills, which the infection, the death and the kill reward already count. Full cover is now worth more than a
+death; that can't make dying pay, since protection and a weapon only raise Φ and dying returns Φ to 0.
+
+The same day the policy's spread changed (section of the README, `agent/policies.py`): softmax(Q / (0.25 x
+spread)) with the spread taken as 1.4826 x the median distance from the median score instead of the standard
+deviation, which one far-off option stretched so that the network's picks came out near 1/n. On that day's logged
+scores the top pick's chance goes from a median of 0.15 to 0.51.

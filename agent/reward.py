@@ -16,9 +16,12 @@ and the reward is its change (potential-based shaping, Ng, Harada & Russell 1999
 
   Φ = 2 x (health - 100)       getting hurt costs, healing pays the same back
       - 10 x untreated wounds   body parts with an open wound and no bandage
-      + 100 x protection        the protection panel's bite and scratch defence, averaged over the 17 body parts
+      + 2000 x protection       the protection panel's bite and scratch defence, averaged over the 17 body parts
                                 (0-1): putting clothing on pays what taking it off costs, and a hole, a patch or a
-                                worn-out garment costs its share as it happens
+                                worn-out garment costs its share as it happens. Shoes are worth about 35, jeans 88.
+      + 100 x weapon            a melee weapon in the hands, by its damage: min(1, max damage / 1.5), so a hatchet
+                                100, a crowbar 77, a baseball bat 73, a kitchen knife 35, a pen 7. Unequipping it
+                                costs what equipping it paid.
   and Φ is 0 once dead.
 
 Any loop that ends where it started earns nothing from Φ, and Ng et al. prove such terms never change which play
@@ -29,12 +32,14 @@ Records from before gym 0.4.20 have no infection flag: for them the infection is
 zombie wounds seen (scratch 7%, laceration 25%, bite 100%: BodyPart.setScratched, setCut, SetBitten in 42.21).
 
 Version 1 (to 2026-10-12) charged every bad moodle per minute and death only 20, so dying early scored best.
-Version 2 (2026-10-12) counted health and wounds only as losses and death as the only real cost. `rescore` and
-learn.Data turn a logged record of any version into the current reward, so training learns it from all the
-experience.
+Version 2 (2026-10-12) counted health and wounds only as losses and death as the only real cost. Version 3
+(2026-10-12) had protection at 100 and no weapon: a garment was worth a few points, a few game minutes of being
+alive, and the network kept taking its clothes off; version 4 (the owner's decision, 2026-10-12 evening) is
+x20 on clothing and adds the weapon. `rescore` and learn.Data turn a logged record of any version into the current
+reward, so training learns it from all the experience.
 """
 
-VERSION = 3
+VERSION = 4
 
 ALIVE_PER_MIN = 1.0
 KILL = 10.0
@@ -45,7 +50,9 @@ DEATH = -1000.0
 
 PER_HEALTH = 2.0      # Φ per health point below 100 (0 at full health, so a healthy body costs nothing to keep)
 PER_UNTREATED = 10.0  # Φ lost per body part with an open wound and no bandage
-PROTECTION = 100.0    # Φ for full bite and scratch cover everywhere
+PROTECTION = 2000.0   # Φ for full bite and scratch cover everywhere (100 in version 3)
+WEAPON = 100.0        # Φ for a melee weapon in the hands with at least WEAPON_FULL max damage
+WEAPON_FULL = 1.5     # max damage worth the full WEAPON (a hatchet 1.5, a bat 1.1, a kitchen knife 0.52, a pen 0.1)
 
 OPEN_WOUNDS = ("bleeding", "scratch", "laceration", "bite", "deep wound")
 INFECTION_CHANCE = {"scratch": 0.07, "laceration": 0.25, "bite": 1.0}   # BodyPart.setScratched/setCut/SetBitten
@@ -84,7 +91,7 @@ class LifeProgress:
 
 def body(obs):
     """What Φ and the infection are worked out from in one observation, or None without one (creation, death):
-    {health, untreated, protection 0-1, knox True/False/None, zombie_wounds: [(part, kind)]}."""
+    {health, untreated, protection 0-1, weapon 0-1, knox True/False/None, zombie_wounds: [(part, kind)]}."""
     obs = _d(obs)
     if obs.get("dead") or obs.get("health") is None:
         return None
@@ -97,8 +104,17 @@ def body(obs):
     prot = _l(obs.get("protection"))
     cover = sum(min(100.0, _num(_d(x).get("bite"))) + min(100.0, _num(_d(x).get("scratch"))) for x in prot)
     return {"health": _num(obs.get("health")), "untreated": untreated,
-            "protection": cover / (200.0 * len(prot)) if prot else 0.0,
+            "protection": cover / (200.0 * len(prot)) if prot else 0.0, "weapon": weapon(obs.get("held")),
             "knox": obs["knox"] if isinstance(obs.get("knox"), bool) else None, "zombie_wounds": zw}
+
+
+def weapon(held):
+    """How much the item in the hands counts as a weapon (0-1): a melee weapon by its max damage (the gym's item
+    record: cat "weapon", dmg, ranged). A gun counts 0: without the aiming and ammo actions it is no use yet."""
+    held = _d(held)
+    if held.get("cat") != "weapon" or held.get("ranged") is True:
+        return 0.0
+    return max(0.0, min(1.0, _num(held.get("dmg")) / WEAPON_FULL))
 
 
 def infected(prev_infected, prev_body, cur_body):
@@ -117,9 +133,9 @@ def infected(prev_infected, prev_body, cur_body):
 def potential_parts(b):
     """Φ of one moment, by part (they sum to Φ); all zero once dead (b None)."""
     if b is None:
-        return {"health": 0.0, "wounds": 0.0, "protection": 0.0}
+        return {"health": 0.0, "wounds": 0.0, "protection": 0.0, "weapon": 0.0}
     return {"health": PER_HEALTH * (min(b["health"], 100.0) - 100.0), "wounds": -PER_UNTREATED * b["untreated"],
-            "protection": PROTECTION * b["protection"]}
+            "protection": PROTECTION * b["protection"], "weapon": WEAPON * b.get("weapon", 0.0)}
 
 
 def potential(b):
@@ -177,12 +193,12 @@ def step(prev, cur, progress, searched=0, inf=0.0):
 def rescore(rec):
     """A logged record's alive, kills and progress reward under the current weights, and the game minutes it covers.
     Training adds the infection, the death and the change in Φ itself, from the observations of each life in order
-    (learn.Data). Versions 2 and 3 logged these parts at today's weights; version 1 records (no `reward_v`) are
+    (learn.Data). Versions 2 to 4 logged these parts at today's weights; version 1 records (no `reward_v`) are
     converted. A record the agent marked 'resumed' earns nothing."""
     if rec.get("resumed"):
         return 0.0, 0.0
     parts = _d(rec.get("parts"))
-    if rec.get("reward_v") in (2, 3):
+    if rec.get("reward_v") in (2, 3, 4):
         return round(sum(_num(parts.get(k)) for k in BASE_PARTS), 4), _num(parts.get("alive")) / ALIVE_PER_MIN
     if rec.get("dead"):
         return round(KILL * _num(parts.get("kills")) / V1["kills"], 4), 0.0

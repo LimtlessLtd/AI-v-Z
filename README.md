@@ -10,7 +10,7 @@ network itself (a snapshot the owner publishes from the PC that plays; see [Publ
 
 > **Status (2026-10-12): Phase 4, learning, is in progress.** A small network scores every option the
 > game offers and the agent plays by those scores, retraining every 5 minutes from everything it has
-> lived through. The reward was redone on 2026-10-12 (version 3, below), and the same day the network got
+> lived through. The reward was redone on 2026-10-12 (version 3, then version 4 that evening, below), and the same day the network got
 > to see where the zombies are and started looking several decisions ahead in training, so it starts over
 > and play is clumsy for the first hours. The gym (Phase 3) works end to end for 27 action types, a subset
 > of what a player can do; its known gaps (crafting, vehicles, repairs, hearing and more) are in the
@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.5 (gym 0.4.31)`). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.5 (gym 0.4.33)`). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -137,9 +137,9 @@ python -m agent.run
 ```
 
 Its dashboard is at <http://127.0.0.1:8799/>. Load your game. Within a few seconds the agent takes over from the baseline; when the character dies it
-starts a new one by itself, choosing its traits: in a random town from the game's spawn screen, in a random
-ground-floor room of any building of that town, away from where the last 20 lives died (gym 0.4.24; the game's own
-list has only about 10 houses per town for a character without a profession). Stopping the agent (Ctrl+C) hands the character back to the
+starts a new one by itself, choosing its traits: in a random town from the game's spawn screen, at one of that
+town's own start points (gym 0.4.33, the owner's decision of 2026-10-12: gym 0.4.24-0.4.32 picked a random room
+square instead, and some lives started on a wall line or on water and never moved). Stopping the agent (Ctrl+C) hands the character back to the
 baseline within ~6 s.
 
 **How it learns.** The network (`agent/net.py`, about 0.32 M weights, PyTorch on the CPU) gives every option
@@ -148,7 +148,9 @@ sees: the moodles first, then wounds, health, the zombies in view and which way 
 carries and holds, the place and its open doors and windows, whether it is sneaking or running and which way each
 close zombie faces, the time only when it wears a watch, and how its last action went (`agent/features.py` lists every input, and what's kept out). Each option with a direction
 (walk, run, enter, go to a room, attack, and doors, windows and curtains) also says how close the nearest zombie
-that way is. It mostly picks the top-rated options (`--temperature`, default 0.25 since 2026-10-12, 0.5 before) and
+that way is. It mostly picks the top-rated options (`--temperature`, default 0.25 since 2026-10-12, 0.5 before, times
+how far apart that decision's scores are: the median distance from the median, so one option rated far below the
+rest doesn't make the others look alike) and
 one pick in ten at random (`--explore 0.1`), so it keeps trying things it rates low. While an action runs, it is
 asked whether to carry on about every game minute (3 s at 1×), at once when a zombie it can see comes within
 4 tiles, and at once when the action ends. It answers in about 25 ms. Every 5 minutes (`--train-every`, counted from the
@@ -159,7 +161,7 @@ relies on the network's own estimate (n-step returns), so a death teaches the de
 round or two. Until the first network exists it plays at random. Character creation is learned the same way:
 picking traits leads into the life they make.
 
-**The reward** (`agent/reward.py`, version 3, the owner's rules of 2026-10-12; research and reasons in
+**The reward** (`agent/reward.py`, version 4, the owner's rules of 2026-10-12; research and reasons in
 [docs/REWARD_RESEARCH.md](docs/REWARD_RESEARCH.md)):
 
 | | Points |
@@ -169,11 +171,12 @@ picking traits leads into the life they make.
 | The Knox infection (a bite always, a laceration 25%, a zombie scratch 7%) | −1000 when it happens; the death it causes 2-3 days later then costs nothing more |
 | Health | −2 per point lost, +2 per point healed |
 | Each body part with an open wound and no bandage | −10 when it appears, +10 when bandaged |
-| Clothing protection (the protection panel, averaged over the body) | up to +100; putting clothing on pays what taking it off costs, and a hole, a patch or a worn-out garment costs its share |
+| Clothing protection (the protection panel, averaged over the body) | up to +2,000 (shoes about 35, jeans 88; +100 in version 3); putting clothing on pays what taking it off costs, and a hole, a patch or a worn-out garment costs its share |
+| A melee weapon in the hands | up to +100 by its damage (a hatchet 100, a baseball bat 73, a kitchen knife 35, a pen 7; version 4); unequipping costs what equipping paid |
 | A kill; first items, buildings and containers | +10; +3, +5, +0.5 |
 | Hunger, pain, panic and the other moodles | 0 |
 
-The health, wound and protection terms count changes in the body's state, so a loop that ends where it started
+The health, wound, protection and weapon terms count changes in the body's state, so a loop that ends where it started
 (on, off, on again) earns nothing; they are hints that speed up learning, never a reason on their own. The
 infection flag is hidden from the player and so from the network; only the reward reads it. Training re-scores
 older experience under the current reward. It discounts the future by game time (a reward two game hours away
@@ -339,6 +342,11 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   which a player can't see, and zombie visibility uses line of sight plus light instead of the game's own
   spotted list. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
+- **Gym 0.4.33 is new.** It starts each life at the game's own start points of a random town again (see Lives
+  above), and adds climbing over fences, sheets and curtains on doors, and taking sheets down. The fence work ran
+  in the game for 4 minutes on 2026-10-12 before it was merged: `climb_fence` was chosen 45 times, and each time
+  the next decision replaced it before the climb, as happens to most attacks (backlog, "Policy spread").
+  Gym 0.4.32 offers `rest` only when not in a vehicle and not already sitting (backlog G7).
 - **Gym 0.4.31 (mod 0.5.5) has only just started running in the game** (hot-reloaded at 18:32 on 2026-10-12, no
   `AIvZ` errors). It fixes two ways a character stayed in one room for good. A door or window sits on the wall
   between two squares and the game keeps it on the square south or east of that wall, so one on a room's east or
@@ -365,7 +373,11 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   0.4.21-0.4.22 ran from 11:27: decisions came a game minute apart while an action ran, and a death led to the next
   life in about 11 s (18-45 s that morning). Gym 0.4.10-0.4.20 (mod 0.5.2) ran from 10:52 with no `AIvZ` errors in
   `console.txt`.
-- **The reward changed on 2026-10-12 (version 3), and the network starts over.** It started over again the same
+- **Reward version 4 (2026-10-12 evening) starts the network over again.** Clothing counts 20 times more and a
+  weapon in the hands counts. The first training round under it sets the old network aside (round 118 and
+  before) and trains a new one from all the experience, re-scored, so play is clumsy again for a few hours. The
+  policy's new spread applies once the agent is restarted (`scripts/start.ps1`); until then it picks with the old one.
+- **The reward changed on 2026-10-12 (version 3), and the network started over.** It started over again the same
   day for the new inputs (`features.VERSION` 3: where the zombies are, the building's openings). On the experience
   so far, one training round with n-step targets rated decisions in line with what followed them (correlation
   with the actual return 0.5-0.94, by distance from the end of the life) where one-step targets reached 0.14-0.69. Under version 1 it survived

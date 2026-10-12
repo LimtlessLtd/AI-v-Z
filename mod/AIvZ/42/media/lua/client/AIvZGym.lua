@@ -13,14 +13,14 @@
 -- off the ground, disassemble furniture, drop/eat/drink/equip/wear/take off an item, craft one of an item's own recipes, drink
 -- from a tap, bandage a wound, sleep, sneak or stand up. Nothing in here judges what's good: the agent learns
 -- that from what happens. The doing (pathfinding, swings, the game's timed actions) comes from AIvZ.lua.
--- After a death, it starts a new character in a random building of a random town by pressing the game's own
--- buttons in code (G.respawnStep, G.spawnPoint).
+-- After a death, it starts a new character in a random town of the game's spawn screen, at that town's own
+-- start points, by pressing the game's own buttons in code (G.respawnStep).
 
 local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.32"
+G.VERSION = "0.4.33"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -400,6 +400,17 @@ end
 -- times a second
 GS.moveProps = GS.moveProps or setmetatable({}, { __mode = "k" })
 local SCRAP_RANGE = 3
+-- Fences: a square's north and west edges, with the flags the Interact key reads (IsoPlayer.doContextHopOverFence:
+-- HoppableN/W on the square; doContextClimbOverWall for the tall ones). `back` is the climb from the other side.
+local FENCE_RANGE = 6
+local FENCE_EDGES = nil   -- built on first use, so nothing here reads a game global while the file loads
+local function fenceEdges()
+	FENCE_EDGES = FENCE_EDGES or {
+		{ low = IsoFlagType.HoppableN, tall = IsoFlagType.TallHoppableN, dx = 0, dy = -1, north = true, dir = "N", back = "S" },
+		{ low = IsoFlagType.HoppableW, tall = IsoFlagType.TallHoppableW, dx = -1, dy = 0, north = false, dir = "W", back = "E" },
+	}
+	return FENCE_EDGES
+end
 local function scrapProps(o)
 	local mp = GS.moveProps[o]
 	if mp == nil then
@@ -423,6 +434,11 @@ local function addOpening(out, p, o, sq, d, pz)
 		local cbo = try(function() return o:couldBeOpen(p) end)
 		if cbo ~= nil then e.locked = cbo ~= true end
 		out.doors[#out.doors + 1] = e
+		-- a sheet hung on a door is its curtain (IsoDoor:HasCurtains() returns the door itself), drawn from the
+		-- sheet's side of the doorway (getSheetSquare), as the door menu does (gym 0.4.33)
+		if instanceof(o, "IsoDoor") and o:HasCurtains() then
+			out.curtains[#out.curtains + 1] = { o = o, sq = o:getSheetSquare() or sq, d = d, open = o:isCurtainOpen(), door = true }
+		end
 	else
 		e.smashed = U.winIs(o, "isSmashed")
 		e.glass = e.smashed and not U.winIs(o, "isGlassRemoved")
@@ -438,7 +454,7 @@ function G.scanAround(p)
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
 	local here = p:getCurrentSquare()
 	local hb = here and here:getBuilding()
-	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {} }
+	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {}, fences = {} }
 	local known = seen(p)
 	local vis = {}
 	local function sees(dx, dy)
@@ -497,12 +513,33 @@ function G.scanAround(p)
 					end
 					if U.isDoor(o) or U.isWindow(o) then addOpening(out, p, o, sq, d, pz) end
 				end
+				-- fences on this square's edges (gym 0.4.33). Each edge is listed once, from the side the character is on:
+				-- it stands on that square and climbs toward the other. "drop": nothing to stand on beyond
+				-- (IsoPlayer.isSafeToClimbOver: the Interact key then climbs only when held, not tapped).
+				if d <= FENCE_RANGE then
+					for _, edge in ipairs(fenceEdges()) do
+						local low, tall = sq:has(edge.low), sq:has(edge.tall)
+						if low or tall then
+							local other = sqAt(px + dx + edge.dx, py + dy + edge.dy, pz)
+							local mine = (edge.north and p:getY() >= sq:getY()) or (not edge.north and p:getX() >= sq:getX())
+							local stand, far = sq, other
+							if not mine then stand, far = other, sq end
+							if stand and far and stand:isFree(false) then
+								out.fences[#out.fences + 1] = { sq = sq, stand = stand, far = far, north = edge.north,
+									dir = mine and edge.dir or edge.back, tall = not low,
+									drop = not (far:TreatAsSolidFloor() or far:HasStairsBelow()),
+									d = dist(p, stand:getX() + 0.5, stand:getY() + 0.5),
+									ex = sq:getX() + (edge.north and 0.5 or 0), ey = sq:getY() + (edge.north and 0 or 0.5) }
+							end
+						end
+					end
+				end
 			end
 		end
 	end
 	local byD = function(a, b) return a.d < b.d end
 	table.sort(out.doors, byD); table.sort(out.windows, byD); table.sort(out.curtains, byD); table.sort(out.containers, byD)
-	table.sort(out.floor, byD); table.sort(out.scrap, byD)
+	table.sort(out.floor, byD); table.sort(out.scrap, byD); table.sort(out.fences, byD)
 	out.building = hb
 	GS.around = out
 	return out
@@ -640,10 +677,18 @@ function G.options(p)
 		return r1(e.sq:getX() + 0.5 - p:getX()), r1(e.sq:getY() + 0.5 - p:getY())
 	end
 	local inv = p:getInventory()
+	-- Add Sheet: a window with no curtain, or a door that can take one, with a sheet anywhere in the inventory
+	-- (doWindowMenu: HasCurtains() is nil; doDoorMenu: HasCurtains() is nil and canAddCurtain(); both
+	-- containsTypeRecurse("Sheet")). The curtain it makes then has its own open and close option.
+	local sheet = inv:containsTypeRecurse("Sheet")
+	local nw, nc, ns, ng, nh = 0, 0, 0, 0, 0
 	for i = 1, math.min(4, #ar.doors) do
 		local e = ar.doors[i]
 		local dx, dy = at(e)
 		add(list, "door", { d = r1(e.d), dx = dx, dy = dy, open = e.open, locked = e.locked, exterior = e.exterior }, e)
+		if sheet and nh < 2 and instanceof(e.o, "IsoDoor") and e.o:HasCurtains() == nil and e.o:canAddCurtain() then
+			nh = nh + 1; add(list, "hang_sheet", { d = r1(e.d), dx = dx, dy = dy, exterior = e.exterior, door = true }, e)
+		end
 		-- Lock or Unlock: a closed door whose key is in the inventory (J:ISWorldObjectContextMenuLogic.doDoorMenu:
 		-- not IsOpen, the door's key id, haveThisKeyId; Lock unless isLockedByKey). The key id as ISLockDoor:isValid
 		-- reads it.
@@ -655,10 +700,6 @@ function G.options(p)
 			end
 		end
 	end
-	-- Add Sheet: a window with no curtain, with a sheet anywhere in the inventory (doWindowMenu: HasCurtains() is
-	-- nil and containsTypeRecurse("Sheet")). The curtain it makes then has its own open and close option.
-	local sheet = inv:containsTypeRecurse("Sheet")
-	local nw, nc, ns, ng, nh = 0, 0, 0, 0, 0
 	for _, e in ipairs(ar.windows) do
 		if not e.barricaded then
 			-- the lock state is not shown for a window (the game tells you only when you try it), so it is not listed
@@ -677,10 +718,28 @@ function G.options(p)
 			end
 		end
 	end
+	-- curtains, on windows and (gym 0.4.33) on doors; Remove curtains takes the sheet down into the inventory, greyed
+	-- out by the menu when a sheet wouldn't fit (ISWorldObjectContextMenu.addRemoveCurtainOption)
+	local sheetItem = getScriptManager():FindItem("Base.Sheet")
+	local roomForSheet = sheetItem ~= nil and inv:hasRoomFor(p, sheetItem:getActualWeight())
 	for i = 1, math.min(3, #ar.curtains) do
 		local e = ar.curtains[i]
 		local dx, dy = at(e)
-		add(list, "curtain", { d = r1(e.d), dx = dx, dy = dy, open = e.open }, e)
+		add(list, "curtain", { d = r1(e.d), dx = dx, dy = dy, open = e.open, door = e.door }, e)
+		if roomForSheet and i <= 2 then add(list, "remove_sheet", { d = r1(e.d), dx = dx, dy = dy, door = e.door }, e) end
+	end
+	-- fences: climb over, as the Interact key does at a fence (IsoPlayer.doContextHopOverFence, doContextClimbOverWall
+	-- for tall ones); the nearest edges, at most two per direction. A tall one next to the character only when the
+	-- game would let it climb (canClimbOverWall: the Interact key does nothing otherwise).
+	local mySq, perDir, nf = p:getCurrentSquare(), {}, 0
+	for _, f in ipairs(ar.fences) do
+		if nf >= 4 or p:getVehicle() then break end
+		local can = not (f.tall and f.stand == mySq) or p:canClimbOverWall(IsoDirections[f.dir])
+		if can and (perDir[f.dir] or 0) < 2 then
+			perDir[f.dir], nf = (perDir[f.dir] or 0) + 1, nf + 1
+			add(list, "climb_fence", { d = r1(f.d), dx = r1(f.ex - p:getX()), dy = r1(f.ey - p:getY()), dir = f.dir,
+				tall = f.tall, drop = f.drop }, f)
+		end
 	end
 	-- containers: search the ones not looked into yet; take from the ones it has, when standing by them.
 	-- "here": in the building the character is in (or both outside); the rest are usually out of reach.
@@ -1025,28 +1084,106 @@ G.X.door = {
 	step = queueStep(600, toggled),
 }
 G.X.window = G.X.door
+-- a curtain's state: an IsoCurtain on a window, or a door with a sheet (both ICurtain.isCurtainOpen)
+local function curtainOpen(c) return try(function() return c:isCurtainOpen() end) == true end
+-- A door's sheet is reached from one side of the doorway (getAddSheetSquare to hang it, getSheetSquare once up), which
+-- must be free; the menu gives up otherwise. The walk through the doorway leaves the door as it was
+-- (ISWorldObjectContextMenu.restoreDoor, as the menu's walk does). The mod's walk, not ISWalkToTimedAction.
+local function walkToDoorSheet(p, door, sq, t)
+	if not (sq and sq:isFree(false)) then return false end
+	if sq ~= p:getCurrentSquare() then
+		t.pathFailed = false
+		local act = ISPathFindAction:pathToLocationF(p, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())
+		act:setOnFail(function() t.pathFailed = true end)
+		act:setOnComplete(ISWorldObjectContextMenu.restoreDoor, p, door, door:IsOpen())
+		Q(act)
+	end
+	return true
+end
+-- ISWorldObjectContextMenu.onOpenCloseCurtain: a window's curtain from its square (or next to the window), a door's
+-- from the sheet's side of the doorway
 G.X.curtain = {
 	start = function(p, t, o)
-		t.wasOpen = isOpen(o.data.o)
-		if not U.closeCurtain(p, o.data, t) then U.fail(t, "can't reach it") end
+		t.wasOpen = curtainOpen(o.data.o)
+		local ok
+		if o.data.door then
+			ok = walkToDoorSheet(p, o.data.o, o.data.sq, t)
+			if ok then Q(ISOpenCloseCurtain:new(p, o.data.o)) end
+		else
+			ok = U.closeCurtain(p, o.data, t)
+		end
+		if not ok then U.fail(t, "can't reach it") end
 	end,
-	step = queueStep(600, toggled),
+	step = queueStep(600, function(p, t, o) if curtainOpen(o.data.o) == t.wasOpen then return "it didn't move" end end),
 }
 -- ISWorldObjectContextMenu.onAddSheet, with the mod's walk (the game's ISWalkToTimedAction fails at 20x and 40x):
--- stand on the square the sheet goes up from if it is free, else next to the window; the sheet into the main
--- inventory if it is in a bag (ISAddSheetAction:isValid looks there); then the timed action
+-- stand on the square the sheet goes up from if it is free, else next to the window (a door: only from that square);
+-- the sheet into the main inventory if it is in a bag (ISAddSheetAction:isValid looks there); then the timed action
 G.X.hang_sheet = {
 	start = function(p, t, o)
 		local w = o.data.o
 		local sheet = p:getInventory():getFirstTypeRecurse("Sheet")
 		if not sheet then return U.fail(t, "no sheet") end
 		local sq = w:getAddSheetSquare(p)
-		if sq and sq:isFree(false) then U.walkTo(p, sq, t)
+		if instanceof(w, "IsoDoor") then
+			if not walkToDoorSheet(p, w, sq, t) then return U.fail(t, "can't reach it") end
+		elseif sq and sq:isFree(false) then U.walkTo(p, sq, t)
 		elseif not U.walkAdjOpening(p, o.data.sq, w, t) then return U.fail(t, "can't reach it") end
 		ISWorldObjectContextMenu.transferIfNeeded(p, sheet)
 		Q(ISAddSheetAction:new(p, w))
 	end,
 	step = queueStep(900, function(p, t, o) if o.data.o:HasCurtains() == nil then return "no curtain went up" end end),
+}
+-- ISWorldObjectContextMenu.onRemoveCurtain: the sheet comes down into the inventory. A window's curtain from its own
+-- square if free, else next to the window; a door's from the sheet's side of the doorway.
+G.X.remove_sheet = {
+	start = function(p, t, o)
+		local c, ok = o.data.o, nil
+		if o.data.door then ok = walkToDoorSheet(p, c, c:getSheetSquare(), t)
+		elseif o.data.sq and o.data.sq:isFree(false) then ok = U.walkTo(p, o.data.sq, t)
+		else ok = U.walkAdjOpening(p, o.data.sq, c, t) end
+		if not ok then return U.fail(t, "can't reach it") end
+		Q(ISRemoveSheetAction:new(p, c))
+	end,
+	step = queueStep(900, function(p, t, o)
+		local up = o.data.door and o.data.o:HasCurtains() ~= nil or (not o.data.door and o.data.o:getObjectIndex() ~= -1)
+		if up then return "the sheet is still up" end
+	end),
+}
+-- Over a fence, as the Interact key does it: IsoPlayer.doContextHopOverFence → ContextualActionHandlers.ClimbOverFence
+-- → ISWorldObjectContextMenu.onClimbOverFence, ISClimbOverFence with the fence (the flagged square's getHoppable) and the
+-- direction; a tall one doContextClimbOverWall → climbOverWall(dir), which checks canClimbOverWall itself. From the
+-- square next to it on the character's side, walked to with the mod's walk (luautils.walkAdjFence uses
+-- ISWalkToTimedAction, which fails at 20x and 40x). Done once the character stands on the far side.
+G.X.climb_fence = {
+	start = function(p, t, o) U.walkTo(p, o.data.stand, t) end,
+	step = function(p, t, o)
+		local f = o.data
+		if t.pathFailed then return U.fail(t, "no way there") end
+		local sq = p:getCurrentSquare()
+		if t.climbing then
+			if sq == f.far then return U.done(t) end
+			if qlen(p) == 0 and not p:isClimbing() and tick() - t.climbing > 120 then return U.fail(t, "didn't get over") end
+			if tick() - t.t0 > 1800 then U.fail(t, "took too long") end
+			return
+		end
+		if qlen(p) > 0 then
+			if tick() - t.t0 > 1200 then U.fail(t, "took too long") end
+			return
+		end
+		if sq ~= f.stand then return U.fail(t, "couldn't get to it") end
+		local dir = IsoDirections[f.dir]
+		if f.tall then
+			if not p:canClimbOverWall(dir) then return U.fail(t, "can't climb it") end
+			p:faceDirection(dir)
+			p:climbOverWall(dir)
+		else
+			local fence = f.sq:getHoppable(f.north)
+			if not fence then return U.fail(t, "the fence is gone") end
+			Q(ISClimbOverFence:new(p, fence, dir))
+		end
+		t.climbing = tick()
+	end,
 }
 -- ISWorldObjectContextMenu.onLockDoor / onUnLockDoor, with the mod's walk
 local function lockDoor(lock)
@@ -1334,9 +1471,6 @@ function G.needDecision(p)
 end
 
 ---------------------------------------------------------------- death and the next life
-local SPAWN_MARGIN, DEATH_CLEAR, DEATHS_KEPT = 150, 40, 20   -- tiles, tiles, lives (G.spawnPoint)
-GS.deaths = GS.deaths or {}
-GS.towns = GS.towns or {}
 function G.dead(p)
 	if not GS.deadSent then
 		GS.deadSent = true
@@ -1346,96 +1480,17 @@ function G.dead(p)
 		GS.cur, GS.waiting, GS.opts = nil, false, nil
 		GS.respawn = { last = getTimestampMs() }
 		H.goal, H.action, H.why = "", "DEAD", "starting a new character..."
-		-- where it died: the next lives start clear of it (G.spawnPoint)
-		GS.deaths[#GS.deaths + 1] = { x = p:getX(), y = p:getY() }
-		if #GS.deaths > DEATHS_KEPT then table.remove(GS.deaths, 1) end
 	end
 	G.respawnStep()
 end
 
--- Where a new life starts (the owner's decision of 2026-10-12). The game's respawn puts a character without a
--- profession in one of the few houses its town lists (Muldraugh lists 10; Riverside, Rosewood and West Point
--- about as many): 576 lives up to that day started on 61 squares. With G.RANDOM_SPAWN on, the town is still
--- picked at random on the game's own spawn screen, and then the region's listed points are swapped for one
--- square in a random ground-floor room of a random building of that town: any building whose middle is within
--- SPAWN_MARGIN tiles of the box round the town's listed points, and none within DEATH_CLEAR tiles of where one
--- of the last DEATHS_KEPT lives died (kept for this game session only). CoopCharacterCreation:accept1 then
--- spawns there as it would at a listed point. IsoMetaGrid:getRandomRoomNotInRange and getRandomIndoorCoord
--- would do this but are empty stubs in 42.21 (they return null), and getBuildingsIntersecting only searches
--- the cell of its corner, so the building list is filtered here.
--- A standing spot inside a room can hold furniture; the character steps off it first (A.stepOff).
-G.RANDOM_SPAWN = true
-local function pointXY(sp)
-	if sp.worldX then return sp.worldX * 300 + sp.posX, sp.worldY * 300 + sp.posY end
-	return sp.posX, sp.posY
-end
-
--- the town's buildings, worked out once per region and game session
-local function townBuildings(region)
-	local key = region.key or region.name
-	if GS.towns[key] then return GS.towns[key] end
-	local x1, y1, x2, y2
-	for _, list in pairs(region.points or {}) do
-		for _, sp in ipairs(list) do
-			local x, y = pointXY(sp)
-			if x and y then
-				x1, y1 = math.min(x1 or x, x), math.min(y1 or y, y)
-				x2, y2 = math.max(x2 or x, x), math.max(y2 or y, y)
-			end
-		end
-	end
-	if not x1 then return nil end
-	local out = {}
-	local all = getWorld():getMetaGrid():getBuildings()
-	for i = 0, all:size() - 1 do
-		local b = all:get(i)
-		local bx, by = b:getX() + b:getW() / 2, b:getY() + b:getH() / 2
-		if bx >= x1 - SPAWN_MARGIN and bx <= x2 + SPAWN_MARGIN and by >= y1 - SPAWN_MARGIN and by <= y2 + SPAWN_MARGIN then
-			out[#out + 1] = b
-		end
-	end
-	GS.towns[key] = out
-	return out
-end
-
--- one square in a random ground-floor room of a random building of the town, clear of recent deaths, or nil
-function G.spawnPoint(region)
-	local list = region and townBuildings(region)
-	if not list or #list == 0 then return nil end
-	for _ = 1, 40 do
-		local b = list[ZombRand(#list) + 1]
-		local bx, by = b:getX() + b:getW() / 2, b:getY() + b:getH() / 2
-		local clear = true
-		for _, d in ipairs(GS.deaths) do
-			if math.abs(d.x - bx) < DEATH_CLEAR and math.abs(d.y - by) < DEATH_CLEAR then clear = false; break end
-		end
-		if clear then
-			local rooms, rs = {}, b:getRooms()
-			for i = 0, rs:size() - 1 do
-				local r = rs:get(i)
-				if r:getZ() == 0 and not r:isEmptyOutside() and r:getRects():size() > 0 then rooms[#rooms + 1] = r end
-			end
-			if #rooms > 0 then
-				local rects = rooms[ZombRand(#rooms) + 1]:getRects()
-				local rc = rects:get(ZombRand(rects:size()))
-				return { posX = rc:getX() + ZombRand(math.max(1, rc:getW())), posY = rc:getY() + ZombRand(math.max(1, rc:getH())), posZ = 0 }
-			end
-		end
-	end
-	return nil
-end
-
--- after the spawn screen's Next: the picked region with every profession's points swapped for one random square
-local function randomizeSpawn(sel)
-	local reg = sel.selectedRegion
-	local pt = reg and reg.points and G.spawnPoint(reg)
-	if not pt then return end
-	local points = { unemployed = { pt } }
-	for k in pairs(reg.points) do points[k] = { pt } end
-	sel.selectedRegion = { name = reg.name, key = reg.key, file = reg.file, points = points }
-	GS.spawnAt = pt
-	A.event("new life in " .. tostring(reg.name) .. " at " .. pt.posX .. "," .. pt.posY)
-end
+-- Where a new life starts: the owner's decision of 2026-10-12 (evening). The town is picked at random on the
+-- game's own spawn screen, and the game puts the character at one of that town's own start points. Gym
+-- 0.4.24-0.4.32 swapped those for a random square of a random ground-floor room of the town (G.spawnPoint),
+-- clear of the last 20 deaths. That square was a corner of the room's tiles (whole-number x and y), and next
+-- to a wall it lay on the wall's line, where the game's pathfinder finds no way anywhere; others were water
+-- (a boathouse) or closed rooms. Seven lives on 2026-10-12 never left the spot they started on, for up to 66
+-- game hours, and the owner asked for the game's own start options back.
 
 -- press the death screen's and character creation's own buttons, one every RESPAWN_MS. Each step looks at which
 -- screen is up and presses only its button, and a second Respawn press is ignored by the game
@@ -1459,7 +1514,6 @@ function G.respawnStep()
 		for i, item in ipairs(lb and lb.items or {}) do if item.item and item.item.region then towns[#towns + 1] = i end end
 		if #towns > 0 then lb.selected = towns[ZombRand(#towns) + 1] end
 		w.mapSpawnSelect:clickNext()
-		if G.RANDOM_SPAWN then randomizeSpawn(w.mapSpawnSelect) end
 	elseif w.charCreationProfession and w.charCreationProfession:isVisible() then
 		-- with the agent playing and G.CHOOSE_TRAITS on, it picks traits here (AIvZGymActions.lua); otherwise, or if that fails, Next
 		local handled = G.CHOOSE_TRAITS and G.creation and G.active() and select(2, pcall(G.creation, w.charCreationProfession))
