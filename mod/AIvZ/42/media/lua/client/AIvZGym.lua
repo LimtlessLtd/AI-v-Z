@@ -20,7 +20,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.30"
+G.VERSION = "0.4.31"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -412,6 +412,27 @@ local function scrapProps(o)
 	return mp or nil
 end
 
+-- a door or window: it sits on the north or west edge of its square, so `other` is the square on the far side
+local function addOpening(out, p, o, sq, d, pz)
+	local other = o:getNorth() and sqAt(sq:getX(), sq:getY() - 1, pz) or sqAt(sq:getX() - 1, sq:getY(), pz)
+	local ext = (sq:getBuilding() ~= nil) ~= (other ~= nil and other:getBuilding() ~= nil)
+	local e = { o = o, sq = sq, d = d, exterior = ext, open = try(function() return o:IsOpen() end) == true,
+		locked = U.winIs(o, "isLocked") }
+	if U.isDoor(o) then
+		-- the menu says "Door Is Locked" when couldBeOpen(player) is false, which counts keys (observation audit, leak 7)
+		local cbo = try(function() return o:couldBeOpen(p) end)
+		if cbo ~= nil then e.locked = cbo ~= true end
+		out.doors[#out.doors + 1] = e
+	else
+		e.smashed = U.winIs(o, "isSmashed")
+		e.glass = e.smashed and not U.winIs(o, "isGlassRemoved")
+		e.barricaded = U.winIs(o, "isBarricaded")
+		out.windows[#out.windows + 1] = e
+		local cur = o:HasCurtains()
+		if cur then out.curtains[#out.curtains + 1] = { o = cur, sq = cur:getSquare() or sq, d = d, open = cur:IsOpen() } end
+	end
+end
+
 function G.scanAround(p)
 	if GS.around and GS.around.tick == tick() then return GS.around end
 	local px, py, pz = math.floor(p:getX()), math.floor(p:getY()), math.floor(p:getZ())
@@ -419,11 +440,32 @@ function G.scanAround(p)
 	local hb = here and here:getBuilding()
 	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {} }
 	local known = seen(p)
+	local vis = {}
+	local function sees(dx, dy)
+		local k = (dx + 9) * 32 + dy + 9
+		if vis[k] == nil then vis[k] = perceivable(p, sqAt(px + dx, py + dy, pz), math.sqrt(dx * dx + dy * dy)) end
+		return vis[k]
+	end
 	for dx = -8, 8 do
 		for dy = -8, 8 do
 			local sq = sqAt(px + dx, py + dy, pz)
 			local d = math.sqrt(dx * dx + dy * dy)
-			if sq and perceivable(p, sq, d) then   -- not through walls or in the dark
+			if sq and not sees(dx, dy) then
+				-- A door or window is on the wall between two squares, and the game keeps it on the square to the
+				-- south or east of that wall: one on a room's east or south wall belongs to the square outside.
+				-- With its curtain drawn, at night, or behind a closed door that square is out of sight, and gym
+				-- 0.4.30 and earlier listed nothing on it, so the window the player looks at from inside vanished
+				-- (2026-10-12: a bathroom whose door was locked; it opened the window, drew the curtain, and never
+				-- saw the window, the curtain or a way to climb out again). Seen from the near side, it counts.
+				local north, west = sees(dx, dy - 1), sees(dx - 1, dy)
+				if north or west then
+					for _, o in ipairs(U.objList(sq)) do
+						if (U.isDoor(o) or U.isWindow(o)) and (o:getNorth() and north or not o:getNorth() and west) then
+							addOpening(out, p, o, sq, d, pz)
+						end
+					end
+				end
+			elseif sq then   -- perceivable: not through walls or in the dark
 				local n = 0
 				for _, c in ipairs(U.containersOn(sq)) do
 					n = n + 1
@@ -453,25 +495,7 @@ function G.scanAround(p)
 						local mp = scrapProps(o)
 						if mp and mp.canScrap then out.scrap[#out.scrap + 1] = { o = o, mp = mp, sq = sq, d = d } end
 					end
-					if U.isDoor(o) or U.isWindow(o) then
-						local other = o:getNorth() and sqAt(sq:getX(), sq:getY() - 1, pz) or sqAt(sq:getX() - 1, sq:getY(), pz)
-						local ext = (sq:getBuilding() ~= nil) ~= (other ~= nil and other:getBuilding() ~= nil)
-						local e = { o = o, sq = sq, d = d, exterior = ext, open = try(function() return o:IsOpen() end) == true,
-							locked = U.winIs(o, "isLocked") }
-						if U.isDoor(o) then
-							-- the menu says "Door Is Locked" when couldBeOpen(player) is false, which counts keys (observation audit, leak 7)
-							local cbo = try(function() return o:couldBeOpen(p) end)
-							if cbo ~= nil then e.locked = cbo ~= true end
-							out.doors[#out.doors + 1] = e
-						else
-							e.smashed = U.winIs(o, "isSmashed")
-							e.glass = e.smashed and not U.winIs(o, "isGlassRemoved")
-							e.barricaded = U.winIs(o, "isBarricaded")
-							out.windows[#out.windows + 1] = e
-							local cur = o:HasCurtains()
-							if cur then out.curtains[#out.curtains + 1] = { o = cur, sq = cur:getSquare() or sq, d = d, open = cur:IsOpen() } end
-						end
-					end
+					if U.isDoor(o) or U.isWindow(o) then addOpening(out, p, o, sq, d, pz) end
 				end
 			end
 		end

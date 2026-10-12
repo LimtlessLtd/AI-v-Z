@@ -21,7 +21,7 @@
 
 AIvZ = AIvZ or {}
 local A = AIvZ
-A.VERSION = "0.5.4"   -- 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
+A.VERSION = "0.5.5"   -- 0.5.5: steps off a wall line when no path starts there (gym 0.4.31); 0.5.4: corpses walked to with the mod's own walk (gym 0.4.27); 0.5.3: the speed pick sticks
 
 local DIR = "aivz/"
 local PERCEPT_EVERY = 30   -- ticks between percept writes
@@ -915,10 +915,18 @@ A.tasks = {}
 local function done(t, msg) t.status = "done"; if msg then t.msg = msg end end
 local function fail(t, msg) t.status = "failed"; t.msg = msg; A.event(t.goal .. " failed: " .. msg) end
 
+-- Where paths fail from: S.pathFail = { x, y, n failures in a row from that spot, tries at stepping off it }.
+-- A.stepOff reads it.
+local function notePathFail(p)
+	local x, y, f = p:getX(), p:getY(), S.pathFail
+	if f and math.abs(f.x - x) < 0.05 and math.abs(f.y - y) < 0.05 then f.n = f.n + 1
+	else S.pathFail = { x = x, y = y, n = 1, tries = 0 } end
+end
+
 local function pathTo(p, t, x, y, z)
 	t.pathFailed = false
 	local act = ISPathFindAction:pathToLocationF(p, x + 0.5, y + 0.5, z)
-	pcall(function() act:setOnFail(function() t.pathFailed = true end) end)
+	pcall(function() act:setOnFail(function() t.pathFailed = true; notePathFail(p) end) end)
 	Q(act)
 end
 
@@ -982,8 +990,59 @@ local function furnitureName(sq)
 end
 
 local NEIGHBOURS = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 }, { 1, -1 }, { 1, 1 }, { -1, 1 }, { -1, -1 } }
+
+-- Standing on the line of a wall: some new characters start exactly on a square's edge (x or y a whole number)
+-- next to a wall, and from there the pathfinder finds no way anywhere (PolygonalMap2.findPath gives up when it
+-- can't move the start point out of the walls round it). A player walks off with the keys and never notices;
+-- the gym only walks by the pathfinder, so on 2026-10-12 seven lives were stuck on the spot they started on, for
+-- up to 66 game hours, with a door or window a few tiles away. After two paths in a row fail from the same spot on a square's
+-- edge, this walks it with the game's auto-walk to the middle of the nearest free square it isn't walled off
+-- from, the next nearest the next time if it didn't budge.
+local function onLine(v)
+	local f = v - math.floor(v)
+	return f < 0.1 or f > 0.9
+end
+local function stepOffLine(p, sq)
+	local f = S.pathFail
+	if not f or f.n < 2 or f.tries >= 3 or not sq or qlen(p) > 0 then return false end
+	local x, y = p:getX(), p:getY()
+	if math.abs(x - f.x) >= 0.05 or math.abs(y - f.y) >= 0.05 or not (onLine(x) or onLine(y)) then return false end
+	if try(function() return p:isAsleep() or p:isClimbing() or p:isSittingOnFurniture() or p:isSitOnGround() end) then return false end
+	local cands = {}
+	if try(function() return sq:isFree(false) end) then cands[1] = sq end
+	for _, d in ipairs(NEIGHBOURS) do
+		local n = sqAt(sq:getX() + d[1], sq:getY() + d[2], sq:getZ())
+		if n and n:getFloor() and try(function() return n:isFree(false) end) and not try(function() return sq:isBlockedTo(n) end) then
+			cands[#cands + 1] = n
+		end
+	end
+	local function far(s) return (s:getX() + 0.5 - x) ^ 2 + (s:getY() + 0.5 - y) ^ 2 end
+	table.sort(cands, function(a, b) return far(a) < far(b) end)
+	local to = cands[f.tries + 1]
+	f.tries, f.n = f.tries + 1, 0
+	if not to then return false end
+	ISTimedActionQueue.clear(p)
+	local tx, ty = to:getX() + 0.5, to:getY() + 0.5
+	local v = Vector2.new(tx - x, ty - y)
+	v:normalize()
+	p:setAutoWalkDirection(v)
+	p:setAutoWalk(true)
+	S.stepOff = { t0 = S.tick, line = true, from = { x, y }, to = { tx, ty }, what = "on the line of a wall" }
+	A.event(string.format("no way anywhere from %.2f,%.2f: stepping to the middle of a square", x, y))
+	return true
+end
+
 function A.stepOff(p)
 	local so, sq = S.stepOff, p:getCurrentSquare()
+	if so and so.line then
+		-- done once it reaches the middle of that square or goes past it (at 20x and 40x a tick covers a lot of
+		-- ground), or after a second
+		local left = (so.to[1] - p:getX()) * (so.to[1] - so.from[1]) + (so.to[2] - p:getY()) * (so.to[2] - so.from[2])
+		if left > 0.01 and S.tick - so.t0 < 60 then return true end
+		pcall(function() p:setAutoWalk(false) end)
+		S.stepOff = nil
+		return false
+	end
 	if so then
 		if inFurniture(sq) and S.tick - so.t0 < 90 then return true end
 		pcall(function() p:setAutoWalk(false) end)
@@ -994,7 +1053,7 @@ function A.stepOff(p)
 	-- only when idle there, and after half a second in it: passing through (a climb through a window, a smash)
 	-- counted once, and failed the climb. While it waits, true too: no new orders until it's off (a climb in
 	-- through a window can land on a table, and the next walk from there fails at once).
-	if not inFurniture(sq) then S.inFurnSince = nil; return false end
+	if not inFurniture(sq) then S.inFurnSince = nil; return stepOffLine(p, sq) end
 	S.inFurnSince = S.inFurnSince or S.tick
 	if qlen(p) > 0 or S.tick < (S.stepOffNext or 0) then return false end
 	if try(function() return p:isAsleep() or p:isClimbing() or p:isSittingOnFurniture() or p:isSitOnGround() end) then return false end
@@ -1870,7 +1929,7 @@ function A.onTick()
 	-- (the first new map once listed two buildings from the other end of the county)
 	local who = try(function() local d = p:getDescriptor(); return d:getForename() .. " " .. d:getSurname() end)
 	if who and who ~= S.who then
-		if S.who then S.cache, S.task, S.zc, S.stepOff, S.stepOffNext = {}, nil, nil, nil, nil end
+		if S.who then S.cache, S.task, S.zc, S.stepOff, S.stepOffNext, S.pathFail = {}, nil, nil, nil, nil, nil end
 		S.who = who
 	end
 	if not p:isDead() then safe("speed", A.holdSpeed, p, not S.manual) end
