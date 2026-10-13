@@ -25,7 +25,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.76"
+G.VERSION = "0.4.77"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -1279,7 +1279,7 @@ function G.options(p)
 			add(list, "switch_item", info, { it = it })
 			info.how = nil
 		end
-		if instanceof(it, "HandWeapon") and count(list, "equip") < 3 then
+		if instanceof(it, "HandWeapon") and count(list, "equip") < 8 then
 			local ok, both = equipEntry(p, it)
 			if ok then add(list, "equip", info, { it = it, both = both }) end
 		end
