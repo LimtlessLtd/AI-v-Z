@@ -25,7 +25,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.81"
+G.VERSION = "0.4.82"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -1417,14 +1417,14 @@ function G.options(p)
 		local parts = p:getBodyDamage():getBodyParts()
 		for i = 0, parts:size() - 1 do
 			local bp = parts:get(i)
-			if count(list, "unbandage") < 3 and bp:bandaged() then
+			if count(list, "unbandage") < 8 and bp:bandaged() then
 				add(list, "unbandage", { part = BodyPartType.ToString(bp:getType()) }, { part = bp })
 			end
 			-- stitches and a splint come off the same way (HRemoveStitch 1460-1472, HRemoveSplint 1646-1662)
-			if count(list, "unstitch") < 3 and bp:stitched() then
+			if count(list, "unstitch") < 8 and bp:stitched() then
 				add(list, "unstitch", { part = BodyPartType.ToString(bp:getType()) }, { part = bp })
 			end
-			if count(list, "unsplint") < 3 and bp:getSplintFactor() > 0 then
+			if count(list, "unsplint") < 8 and bp:getSplintFactor() > 0 then
 				add(list, "unsplint", { part = BodyPartType.ToString(bp:getType()) }, { part = bp })
 			end
 		end
