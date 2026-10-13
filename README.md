@@ -38,7 +38,7 @@ experience (it never watches a human play).
 
 | | |
 |---|---|
-| Project Zomboid | **42.21.0** (Steam build `25485521`, git rev `4a0e9546ec`), singleplayer; rechecked against the running game and Steam manifest on 2026-10-09 |
+| Project Zomboid | **42.21.0** (Steam build `25485521`, git rev `4a0e9546ec`), singleplayer; rechecked against the installed sources, running-game log and Steam manifest on 2026-10-13 |
 | Baseline brain | Rules ([brain/rules.py](brain/rules.py)), Python 3.14 standard library |
 | Learning (Phase 4) | PyTorch 2.13 (CPU), already installed |
 | OS / hardware | Windows 11, i9-10900K, 32 GB RAM, RTX 2060 6 GB (see [docs/SPECS.md](docs/SPECS.md)) |
@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.8 (gym 0.4.44)` after reloading this update). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.8 (gym 0.4.69)` after reloading this update). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -338,6 +338,13 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.69 adds washing yourself and items**: clothing, bags, weapons and washable bandages, one item or
+  all of a category at a visible water source. It uses the game's water requirements, optional soap and
+  getting-up prerequisite, and checks that cleaning or bandage conversion happened. All 132 tests pass,
+  including the installed game's Lua checks; natural-play verification is pending. The trained network is
+  preserved; the new Without Soap warning token reaches the playing agent at its next restart.
+  [Conditions and remaining coverage](docs/GAP_LIST.md#10-water-washing-cooking-light).
+
 - **Gym 0.4.66 fires guns.** Until now `attack` with a gun walked up to the zombie and shoved it. Now it shoots from
   the gun's range, through the game's own attack hook, so the shot makes its noise and needs a round ready. An empty
   or jammed gun stops the attack, and a reload can come next. Not yet seen in the game.
@@ -391,7 +398,9 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   heap is still tight: 1.45 GB of it was live 9 minutes into that session, with peaks at 94%.
   [Details](docs/BACKLOG.md#out-of-memory-and-a-hang-after-a-respawn-2026-10-13).
 
-- **The game can hang right after a new character arrives** (twice in about 700 respawns). The window stops
+- **The game can hang**, including right after a new character arrives. Six captured stacks on 2026-10-13
+  stop in its native FMOD audio call while updating an animal; the reason inside that call is still unknown.
+  [Evidence and blockers](docs/BACKLOG_CHECK_2026-10-13.md#n16n17-heap-and-native-audio-hang). The window stops
   responding. **Leave it a minute before you close it**: the game watcher saves thread dumps to
   `logs\hang-*.txt` after a minute without a response. Then close it and run `scripts\start.ps1` again. The cause
   isn't known yet (backlog N17).
@@ -421,7 +430,8 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   ends the command once the game's queue finishes sitting, instead of keeping it running another
   ten real seconds. It reports the ground fallback and includes visible furniture posture as a token
   after an agent restart. Installed 42.21 source audit and all 125 tests pass. After the 21:39 reload,
-  two ground rests completed at 22 ticks with sitting true; furniture variants remain open.
+  two ground rests completed at 22 ticks with sitting true. On 2026-10-13 a natural furniture rest also
+  completed, followed by getting up and moving away; the separate `get_up` completed too.
   [Backlog check and learning results](docs/BACKLOG_CHECK_2026-10-12.md): the first 1,396 decisions
   after the preceding getting-up fix had no immediate path failures. The newest nine reward-4 lives
   have median survival 6.25 game hours, but bandaging is still rarely chosen and the sample is small.
@@ -432,8 +442,8 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   the right-click menu does. A seated character also gets a separate `get_up` choice and the network
   gets a sitting token after an agent restart. The installed Lua/compiler checks and all 125 tests pass;
   after reloading, life 792 sat on the ground, chose a walk, got up and moved away at 21:22 on
-  2026-10-12. Furniture rests and completion of the separate `get_up` still need verification.
-  [Evidence and remaining check](docs/SITTING_CHECK.md).
+  2026-10-12. Furniture-rest recovery and the separate `get_up` were verified in natural play on 2026-10-13.
+  [Evidence](docs/SITTING_CHECK.md).
 
 - **Player action coverage is incomplete.** Clothing wear/remove exists; crafting only covers some
   item recipes. Disassembly, driving, vehicle maintenance, repairs, transfers between chosen inventory

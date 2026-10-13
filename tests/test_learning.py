@@ -155,6 +155,23 @@ class EncodingTests(unittest.TestCase):
         self.assertEqual(sneaking[0], F.encode_state({"obs": OBS})[0])
         self.assertEqual(len(sneaking[0]), F.STATE_DIM)
 
+    def test_wash_variants_and_soap_warning_keep_the_network_layout(self):
+        single = {"verb": "wash", "type": "Base.Shirt_FormalWhite", "name": "Shirt", "from": "Sink", "d": 1.0}
+        all_clothes = {"verb": "wash", "name": "clothing", "from": "Sink", "how": "all", "d": 1.0}
+        dense, tokens = F.encode_option(single, OBS)
+        warning_dense, warning_tokens = F.encode_option(dict(single, noSoap=True), OBS)
+        self.assertEqual(dense, warning_dense)
+        self.assertEqual(len(dense), F.OPTION_DIM)
+        self.assertIn(F.bucket("wash:noSoap"), warning_tokens)
+        self.assertNotIn(F.bucket("wash:noSoap"), tokens)
+        self.assertIn(F.bucket("wash:how:all"), F.encode_option(all_clothes, OBS)[1])
+        self.assertIn(F.bucket("type:Base.Shirt_FormalWhite"), tokens)
+        body = F.encode_option({"verb": "wash_yourself", "name": "Sink", "noSoap": True}, OBS)
+        self.assertIn(F.bucket("verb:wash_yourself"), body[1])
+        self.assertIn(F.bucket("wash_yourself:noSoap"), body[1])
+        self.assertNotEqual(tokens, body[1])
+        self.assertEqual(F.VERSION, 3)
+
     def test_sitting_is_visible_without_changing_the_network_layout(self):
         standing = F.encode_state({"obs": OBS})
         sitting = F.encode_state({"obs": {**OBS, "sitting": True}})

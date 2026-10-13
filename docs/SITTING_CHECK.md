@@ -99,3 +99,12 @@ This verifies getting up and moving after a **ground** rest with the new path pr
 standalone `get_up` was offered but not chosen in the 250 flushed decisions examined. Furniture
 rest, standalone action completion and longer-run failure rates remain pending in backlog row 1.
 The running Python agent still needs a restart to encode the new sitting token.
+
+### Furniture and separate Get Up verified, 2026-10-13
+
+The owner restarted the agent at 10:26 and 13:06, so it now encodes the sitting and furniture tokens.
+In natural life 1056, decision 21217 at 12:31:15 completed a furniture rest with both posture flags true.
+The selected room walk got the character up at 21218; by 21219 it had moved away from the furniture.
+At 12:32:18, decision 21464 separately completed `get_up` with sitting false. No choice was supplied
+by this review. [Exact observations](BACKLOG_CHECK_2026-10-13.md#sitting-and-subsequent-movement).
+The sitting-specific verification is complete; backlog row 1 retains the broader room/path checks.
