@@ -25,7 +25,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.69"
+G.VERSION = "0.4.70"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -2366,6 +2366,18 @@ end
 local MOVING_FIELDS = { d = true, dx = true, dy = true, age = true, zombies = true, closing = true, facing = true }
 local function sameOption(a, b)
 	if not a or not b or a.verb ~= b.verb then return false end
+	-- Washing choices may have identical visible labels at different sinks, or for two shirts of the same
+	-- type. Carry on only for the same actual source and selected items. These local references are not input
+	-- to the network. For All, item order may change as soap requirements change, but the target set must match.
+	if a.verb == "wash" or a.verb == "wash_yourself" then
+		if a.data.src ~= b.data.src then return false end
+		if a.verb == "wash" then
+			if #a.data.items ~= #b.data.items then return false end
+			local selected = {}
+			for _, it in ipairs(a.data.items) do selected[it] = true end
+			for _, it in ipairs(b.data.items) do if not selected[it] then return false end end
+		end
+	end
 	for k, v in pairs(a.info) do if not MOVING_FIELDS[k] and b.info[k] ~= v then return false end end
 	for k, v in pairs(b.info) do if not MOVING_FIELDS[k] and a.info[k] ~= v then return false end end
 	return true
