@@ -98,12 +98,40 @@ Pre-shutoff is the game's formula: `worldAgeHours/24 + (getTimeSinceApo()-1)*30 
 Use it only as the menu prerequisite, never as network input. `doWaterPipeMenu` requires an unbroken
 PipeWrench (type or `ItemTag.PIPE_WRENCH`) in the recursive inventory. `onPlumbItem` (`:1528-1534`)
 equips that wrench and queues `ISPlumbItem:new(player, object, wrench)`; the menu has a get-up wrapper.
+The adapter repeats that equip/action sequence with a disappearing-target validity guard on the action.
 `ISPlumbItem:complete` sets `canBeWaterPiped=false` and `getUsesExternalWaterSource()` true and syncs it.
 That is proof of connecting, not of a full supplier. Disappeared squares/objects must be guarded.
 
 ## Coverage and implementation status
 
-In progress: oven/microwave controls, laundry switching/mode, plumbing, reusable-bandage cleaning,
-and water choices built from the current visible fixture scan. The network chooses every action.
+**Implemented in gym 0.4.71:** nine action types in `AIvZGymHousehold.lua`:
+`appliance_settings`, `appliance_temperature`, `appliance_timer`, `appliance_toggle`, `appliance_close`,
+`clean_bandage`, `laundry`, `laundry_mode`, `plumb`. Open settings and configure them are separate choices.
+Closing an owned visible panel remains possible if the fixture disappears. Native cleaning/plumbing
+validity checks have an additional missing-fixture guard. Other expected missing squares, containers,
+sources and disabled buttons are checked before calls. Outcomes check the actual state or inventory change.
+
+The existing gym scan now records each actual water fixture **after** the visibility check, in the same
+eight-tile square scan used for other objects. Drink/fill/wash use those references; no nearest-five
+pre-filter or nearest-two drink/fill cap remains. Its object lists are replaced on each scan, not kept
+across the character's travels. The baseline's own water scan is unchanged. Tap drinking now runs
+`onDrink`, including its mask removal/re-wear, after getting up. Filling also waits for getting up and
+checks recipient existence before calling `onTakeWater`. Re-picking an action compares actual source,
+UI and recipient references, which are never serialized for the network.
+
+`obs.household.panels` contains only visible, owned, nearby oven/microwave panels. `agent/features.py`
+explicitly includes their kind, dial values, active state and enabled toggle button as hashed tokens.
+The dense layout and `features.VERSION=3` are preserved. Training can use the tokens immediately;
+the already running playing agent picks them up on its next restart. Existing option fields already
+encode all nine action types and their parameters. The public page's export allow-list is unchanged.
+
+The loader's fixed mod-file list includes the new file. A bootstrap in `AIvZGym.lua` lets the first
+hot reload from an older three-file loader load it and extend that fixed list, without restarting
+the game or reading executable paths from IPC.
+
+**Validation:** all 134 tests pass on the owner's PC, including the installed game's Lua compiler
+and method-name checks. New tests verify visible-panel input, exclusion of food's hidden cooking state,
+distinct dial/quantity choices, and preservation of the network layout. Natural use is not yet verified.
+The network chooses every action.
 Ground fluid items, general fluid-transfer UI, fuel pumps, generators and campfire/BBQ controls remain
 separate catalogue gaps. Live verification must use natural opportunities and report missing cases.

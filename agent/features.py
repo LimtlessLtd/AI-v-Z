@@ -284,6 +284,21 @@ def encode_state(msg):
         toks.append("self:sitting:furniture")
     if isinstance(obs.get("profession"), str):   # gym 0.4.44: the same visible identity in creation and the life
         toks.append(f"profession:{obs['profession']}")
+    # Gym 0.4.71: the current character's visible oven/microwave settings windows. Only the displayed
+    # dial values and button state are allowed; closed appliances and food's internal heat/progress stay out.
+    for panel in _l(_d(obs.get("household")).get("panels")):
+        panel = _d(panel)
+        kind = panel.get("kind")
+        if kind not in ("oven", "microwave"):
+            continue
+        toks.append(f"appliance:panel:{kind}")
+        for k, limit in (("temperature", 300), ("minutes", 120)):
+            value = panel.get(k)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= limit:
+                toks.append(f"appliance:{kind}:{k}:{int(value)}")
+        for k in ("active", "canToggle"):
+            if isinstance(panel.get(k), bool):
+                toks.append(f"appliance:{kind}:{k}:{int(panel[k])}")
     if obs.get("dragging"):   # gym 0.4.35
         toks.append("self:dragging")
     for z in zs:
