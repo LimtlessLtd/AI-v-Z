@@ -408,8 +408,12 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   [coverage audit](docs/PHASE3_COVERAGE.md) and the per-action [catalogue](docs/ACTION_CATALOGUE.md).
   `drink`, `engine_on` and the trait screen still differ from the game's own rules; `sleep` and `exercise`
   follow them in code, untested in game ([gap list](docs/GAP_LIST.md)).
-- **There is no hearing input.** Helicopter audio, alarms, engines, horns, zombie banging and other
-  audible cues do not currently reach the agent. The proposed audio path is not implemented.
+- **Hearing is recorded but not yet heard.** Since 2026-10-13 the agent captures the game's own audio and
+  nothing else (Windows process loopback, `agent/audio_loopback.py`). Each decision record keeps the last 3 s as
+  levels, left/right balance and frequency bands. `--no-hearing` turns it off. Two things are still missing.
+  First, the game's sound, music and ambient volumes are 0 in its options, so everything captured is silence
+  (owner decision, backlog). Second, the network doesn't use the record yet: that comes after there's real audio
+  to look at. Cost measured on the PC: about 7% of a core, 2.2 KB per record before compression.
 - **One hidden-information leak remains in the gym.** Zombie visibility uses line of sight plus light instead of
   the game's own spotted list. (Mod 0.5.7 stopped the `enter` macro picking a window by its lock state or among
   windows never seen.) The other leaks are fixed in the gym or kept out of the network's input

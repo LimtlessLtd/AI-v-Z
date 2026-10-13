@@ -100,6 +100,14 @@ be called for every nearby object on every tick without an isolation and target-
 
 ## Hearing: proposed input, not implemented
 
+**Progress 2026-10-13: the capture exists, the input doesn't yet.** `agent/audio_loopback.py` uses
+`ActivateAudioInterfaceAsync("VAD\\Process_Loopback")` with `AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK` for
+ProjectZomboid64.exe and its child processes, through comtypes (already installed), at 16-bit stereo 48 kHz. It
+reconnects when the game restarts. `agent/run.py` passes it to `Hearing`, so every decision record has 3 s of
+windows (`--no-hearing` turns it off). Measured on the owner's PC: 10 ms packets, no gaps, about 7% of a core,
+2.2 KB per record raw. The game's own volumes were 0, so all of it was silence; the owner decides about the sound
+(backlog). Still to do, in order: real audio, what 20x does to it, then the network's input (backlog row 4).
+
 Capture **the PZ process's rendered stereo audio** locally, keeping a rolling buffer. Windows provides
 [process loopback capture](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/).
 Check the available runtime/build tools and measure capture latency on this PC before choosing an
