@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.51"
+G.VERSION = "0.4.52"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -779,7 +779,7 @@ function G.options(p)
 				nc = nc + 1; add(list, "climb", { d = info.d, dx = dx, dy = dy, exterior = e.exterior, glass = e.glass }, e)
 			end
 			-- the Smash entry exists only for a closed, unbroken window (ISWorldObjectContextMenuLogic.doWindowMenu)
-			if e.d < 2.5 and not e.smashed and not e.open and ns < 2 then ns = ns + 1; add(list, "smash", { d = info.d, dx = dx, dy = dy, exterior = e.exterior }, e) end
+			if e.d < 2.5 and not e.smashed and not e.open and ns < 8 then ns = ns + 1; add(list, "smash", { d = info.d, dx = dx, dy = dy, exterior = e.exterior }, e) end
 			-- Remove Glass Shards needs something in the primary hand (the menu greys it out otherwise)
 			if e.d < 2.5 and e.glass and p:getPrimaryHandItem() and ng < 1 then ng = ng + 1; add(list, "clear_glass", { d = info.d, dx = dx, dy = dy }, e) end
 			if sheet and nh < 2 and e.o:HasCurtains() == nil then
