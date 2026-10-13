@@ -36,7 +36,8 @@ $gym = Select-String -Path (Join-Path $repo 'mod\AIvZ\42\media\lua\client\AIvZGy
   Select-Object -First 1
 if ($gym) { Write-Host "This checkout: gym $($gym.Matches[0].Groups[1].Value)" }
 
-# the game watcher (backlog N16, N17): GC logs, and thread dumps if the game hangs. One at a time, minimized.
+# the game watcher (backlog N16, N17): restarts a hung or crashed game while the agent runs, and keeps GC logs and
+# the stacks of a hang. One at a time, minimized.
 $watcher = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match 'watch-game\.ps1' }
 if (-not $watcher) {
   Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',

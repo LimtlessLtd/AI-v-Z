@@ -25,7 +25,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.73"
+G.VERSION = "0.4.74"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -2514,31 +2514,61 @@ function G.respawnStep()
 		if ui and ui.waitOver then ui:onRespawn() end
 		return
 	end
-	if w.mapSpawnSelect and w.mapSpawnSelect:isVisible() then
-		local lb = w.mapSpawnSelect.listbox
+	G.creationStep(w.mapSpawnSelect, w.charCreationProfession, w.charCreationMain)
+end
+
+-- One press on whichever new-character screen is up: the town (a random one of the spawn screen's), the
+-- profession and traits, then the last screen's Next. The same three screens follow a death in the game
+-- (CoopCharacterCreation) and the main menu's Continue on a save whose character is dead (MapSpawnSelect.instance
+-- and MainScreen.instance's panels, OptionScreens/MainScreen.lua continueLatestSaveAux 1244-1274), which the
+-- loader presses after the game watcher restarted the game (AIvZLoader.lua). True if something was pressed.
+function G.creationStep(spawn, prof, main)
+	if spawn and spawn:isVisible() then
+		local lb = spawn.listbox
 		local towns = {}
 		for i, item in ipairs(lb and lb.items or {}) do if item.item and item.item.region then towns[#towns + 1] = i end end
 		if #towns > 0 then lb.selected = towns[ZombRand(#towns) + 1] end
-		w.mapSpawnSelect:clickNext()
-	elseif w.charCreationProfession and w.charCreationProfession:isVisible() then
+		spawn:clickNext()
+		return true
+	elseif prof and prof:isVisible() then
 		-- with the agent playing and G.CHOOSE_TRAITS on, it picks traits here (AIvZGymActions.lua); otherwise, or if that fails, Next
-		local handled = G.CHOOSE_TRAITS and G.creation and G.active() and select(2, pcall(G.creation, w.charCreationProfession))
+		local handled = G.CHOOSE_TRAITS and G.creation and G.active() and select(2, pcall(G.creation, prof))
 		if not handled then
-			if G.creationRepair then pcall(G.creationRepair, w.charCreationProfession) end   -- never start overdrawn
+			if G.creationRepair then pcall(G.creationRepair, prof) end   -- never start overdrawn
 			-- CharacterCreationProfession:render disables playButton while PointToSpend() < 0;
 			-- ISButton:onMouseUp checks its enabled state. Directly invoking NEXT used to bypass both.
-			if G.creationReady and G.creationReady(w.charCreationProfession) then
-				w.charCreationProfession:onOptionMouseDown(w.charCreationProfession.playButton, 0, 0)
+			if G.creationReady and G.creationReady(prof) then
+				prof:onOptionMouseDown(prof.playButton, 0, 0)
 			end
 		end
-	elseif w.charCreationMain and w.charCreationMain:isVisible() then
-		w.charCreationMain:onOptionMouseDown({ internal = "NEXT" }, 0, 0)
+		return true
+	elseif main and main:isVisible() then
+		main:onOptionMouseDown({ internal = "NEXT" }, 0, 0)
+		return true
 	end
+	return false
+end
+
+-- The game keeps a timed-action queue per character, keyed by the character, and never drops one
+-- (ISTimedActionQueue.queues[character] = o, client/TimedActions/ISTimedActionQueue.lua:144; nothing sets it back to
+-- nil, and Kahlua has no weak tables). A player dies a few times in a game; the agent dies a thousand times a day,
+-- and every dead character stayed in memory with all it refers to: its inventory, body, sound emitter and corpse.
+-- On 2026-10-13 the heap held 45 IsoPlayer objects after 44 deaths in that game (jcmd GC.class_histogram), and the
+-- old generation's live size grew by about 4 MB a life (backlog N16). Each new life forgets the dead ones' queues.
+local function forgetDeadQueues()
+	local queues = ISTimedActionQueue and ISTimedActionQueue.queues
+	if not queues then return end
+	local dead = {}
+	for chr in pairs(queues) do
+		if instanceof(chr, "IsoGameCharacter") and chr:isDead() then dead[#dead + 1] = chr end
+	end
+	for _, chr in ipairs(dead) do queues[chr] = nil end
 end
 
 function G.newLife()
 	GS.deadSent, GS.respawn, GS.cur, GS.waiting, GS.opts, GS.creation = false, nil, nil, false, nil, nil
 	GS.blds, GS.water, GS.around, GS.rcache, GS.lastHp, GS.lastClose = nil, nil, nil, nil, nil, nil
+	forgetDeadQueues()
 	A.event("a new life begins")
 end
 

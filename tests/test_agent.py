@@ -543,9 +543,71 @@ class SpawnStaticTest(unittest.TestCase):
     def test_a_random_town_then_the_games_own_points(self):
         step = self.src[self.src.index("function G.respawnStep"):]
         step = step[:step.index("\nend\n")]
-        self.assertLess(step.index("lb.selected = towns[ZombRand(#towns) + 1]"), step.index("w.mapSpawnSelect:clickNext()"))
+        self.assertIn("G.creationStep(w.mapSpawnSelect, w.charCreationProfession, w.charCreationMain)", step)
+        screens = self.src[self.src.index("function G.creationStep"):]
+        screens = screens[:screens.index("\nend\n")]
+        self.assertLess(screens.index("lb.selected = towns[ZombRand(#towns) + 1]"), screens.index("spawn:clickNext()"))
         for gone in ("randomizeSpawn", "G.RANDOM_SPAWN", "selectedRegion =", "GS.deaths"):
             self.assertNotIn(gone, self.src)
+
+
+class KeepRunningStaticTest(unittest.TestCase):
+    """Gym 0.4.74 and the game watcher (backlog N16, N17): each new life forgets the dead characters' timed-action
+    queues, which the game never drops, and the watcher restarts a hung or crashed game, which the loader then
+    continues from the main menu (code only, not run in the game here)."""
+
+    def setUp(self):
+        root = Path(__file__).resolve().parent.parent
+        base = root / "mod/AIvZ/42/media/lua/client"
+        self.gym = (base / "AIvZGym.lua").read_text(encoding="utf-8")
+        self.loader = (base / "AIvZLoader.lua").read_text(encoding="utf-8")
+        self.watcher = (root / "scripts/watch-game.ps1").read_text(encoding="utf-8")
+
+    def test_a_new_life_forgets_only_dead_characters_queues(self):
+        forget = self.gym[self.gym.index("local function forgetDeadQueues"):]
+        forget = forget[:forget.index("\nend\n")]
+        self.assertIn('instanceof(chr, "IsoGameCharacter") and chr:isDead()', forget)
+        self.assertIn("for _, chr in ipairs(dead) do queues[chr] = nil end", forget)   # not while pairs() walks it
+        life = self.gym[self.gym.index("function G.newLife"):]
+        self.assertIn("forgetDeadQueues()", life[:life.index("\nend\n")])
+
+    def test_the_loader_continues_only_after_a_restart(self):
+        self.assertIn('tonumber((readAll("aivz/resume.txt") or ""):match("%d+"))', self.loader)
+        self.assertIn("now - at < RESUME_FRESH_MS", self.loader)
+        self.assertIn('getFileWriter("aivz/resume.txt", true, false)', self.loader)   # used once
+        self.assertIn("MainScreen.onMenuItemMouseDownMainMenu(cont, 0, 0)", self.loader)
+        self.assertIn("Events.OnFETick.Add(", self.loader)
+        self.assertNotIn("reloadLuaFile(r", self.loader)   # nothing read from a file is run
+
+    def test_the_watcher_restarts_only_for_the_agent_and_not_after_a_quit(self):
+        restart = self.watcher[self.watcher.index("function Restart-Game"):]
+        self.assertLess(restart.index("resume.txt"), restart.index("Start-Process 'steam://rungameid/108600'"))
+        self.assertIn("if ($tail[-5..-1] -match 'GameThread exited') { return 'quit' }", self.watcher)
+        self.assertIn("$ending -eq 'crash' -and $RestartMinutes -gt 0 -and (Agent-Running)", self.watcher)
+        self.assertIn("$for -ge $RestartMinutes * 60 -and (Agent-Running)", self.watcher)
+        self.assertIn("$recent.Count -ge $MaxRestarts", self.watcher)
+
+
+@unittest.skipUnless(sys.platform == "win32", "native stacks are read with Windows' dbghelp")
+class NativeStacksTests(unittest.TestCase):
+    """scripts/native_stacks.py, which the game watcher runs on a hung game: every thread of another process, each
+    with frames named by module."""
+
+    def test_the_threads_of_another_process(self):
+        import subprocess
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import native_stacks
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            time.sleep(1.0)
+            threads = native_stacks.stacks(child.pid)
+        finally:
+            child.kill()
+            child.wait()
+        self.assertTrue(threads)
+        frames = [f for t in threads for f in t[4]]
+        self.assertTrue(any(f.lower().startswith("ntdll.dll!") for f in frames), frames[:10])
+        self.assertTrue(all(isinstance(t[3], float) for t in threads))
 
 
 class FloorStaticTest(unittest.TestCase):
