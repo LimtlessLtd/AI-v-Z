@@ -236,6 +236,29 @@ the menu at 1489-1503 offers both tool variants and Hands when the visible wound
 The tool is transferred to the player's inventory before the action. Do not collapse the menu's
 tool/hand choices into a hidden preference when implementing it.
 
+**The applying handlers, read in installed 42.21 on 2026-10-13 and built in gym 0.4.57** (not live-tested).
+Supplies come from every container `ISInventoryPaneContextMenu.getContainers(doctor)` lists (`:2425`: the
+inventory page's and the loot page's backpacks, skipping an `IsoThumpable` locked to someone else) and from the
+bags inside those, one level (`BaseHandler:checkItems`, 1037-1067). The one used is moved to the main inventory
+first (`toPlayerInventory`, 1117-1127). `isInjured` (1032-1035) is `(HasInjury() or stitched() or
+getSplintFactor() > 0) and not bandaged()`. Each submenu lists one entry per item full type.
+
+| Handler | Items (`checkItem`) | Offered when | Queued action |
+|---|---|---|---|
+| `HApplyBandage`, 1145-1192 | `getBandagePower() > 0` | `isInjured` | `ISApplyBandage:new(d, p, item, part, true)` |
+| `HDisinfect`, 1302-1356 | a `FluidContainer` with alcohol/amount + 0.001 ≥ 0.4 and amount > 0.15, or `IsDrainable()` with `getAlcoholPower() == 4.0` | `isInjured` | `ISDisinfect:new(d, p, item, part)` |
+| `HApplyPoultice`, 1223-1300 | type `PlantainCataplasm`, `ComfreyCataplasm` or `WildGarlicCataplasm` | `isInjured`, plantain, comfrey and garlic factors all 0 | `ISPlantainCataplasm`/`ISComfreyCataplasm`/`ISGarlicCataplasm:new(d, p, item, part)` |
+| `HStitch`, 1358-1448 | `SutureNeedle`; `Needle` or tag `SEWING_NEEDLE`; `Thread` or tag `THREAD` | `isInjured`, `isDeepWounded()`, not `haveGlass()`; a suture needle, or a needle and thread | `ISStitch:new(d, p, sutureNeedle or thread, part, true)` |
+| `HRemoveGlass`, 1475-1530 | tag `REMOVE_GLASS`, `SutureNeedleHolder`, `Tweezers`; plus "Hand" | `isInjured`, `haveGlass()` | `ISRemoveGlass:new(d, p, part, handPain)`, `handPain` true by hand |
+| `HSplint`, 1532-1634 | `Splint`; `Plank`, `TreeBranch(2)`, `WoodenStick(2)` with `RippedSheets` | not Head or Torso; `HasInjury()`, not `stitched()`, `getSplintFactor()` 0, `getFractureTime() > 0` | `ISSplint:new(d, p, sheet or nil, plank or splint, part, true)` |
+| `HRemoveBullet`, 1665-1711 | tag `REMOVE_BULLET`, `Tweezers`, `SutureNeedleHolder` | `isInjured`, `haveBullet()` | `ISRemoveBullet:new(d, p, part)` |
+| `HCleanBurn`, 1713-1760 | `getBandagePower() >= 2` | `isInjured`, `isNeedBurnWash()` | `ISCleanBurn:new(d, p, item, part)` |
+
+Each action's `complete` (in `shared/TimedActions/`) is what the gym checks afterwards: `setAlcoholLevel` up,
+`setStitched(true)`, `setSplint(true, …)`, `setHaveGlass(false)`, `setHaveBullet(false, …)`,
+`setNeedBurnWash(false)`, and the poultice factors. Pills are on the inventory menu (`doPillsMenu`), not here: still
+missing.
+
 ### 12. Reading
 `ISInventoryPaneContextMenu.onLiteratureItems(items, playerNum)` (`:2804`) → `readItem` →
 `ISReadABook:new(character, item)`. Menu conditions (`doLiteratureMenu`, `:1030`): not

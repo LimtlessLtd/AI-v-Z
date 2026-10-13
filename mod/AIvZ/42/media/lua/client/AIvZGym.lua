@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.56"
+G.VERSION = "0.4.57"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -594,6 +594,75 @@ local function waterObjectAt(x, y, z)
 	for _, o in ipairs(U.objList(sq)) do if U.waterAmount(o) > 0 then return o end end
 end
 
+-- Treatment as the health panel offers it (client/XpSystem/ISUI/ISHealthPanel.lua, 42.21; gym 0.4.57). Its
+-- handlers look for supplies in every container ISInventoryPaneContextMenu.getContainers lists (the inventory and
+-- its bags, and the containers the loot window shows by the character) and in the bags inside those
+-- (BaseHandler:checkItems, :1037-1067); the item tests are each handler's checkItem.
+local function medSupplies(p)
+	local out, done = {}, {}
+	local pn = p:getPlayerNum()
+	if not getPlayerInventory(pn) or not getPlayerLoot(pn) then return out end
+	local function scan(c, children)
+		local items = c:getItems()
+		for i = 0, items:size() - 1 do
+			local it = items:get(i)
+			if not it:IsInventoryContainer() then out[#out + 1] = it
+			elseif children then children[#children + 1] = it:getInventory() end
+		end
+	end
+	local containers = ISInventoryPaneContextMenu.getContainers(p)
+	for i = 0, containers:size() - 1 do
+		local c, children = containers:get(i), {}
+		done[c] = true
+		scan(c, children)
+		for _, c2 in ipairs(children) do
+			if not done[c2] then done[c2] = true; scan(c2, nil) end
+		end
+	end
+	return out
+end
+local function isPlank(t) return t == "Plank" or t == "TreeBranch2" or t == "WoodenStick2" or t == "TreeBranch" or t == "WoodenStick" end
+local MED = {
+	bandage = function(it) return it:getBandagePower() > 0 end,   -- HApplyBandage :1153
+	disinfect = function(it)   -- HDisinfect :1310-1321: at least 40% alcohol, more than 0.15 L; or a drainable of power 4
+		if it:hasComponent(ComponentType.FluidContainer) then
+			local fc = it:getFluidContainer()
+			return fc:getAmount() > 0.15 and fc:getProperties():getAlcohol() / fc:getAmount() + 0.001 >= 0.4
+		end
+		return it:IsDrainable() and it:getAlcoholPower() == 4.0
+	end,
+	suture = function(it) return it:getType() == "SutureNeedle" end,   -- HStitch :1366-1376
+	needle = function(it) return it:getType() == "Needle" or it:hasTag(ItemTag.SEWING_NEEDLE) end,
+	thread = function(it) return (it:getType() == "Thread" or it:hasTag(ItemTag.THREAD)) and it:getCurrentUsesFloat() >= 0 end,
+	glass = function(it)   -- HRemoveGlass :1483-1487
+		return it:hasTag(ItemTag.REMOVE_GLASS) or it:getType() == "SutureNeedleHolder" or it:getType() == "Tweezers"
+	end,
+	bullet = function(it)   -- HRemoveBullet :1673-1677
+		return it:hasTag(ItemTag.REMOVE_BULLET) or it:getType() == "Tweezers" or it:getType() == "SutureNeedleHolder"
+	end,
+	burn = function(it) return it:getBandagePower() >= 2 end,   -- HCleanBurn :1721-1725
+	splint = function(it) return it:getType() == "Splint" end,   -- HSplint :1543-1552
+	plank = function(it) return isPlank(it:getType()) end,
+	sheet = function(it) return it:getType() == "RippedSheets" end,
+}
+-- HApplyComfrey, HApplyGarlic, HApplyPlantain (:1284-1300): an item of that type, and the action that applies it
+local POULTICES = {
+	{ type = "PlantainCataplasm", cls = function() return ISPlantainCataplasm end, on = function(bp) return bp:getPlantainFactor() > 0 end },
+	{ type = "ComfreyCataplasm", cls = function() return ISComfreyCataplasm end, on = function(bp) return bp:getComfreyFactor() > 0 end },
+	{ type = "WildGarlicCataplasm", cls = function() return ISGarlicCataplasm end, on = function(bp) return bp:getGarlicFactor() > 0 end },
+}
+local function firstOf(items, test) for _, it in ipairs(items) do if test(it) then return it end end end
+-- the first item of each kind that passes, as the menus list a kind once (BaseHandler:getAllItemTypes)
+local function eachKind(items, test)
+	local out, seen = {}, {}
+	for _, it in ipairs(items) do
+		if not seen[it:getFullType()] and test(it) then seen[it:getFullType()] = true; out[#out + 1] = it end
+	end
+	return out
+end
+-- BaseHandler:isInjured (:1032-1035)
+local function injured(bp) return (bp:HasInjury() or bp:stitched() or bp:getSplintFactor() > 0) and not bp:bandaged() end
+
 -- barricades (gym 0.4.36): the tools as the menus find them (J:ISWorldObjectContextMenuLogic.doBarricadeMenu's
 -- hammer test, ISWorldObjectContextMenu's predicateRemoveBarricade), and the planks on one side of an opening
 local function notBroken(it) return not it:isBroken() end
@@ -1016,17 +1085,70 @@ function G.options(p)
 			end
 		end
 	end
-	-- wounds that could take a bandage, with the first bandage in the bag
-	local band = nil
-	U.eachItem(p:getInventory(), function(it) if not band and U.medKind(it) == "bandage" then band = it end end)
-	if band then
-		local parts = p:getBodyDamage():getBodyParts()
-		for i = 0, parts:size() - 1 do
-			local bp = parts:get(i)
-			if count(list, "bandage") < 3 and not bp:bandaged() and (bp:bleeding() or bp:scratched() or bp:bitten() or bp:deepWounded()
-				or try(function() return bp:isCut() end)) then
-				add(list, "bandage", { part = BodyPartType.ToString(bp:getType()), bleeding = bp:bleeding(), item = band:getDisplayName() },
-					{ part = bp, it = band })
+	-- Treatment for each body part, as the health panel's menu offers it (gym 0.4.57; the handlers above MED): one
+	-- option per kind of supply, as its submenus list them. With an injury not under a bandage (injured): bandage,
+	-- disinfect, a poultice (none on yet), stitch a deep wound with no glass in it, take out glass (with a tool or by
+	-- hand) or a bullet, clean a burn that needs it. Splint a fracture, not on the head or torso, that isn't stitched
+	-- or splinted. Until gym 0.4.56 only `bandage` was offered, with the first item named Bandage or RippedSheets from
+	-- the bag, for at most 3 parts, and with its own idea of a wound.
+	local supplies = medSupplies(p)
+	local parts = p:getBodyDamage():getBodyParts()
+	for i = 0, parts:size() - 1 do
+		local bp = parts:get(i)
+		local part = BodyPartType.ToString(bp:getType())
+		if injured(bp) then
+			for _, it in ipairs(eachKind(supplies, MED.bandage)) do
+				add(list, "bandage", { part = part, bleeding = bp:bleeding(), item = it:getDisplayName(), type = it:getFullType() },
+					{ part = bp, it = it })
+			end
+			for _, it in ipairs(eachKind(supplies, MED.disinfect)) do
+				add(list, "disinfect", { part = part, type = it:getFullType() }, { part = bp, it = it })
+			end
+			if bp:getPlantainFactor() == 0 and bp:getComfreyFactor() == 0 and bp:getGarlicFactor() == 0 then
+				for _, pl in ipairs(POULTICES) do
+					local it = firstOf(supplies, function(x) return x:getType() == pl.type end)
+					if it then add(list, "poultice", { part = part, type = it:getFullType() }, { part = bp, it = it, pl = pl }) end
+				end
+			end
+			if bp:isDeepWounded() and not bp:haveGlass() then
+				local suture = firstOf(supplies, MED.suture)
+				local needle, thread = firstOf(supplies, MED.needle), firstOf(supplies, MED.thread)
+				-- a suture needle is needle and thread in one; otherwise both, and the action takes the thread
+				if suture then add(list, "stitch", { part = part, type = suture:getFullType() }, { part = bp, it = suture, move = { suture } }) end
+				if needle and thread then
+					add(list, "stitch", { part = part, type = needle:getFullType(), item = thread:getDisplayName() },
+						{ part = bp, it = thread, move = { needle, thread } })
+				end
+			end
+			if bp:haveGlass() then
+				for _, it in ipairs(eachKind(supplies, MED.glass)) do
+					add(list, "remove_glass", { part = part, type = it:getFullType() }, { part = bp, it = it })
+				end
+				add(list, "remove_glass", { part = part, type = "Hands" }, { part = bp })   -- the menu's "Hand" entry
+			end
+			if bp:haveBullet() then
+				for _, it in ipairs(eachKind(supplies, MED.bullet)) do
+					add(list, "remove_bullet", { part = part, type = it:getFullType() }, { part = bp, it = it })
+				end
+			end
+			if bp:isNeedBurnWash() then
+				for _, it in ipairs(eachKind(supplies, MED.burn)) do
+					add(list, "clean_burn", { part = part, type = it:getFullType() }, { part = bp, it = it })
+				end
+			end
+		end
+		-- HSplint:addToMenu (:1554-1607): a made splint, or each kind of plank or stick with the first kind of sheet
+		local bt = bp:getType()
+		if bt ~= BodyPartType.Head and bt ~= BodyPartType.Torso_Upper and bt ~= BodyPartType.Torso_Lower and bp:HasInjury()
+			and not bp:stitched() and bp:getSplintFactor() <= 0 and bp:getFractureTime() > 0 then
+			for _, it in ipairs(eachKind(supplies, MED.splint)) do
+				add(list, "splint", { part = part, type = it:getFullType() }, { part = bp, it = it })
+			end
+			local sheet = firstOf(supplies, MED.sheet)
+			if sheet then
+				for _, it in ipairs(eachKind(supplies, MED.plank)) do
+					add(list, "splint", { part = part, type = it:getFullType(), item = sheet:getDisplayName() }, { part = bp, it = it, sheet = sheet })
+				end
 			end
 		end
 	end
@@ -1708,13 +1830,71 @@ G.X.craft = {
 		if has(p, o.data.it) and itemCount(p) == t.n0 then return "nothing made" end
 	end),
 }
+-- the health panel's toPlayerInventory (ISHealthPanel.lua:1117-1127): a supply from a bag or a container nearby
+-- comes into the main inventory first
+local function toInventory(p, it)
+	if it:getContainer() ~= p:getInventory() then
+		Q(ISInventoryTransferUtil.newInventoryTransferAction(p, it, it:getContainer(), p:getInventory()))
+	end
+end
+-- each handler's perform, with the character as its own doctor (ISHealthPanel.lua; gym 0.4.57 for all but bandage)
 G.X.bandage = {
 	start = function(p, t, o)
-		local band = o.data.it
-		if band:getContainer() ~= p:getInventory() then Q(ISInventoryTransferAction:new(p, band, band:getContainer(), p:getInventory())) end
-		Q(ISApplyBandage:new(p, p, band, o.data.part, true))
+		toInventory(p, o.data.it)
+		Q(ISApplyBandage:new(p, p, o.data.it, o.data.part, true))
 	end,
 	step = queueStep(900, function(p, t, o) if not o.data.part:bandaged() then return "not bandaged" end end),
+}
+G.X.disinfect = {   -- HDisinfect:perform :1351-1356; ISDisinfect:complete raises the part's alcohol level
+	start = function(p, t, o)
+		t.level = o.data.part:getAlcoholLevel()
+		toInventory(p, o.data.it)
+		Q(ISDisinfect:new(p, p, o.data.it, o.data.part))
+	end,
+	step = queueStep(900, function(p, t, o) if o.data.part:getAlcoholLevel() <= t.level then return "not disinfected" end end),
+}
+G.X.poultice = {   -- HApplyPoultice:perform :1277-1282
+	start = function(p, t, o)
+		toInventory(p, o.data.it)
+		Q(o.data.pl.cls():new(p, p, o.data.it, o.data.part))
+	end,
+	step = queueStep(900, function(p, t, o) if not o.data.pl.on(o.data.part) then return "not applied" end end),
+}
+G.X.stitch = {   -- HStitch:perform :1434-1448
+	start = function(p, t, o)
+		for _, it in ipairs(o.data.move) do toInventory(p, it) end
+		Q(ISStitch:new(p, p, o.data.it, o.data.part, true))
+	end,
+	step = queueStep(1800, function(p, t, o) if not o.data.part:stitched() then return "not stitched" end end),
+}
+G.X.remove_glass = {   -- HRemoveGlass:perform :1520-1530: by hand, handPain true
+	start = function(p, t, o)
+		if o.data.it then toInventory(p, o.data.it) end
+		Q(ISRemoveGlass:new(p, p, o.data.part, o.data.it == nil))
+	end,
+	step = queueStep(1800, function(p, t, o) if o.data.part:haveGlass() then return "glass still in" end end),
+}
+G.X.remove_bullet = {   -- HRemoveBullet:perform :1706-1711
+	start = function(p, t, o)
+		toInventory(p, o.data.it)
+		Q(ISRemoveBullet:new(p, p, o.data.part))
+	end,
+	step = queueStep(1800, function(p, t, o) if o.data.part:haveBullet() then return "bullet still in" end end),
+}
+G.X.clean_burn = {   -- HCleanBurn:perform :1755-1760
+	start = function(p, t, o)
+		toInventory(p, o.data.it)
+		Q(ISCleanBurn:new(p, p, o.data.it, o.data.part))
+	end,
+	step = queueStep(900, function(p, t, o) if o.data.part:isNeedBurnWash() then return "burn not cleaned" end end),
+}
+G.X.splint = {   -- HSplint:perform :1620-1634: the sheet, then the plank (or a made splint alone)
+	start = function(p, t, o)
+		if o.data.sheet then toInventory(p, o.data.sheet) end
+		toInventory(p, o.data.it)
+		Q(ISSplint:new(p, p, o.data.sheet, o.data.it, o.data.part, true))
+	end,
+	step = queueStep(1800, function(p, t, o) if o.data.part:getSplintFactor() <= 0 then return "not splinted" end end),
 }
 G.X.unbandage = {
 	start = function(p, t, o) Q(ISApplyBandage:new(p, p, nil, o.data.part, false)) end,
