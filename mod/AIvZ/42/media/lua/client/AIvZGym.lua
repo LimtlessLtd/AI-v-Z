@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.67"
+G.VERSION = "0.4.68"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -1078,9 +1078,9 @@ function G.options(p)
 		local here = c.sq:getBuilding() == ar.building
 		if not c.known and count(list, "search") < 8 then
 			add(list, "search", { d = r1(c.d), type = c.type, name = c.name, indoors = c.indoors, here = here }, c)
-		elseif c.known and c.d < 2.5 and nt < 12 then
+		elseif c.known and c.d < 2.5 and nt < 16 then
 			U.eachItem(c.c, function(it)
-				if nt < 12 and not it:isHidden() then
+				if nt < 16 and not it:isHidden() then
 					nt = nt + 1
 					local i = G.itemInfo(p, it)
 					i.from, i.d, i.here = c.type, r1(c.d), here
