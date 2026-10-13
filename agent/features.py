@@ -59,7 +59,8 @@ OPTION_WORDS = ("name", "type", "cat", "dir", "recipe", "part", "trait", "what",
 # yes/no option fields added after the dense layout was fixed: a token when true, so the layout (and the trained
 # network) stays. Gym 0.4.33: a tall fence, a drop beyond a fence, a sheet or curtain on a door.
 OPTION_FLAGS = ("tall", "drop", "door",
-                "burnt", "uncooked", "frozen", "beenRead")   # gym 0.4.64: food and literature, as the inventory shows
+                "burnt", "uncooked", "frozen", "beenRead",   # gym 0.4.64: food and literature, as the inventory shows
+                "noSoap")   # gym 0.4.69: the Wash tooltip's Without Soap warning; no layout change
 
 # the protection panel's body parts (BodyPartType order); obs.protection gives each one's bite and scratch defence
 PARTS = ("Hand_L", "Hand_R", "ForeArm_L", "ForeArm_R", "UpperArm_L", "UpperArm_R", "Torso_Upper", "Torso_Lower", "Head",

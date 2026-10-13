@@ -17,12 +17,15 @@
 -- After a death, it starts a new character in a random town of the game's spawn screen, at that town's own
 -- start points, by pressing the game's own buttons in code (G.respawnStep).
 
+require "TimedActions/ISWashClothing"
+require "TimedActions/ISWashYourself"
+
 local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.68"
+G.VERSION = "0.4.69"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -642,6 +645,68 @@ local function waterObjectAt(x, y, z)
 	local sq = sqAt(x, y, z)
 	if not sq then return nil end
 	for _, o in ipairs(U.objList(sq)) do if U.waterAmount(o) > 0 then return o end end
+end
+
+-- Wash submenu, installed 42.21 J:ISWorldObjectContextMenuLogic.doWashClothingMenu/setWashClothingTooltip.
+-- It reads the main inventory, not items inside bags; soap is optional. A body's wash can use partial water,
+-- but an item or a category's Wash All needs the full amount displayed on its tooltip.
+local function washSource(p, src)
+	local sq = src and src:getSquare()
+	return sq and src:getObjectIndex() ~= -1 and sq:getBuilding() == p:getBuilding() and src:hasWater()
+		and not instanceof(src, "IsoClothingWasher") and not instanceof(src, "IsoClothingDryer")
+		and not instanceof(src, "IsoCombinationWasherDryer")
+end
+local function washGroups(p)
+	local inv, groups = p:getInventory(), {}
+	local function collect(name, items, allowed)
+		local group = { name = name, items = {} }
+		for i = 0, items:size() - 1 do
+			local it = items:get(i)
+			if allowed(it) then group.items[#group.items + 1] = it end
+		end
+		table.sort(group.items, function(a, b) return ISWashClothing.GetRequiredSoap(a) < ISWashClothing.GetRequiredSoap(b) end)
+		if #group.items > 0 then groups[#groups + 1] = group end
+	end
+	collect("clothing", inv:getItemsFromCategory("Clothing"), function(it)
+		return not it:isHidden() and (it:hasBlood() or it:hasDirt()) and not it:hasTag(ItemTag.BREAK_WHEN_WET)
+	end)
+	collect("bandages", inv:getAllTag(ItemTag.CAN_BE_WASHED), function(it) return it:getJobDelta() == 0 end)
+	collect("weapons", inv:getItemsFromCategory("Weapon"), function(it) return it:hasBlood() end)
+	collect("containers", inv:getItemsFromCategory("Container"), function(it)
+		return not it:isHidden() and (it:hasBlood() or it:hasDirt())
+	end)
+	return groups
+end
+local function washOptions(p, list, sources)
+	if #sources == 0 then return end
+	local groups = washGroups(p)
+	local bodyWater = ISWashYourself.GetRequiredWater(p)
+	if #groups == 0 and bodyWater == 0 then return end
+	local soaps = p:getInventory():getSoapList(nil, true)
+	local soapLeft = ISWashClothing.GetSoapRemaining(soaps)
+	for _, s in ipairs(sources) do
+		local src, w = s.src, s.w
+		if washSource(p, src) then
+			local water = src:getFluidAmount()
+			if bodyWater > 0 and water >= 1 then
+				add(list, "wash_yourself", { name = w.name, d = w.d,
+					noSoap = ISWashYourself.GetSoapRemaining(soaps) < ISWashYourself.GetRequiredSoap(p) }, { src = src })
+			end
+			for _, group in ipairs(groups) do
+				local soapNeeded, waterNeeded = ISWorldObjectContextMenu.calculateSoapAndWaterRequired(group.items)
+				if water >= waterNeeded then
+					add(list, "wash", { name = group.name, from = w.name, d = w.d, how = "all", noSoap = soapLeft < soapNeeded },
+						{ src = src, items = group.items })
+				end
+				for _, it in ipairs(group.items) do
+					if water >= ISWashClothing.GetRequiredWater(it) then
+						add(list, "wash", { name = it:getDisplayName(), type = it:getFullType(), from = w.name, d = w.d,
+							noSoap = soapLeft < ISWashClothing.GetRequiredSoap(it) }, { src = src, items = { it } })
+					end
+				end
+			end
+		end
+	end
 end
 
 -- Treatment as the health panel offers it (client/XpSystem/ISUI/ISHealthPanel.lua, 42.21; gym 0.4.57). Its
@@ -1277,6 +1342,7 @@ function G.options(p)
 			end
 		end
 	end
+	washOptions(p, list, sources)
 	-- Treatment for each body part, as the health panel's menu offers it (gym 0.4.57; the handlers above MED): one
 	-- option per kind of supply, as its submenus list them. With an injury not under a bandage (injured): bandage,
 	-- disinfect, a poultice (none on yet), stitch a deep wound with no glass in it, take out glass (with a tool or by
@@ -2108,6 +2174,59 @@ G.X.fill = {
 	step = queueStep(3000, function(p, t)
 		for i, it in ipairs(t.items) do if fluidIn(it) > t.before[i] + 0.01 then return nil end end
 		return "didn't fill"
+	end),
+}
+-- Wash uses the submenu's get-up wrapper and callbacks (ISContextMenu:onGetUpAndThen, :1046;
+-- ISWorldObjectContextMenu.onWashClothing/onWashYourself, :1777-1825). Recheck the source and items after
+-- getting up; a disappeared object or insufficient water is an expected refusal, not a caught exception.
+local function beginWash(p, t, o)
+	local src = o.data.src
+	if not washSource(p, src) then return U.fail(t, "water source gone") end
+	if o.verb == "wash_yourself" then
+		t.before = ISWashYourself.GetRequiredWater(p)
+		if t.before == 0 or src:getFluidAmount() < 1 then return U.fail(t, "nothing to wash or no water") end
+		ISWorldObjectContextMenu.onWashYourself(p, src, p:getInventory():getSoapList(nil, false))
+		return
+	end
+	local allowed = {}
+	for _, group in ipairs(washGroups(p)) do for _, it in ipairs(group.items) do allowed[it] = true end end
+	for _, it in ipairs(o.data.items) do if not allowed[it] then return U.fail(t, "item no longer washable") end end
+	local _, water = ISWorldObjectContextMenu.calculateSoapAndWaterRequired(o.data.items)
+	if src:getFluidAmount() < water then return U.fail(t, "not enough water") end
+	t.converted, t.expected, t.counts = {}, {}, {}
+	for _, it in ipairs(o.data.items) do
+		local result = it:getItemAfterCleaning()
+		if result then
+			t.converted[it] = true
+			t.expected[result] = (t.expected[result] or 0) + 1
+			t.counts[result] = p:getInventory():getCountTypeRecurse(result)
+		end
+	end
+	ISWorldObjectContextMenu.onWashClothing(p, src, p:getInventory():getSoapList(nil, true), o.data.items, nil)
+end
+local function washStart(p, t, o)
+	local up = ISWaitWhileGettingUp:new(p)
+	up:setOnComplete(beginWash, p, t, o)
+	Q(up)
+end
+G.X.wash_yourself = {
+	start = washStart,
+	step = queueStep(6000, function(p, t)
+		if not t.before or ISWashYourself.GetRequiredWater(p) >= t.before then return "didn't wash" end
+	end),
+}
+G.X.wash = {
+	start = washStart,
+	step = queueStep(20000, function(p, t, o)
+		if not t.converted then return "didn't start washing" end
+		for _, it in ipairs(o.data.items) do
+			if t.converted[it] then
+				if has(p, it) then return "bandage still dirty" end
+			elseif it:hasBlood() or it:hasDirt() then return "item still dirty" end
+		end
+		for result, n in pairs(t.expected) do
+			if p:getInventory():getCountTypeRecurse(result) < t.counts[result] + n then return "cleaned item missing" end
+		end
 	end),
 }
 G.X.equip = {

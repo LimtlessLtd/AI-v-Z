@@ -198,7 +198,7 @@ after the reload. Furniture rests and completion of the separate `get_up` still 
   `player:hasFullInventory()`; the containers are `getAllRecurse(item:getFluidContainer() and not isFull() and
   canAddFluid(Fluid.Water))` with `source:canTransferFluidTo(item:getFluidContainer())`; one entry per item name
   (`onTakeWater(worldobjects, source, {}, item, playerNum)`, Fill One) and Fill All with the list. Both built in
-  gym 0.4.56 (`drink_tap`, `fill`). Washing and stoves are next; read `doWashClothingMenu` there first.
+  gym 0.4.56 (`drink_tap`, `fill`). Stoves are in 0.4.62 and manual washing in 0.4.69, below.
 * Drink from a source: `ISWorldObjectContextMenu.onDrink(worldobjects, waterObject, playerNum)` (`:2038`):
   walk, remove eating mask (`ISInventoryPaneContextMenu.getEatingMask(playerObj, true)`),
   `ISTakeWaterAction:new(character, nil, waterObject, waterObject:isTaintedWater())`, re-wear the mask.
@@ -210,6 +210,40 @@ after the reload. Furniture rests and completion of the separate `get_up` still 
   `ISToggleStoveAction:new(character, object)`; settings `onStoveSetting`/`onMicrowaveSetting`.
 * Lights: `onToggleLight(worldobjects, light, playerNum)` (`:1328`) → `ISToggleLightAction:new(character,
   object)`; held lights `ISInventoryPaneContextMenu.onActivateItem(light, playerNum)` (`:2880`).
+
+**Manual washing, gym 0.4.69 (2026-10-13; source-checked, not yet live-tested).** Read the installed
+`projectzomboid.jar` with the existing CFR 0.152: `J:zombie.iso.ISWorldObjectContextMenuLogic.
+doWashClothingOrYourselfMenu`, `doWashClothingMenu`, `setWashClothingTooltip`. `wash_yourself` and `wash`
+use the menu's callbacks above, after its `ISWaitWhileGettingUp` prerequisite
+(`client/ISUI/ISContextMenu.lua:1038-1055`). Expected unloaded/disappeared sources are guarded with
+`getSquare()` / `getObjectIndex()`, and source and item availability are checked again after getting up.
+
+| Menu choice | Installed prerequisite copied into options |
+|---|---|
+| Yourself | Same building as the source (or both outdoors), `hasWater()`, at least one dirty/bloody body part (`ISWashYourself.GetRequiredWater`), fluid amount ≥ 1; partial washing is legal |
+| Clothing | `ItemContainer:getItemsFromCategory("Clothing")`, not hidden, `hasBlood()` or `hasDirt()`, no `ItemTag.BREAK_WHEN_WET` |
+| Bandages | `getAllTag(ItemTag.CAN_BE_WASHED)` with `getJobDelta() == 0` |
+| Weapons | `getItemsFromCategory("Weapon")` with `hasBlood()` |
+| Containers / bags | `getItemsFromCategory("Container")`, not hidden, `hasBlood()` or `hasDirt()` |
+| One item / All of a category | Source fluid amount ≥ `ISWashClothing.GetRequiredWater(item)` / sum for the category; sorted by `GetRequiredSoap` |
+
+The item lists are the main inventory, as those methods enumerate it; they do not recurse into bags
+(`J:ItemContainer.getItemsFromCategory` delegates to `getAllCategory`, offsets 0-5). Soap is optional:
+`getSoapList(nil, true)` includes cleaning fluid for items, `getSoapList(nil, false)` is used for the body.
+The tooltip's Without Soap warning is `noSoap`, explicitly included in `features.OPTION_FLAGS` as a token.
+The existing `name`, `type`, `from`, `how` fields distinguish the source, item and category All choice.
+There is no dense layout or features-version change.
+
+Completion is checked against `ISWashYourself:complete` (`shared/TimedActions/ISWashYourself.lua:114-144`)
+and `ISWashClothing:complete` (`shared/TimedActions/ISWashClothing.lua:125-183`): fewer dirty body parts;
+each selected item clean; or a dirty bandage removed and the matching `getItemAfterCleaning()` item count
+increased. An empty action queue alone does not count as success. Bar soap and water consumption, wetness
+and makeup removal are the game's effects, through its own handlers.
+
+**Remaining scope:** the existing water scan is capped at five sources and excludes ground fluid items.
+Automatic washer/dryer controls and the separate `doRecipeUsingWaterMenu` bandage-cleaning recipes remain
+unimplemented. Natural verification must cover body washing, one item, category All, conversion of a dirty
+bandage and a refusal when water disappears. Do not supply items or script choices to obtain those cases.
 
 ### 11. Medical care beyond bandages
 Health-panel handlers in `client/XpSystem/ISUI/ISHealthPanel.lua:1162-1735`; the timed actions take
