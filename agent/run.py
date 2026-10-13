@@ -17,7 +17,8 @@ where reward/parts are for what happened since the previous decision of the same
 was restarted in between, so that stretch earns nothing) and reward_v is the reward version (agent/reward.py;
 records without it are version 1, which training re-scores). These records support later learning,
 and the reward can be recomputed later from the raw observations. Action and perception coverage are
-still incomplete (docs/PHASE3_COVERAGE.md); these records have no hearing input. Restarting carries on
+still incomplete (docs/PHASE3_COVERAGE.md). Each record's "hearing" holds the last 3 s of the game's own audio as
+features (agent/hearing.py, agent/audio_loopback.py); the network doesn't use it yet. Restarting carries on
 with the same character (logs/agent-state.json).
 """
 
@@ -40,6 +41,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agent.link import DEFAULT_LUA_DIR, GameLink  # noqa: E402
+from agent.audio_loopback import ProcessLoopbackSource  # noqa: E402
 from agent.hearing import Hearing  # noqa: E402
 from agent.lives import Lives, learning_data  # noqa: E402
 from agent import reward  # noqa: E402
@@ -157,7 +159,9 @@ class Agent:
                       explore=getattr(args, "explore", 0.1))
         every = getattr(args, "train_every", 5)
         self.trainer = Trainer(self.log_dir, every) if name == "net" and every > 0 else None
-        self.hearing = Hearing()   # no capture source yet: records 'unavailable' rather than inventing input
+        # the game's own audio (process loopback); records 'unavailable' with the reason rather than inventing input.
+        # On from the command line (--no-hearing turns it off), off for an Agent built without the option (tests)
+        self.hearing = Hearing(ProcessLoopbackSource() if getattr(args, "hearing", False) else None)
         self.port = args.port
         self.lock = threading.Lock()
         self.last = None            # the latest request and choice, for the dashboard
@@ -303,6 +307,8 @@ def main():
     ap.add_argument("--temperature", type=float, default=0.25,
                     help="net policy: lower picks the top-rated option more often (in spreads of the scores)")
     ap.add_argument("--explore", type=float, default=0.1, help="net policy: share of picks made at random")
+    ap.add_argument("--no-hearing", dest="hearing", action="store_false",
+                    help="don't capture the game's audio (agent/audio_loopback.py)")
     args = ap.parse_args()
     agent = Agent(args)
     # The port doubles as a lock: a second agent (or the bridge) on it used to lose only its dashboard and

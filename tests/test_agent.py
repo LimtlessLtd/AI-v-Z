@@ -11,6 +11,7 @@ import math
 import random
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -400,6 +401,41 @@ class HearingTests(unittest.TestCase):
         self.assertGreater(ws[1]["d_db"], 10)
         self.assertTrue(ws[2].get("gap"))
         self.assertEqual(snap["gaps"], 1)
+
+    def test_numpy_windows_give_the_same_numbers(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy not installed")
+        from agent import hearing
+        left, right = self.tone(250, 0.3, 4000, 48000), self.tone(4000, 0.05, 4000, 48000)
+        plain = hearing.analyse(left, right, 48000)
+        fast = hearing.analyse(np.array(left, dtype=np.float32), np.array(right, dtype=np.float32), 48000)
+        for k in ("db_l", "db_r", "peak_db", "balance"):
+            self.assertAlmostEqual(plain[k], fast[k], delta=0.11)
+        for a, b in zip(plain["bands_db"], fast["bands_db"]):
+            self.assertAlmostEqual(a, b, delta=0.2)
+
+    def test_capture_says_why_when_the_game_is_not_running(self):
+        from agent import audio_loopback
+        self.assertIsNone(audio_loopback.find_pid("no-such-game-aivz.exe"))
+        src = audio_loopback.ProcessLoopbackSource(exe="no-such-game-aivz.exe")
+        try:
+            for _ in range(50):
+                if src.reason != "starting":
+                    break
+                time.sleep(0.1)
+            self.assertFalse(src.available)
+            self.assertNotEqual(src.reason, "starting")
+            self.assertEqual(src.read(), [])
+        finally:
+            src.close()
+
+    def test_an_agent_built_without_the_option_does_not_capture(self):
+        from agent.run import Agent
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = Agent(argparse.Namespace(lua_dir=tmp, log_dir=tmp, port=0))
+            self.assertFalse(agent.hearing.snapshot()["available"])
 
 
 class CreationTests(unittest.TestCase):
