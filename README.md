@@ -338,6 +338,10 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.65 lets the character keep a gun working**: eject and insert magazines, load and unload rounds (in the
+  gun or a magazine), rack it or clear a jam, change the fire mode, all as the inventory menu offers them. Not yet
+  seen in the game.
+
 - **Gym 0.4.64 shows the network more of what the inventory shows a player** (backlog O5): fresh, stale, rotten,
   burnt, uncooked and frozen food as its name says, the tooltip's endurance, stress and boredom changes and (when shown)
   calories; how much is left in a drainable; whether a magazine or book has been read; a bag's weight reduction. As

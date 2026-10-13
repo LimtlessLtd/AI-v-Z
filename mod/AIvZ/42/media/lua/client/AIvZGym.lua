@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.64"
+G.VERSION = "0.4.65"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -723,6 +723,55 @@ local function notUsedUp(it) return it:getCurrentUsesFloat() > 0 end
 -- read, asleep, illiterate unless it's pictures, a skill book more than a level above the skill or at or below it;
 -- and the handler skips a blank notebook (UNINTERESTING, onLiteratureItems :2804-2819). "reread" when the menu says
 -- Re-read (the title was read before).
+-- The inventory menu's firearm entries (ISInventoryPaneContextMenu.lua, 42.21; gym 0.4.65). For any HandWeapon with
+-- an ammo type (doReloadMenuForWeapon :1876-1903): eject the magazine, or insert the best one the character has
+-- (getBestMagazine; greyed out without one); a gun without magazines loads rounds when there are any to load and
+-- unloads when it has some (doBulletMenu :1857-1874); unjam a jammed gun, or rack it (ISReloadWeaponAction.canRack).
+-- Another fire mode when it has more than one (doChangeFireModeMenu :1793-1803). A magazine (getMaxAmmo() > 0, not a
+-- weapon) loads rounds when it isn't full and there are some, and unloads when it has any (doMagazineMenu
+-- :1970-1989). Its own Insert Magazine entry (doReloadMenuForMagazine) is left to the gun's, which takes the best.
+local function withHow(info, how)
+	local i = {}
+	for k, v in pairs(info) do i[k] = v end
+	i.how = how
+	return i
+end
+local function gunOptions(list, p, it, info)
+	local inv = p:getInventory()
+	if instanceof(it, "HandWeapon") then
+		if it:getAmmoType() then
+			if it:getMagazineType() then
+				if it:isContainsClip() then
+					add(list, "eject_mag", info, { it = it })
+				else
+					local clip = it:getBestMagazine(p)
+					if clip then add(list, "insert_mag", info, { it = it, mag = clip }) end
+				end
+			else
+				local key = it:getAmmoType():getItemKey()
+				if math.min(it:getMaxAmmo() - it:getCurrentAmmoCount(), inv:getItemCountRecurse(key)) > 0 then
+					add(list, "load_rounds", info, { it = it })
+				end
+				if it:getCurrentAmmoCount() > 0 then add(list, "unload_rounds", info, { it = it }) end
+			end
+			if it:isJammed() then add(list, "rack", withHow(info, "unjam"), { it = it })
+			elseif ISReloadWeaponAction.canRack(it) then add(list, "rack", info, { it = it }) end
+		end
+		local modes = it:getFireModePossibilities()
+		if modes and modes:size() > 1 then
+			for m = 0, modes:size() - 1 do
+				local mode = modes:get(m)
+				if mode ~= it:getFireMode() then add(list, "fire_mode", withHow(info, mode), { it = it, mode = mode }) end
+			end
+		end
+	elseif it:getMaxAmmo() > 0 and it:getAmmoType() then
+		if it:getCurrentAmmoCount() < it:getMaxAmmo() then
+			local n = math.min(inv:getItemCountRecurse(it:getAmmoType():getItemKey()), it:getMaxAmmo() - it:getCurrentAmmoCount())
+			if n > 0 then add(list, "load_mag", info, { it = it, n = n }) end
+		end
+		if it:getCurrentAmmoCount() > 0 then add(list, "unload_mag", info, { it = it }) end
+	end
+end
 local function readEntry(p, it)
 	if it:getCategory() ~= "Literature" or it:canBeWrite() or (it:hasModData() and it:getModData().printMedia) then return nil end
 	if p:tooDarkToRead() or p:isAsleep() or it:hasTag(ItemTag.UNINTERESTING) then return nil end
@@ -1105,6 +1154,7 @@ function G.options(p)
 	local shut = shutIn(p)
 	local held = p:getPrimaryHandItem()
 	if held then add(list, "unequip", G.itemInfo(p, held), { it = held }) end
+	if held then gunOptions(list, p, held, G.itemInfo(p, held)) end
 	if held and switchEntry(p, held) then
 		local info = G.itemInfo(p, held)
 		info.how = held:isActivated() and "off" or "on"
@@ -1136,6 +1186,7 @@ function G.options(p)
 			end
 		end
 		if pillsEntry(p, it) then add(list, "take_pill", info, { it = it }) end
+		gunOptions(list, p, it, info)
 		local reading = count(list, "read") < 8 and readEntry(p, it)
 		if reading then
 			info.how = reading
@@ -1920,6 +1971,49 @@ G.X.switch_item = {
 	step = queueStep(60, function(p, t, o) if o.data.it:isActivated() == t.was then return "didn't switch" end end),
 }
 -- stove: the menu's ISWorldObjectContextMenu.onToggleStove (:1189-1194): next to it, ISToggleStoveAction (gym 0.4.62)
+-- firearms (gym 0.4.65): each runs the menu's own handler, which equips the gun first where the menu does
+local function rounds(it) return it:getCurrentAmmoCount() end
+G.X.eject_mag = {
+	start = function(p, t, o) ISInventoryPaneContextMenu.onEjectMagazine(p, o.data.it) end,
+	step = queueStep(900, function(p, t, o) if o.data.it:isContainsClip() then return "magazine still in" end end),
+}
+G.X.insert_mag = {
+	start = function(p, t, o) ISInventoryPaneContextMenu.onInsertMagazine(p, o.data.it, o.data.mag) end,
+	step = queueStep(900, function(p, t, o) if not o.data.it:isContainsClip() then return "no magazine in" end end),
+}
+G.X.load_rounds = {
+	start = function(p, t, o) t.n = rounds(o.data.it); ISInventoryPaneContextMenu.onLoadBulletsIntoFirearm(p, o.data.it) end,
+	step = queueStep(1800, function(p, t, o) if rounds(o.data.it) <= t.n then return "loaded nothing" end end),
+}
+G.X.unload_rounds = {
+	start = function(p, t, o) t.n = rounds(o.data.it); ISInventoryPaneContextMenu.onUnloadBulletsFromFirearm(p, o.data.it) end,
+	step = queueStep(1800, function(p, t, o) if rounds(o.data.it) >= t.n then return "unloaded nothing" end end),
+}
+G.X.rack = {   -- done when it's no longer jammed, or anything about its rounds changed
+	start = function(p, t, o)
+		local g = o.data.it
+		t.state = tostring(g:isJammed()) .. tostring(g:isRoundChambered()) .. tostring(g:isSpentRoundChambered()) .. rounds(g)
+		ISInventoryPaneContextMenu.onRackGun(p, g)
+	end,
+	step = queueStep(900, function(p, t, o)
+		local g = o.data.it
+		if tostring(g:isJammed()) .. tostring(g:isRoundChambered()) .. tostring(g:isSpentRoundChambered()) .. rounds(g) == t.state then
+			return "nothing changed"
+		end
+	end),
+}
+G.X.fire_mode = {   -- onChangefiremode (:1805-1811): at once
+	start = function(p, t, o) ISInventoryPaneContextMenu.onChangefiremode(p, o.data.it, o.data.mode) end,
+	step = queueStep(60, function(p, t, o) if o.data.it:getFireMode() ~= o.data.mode then return "mode unchanged" end end),
+}
+G.X.load_mag = {
+	start = function(p, t, o) t.n = rounds(o.data.it); ISInventoryPaneContextMenu.onLoadBulletsInMagazine(p, o.data.it, o.data.n) end,
+	step = queueStep(1800, function(p, t, o) if rounds(o.data.it) <= t.n then return "loaded nothing" end end),
+}
+G.X.unload_mag = {
+	start = function(p, t, o) t.n = rounds(o.data.it); ISInventoryPaneContextMenu.onUnloadBulletsFromMagazine(p, o.data.it) end,
+	step = queueStep(1800, function(p, t, o) if rounds(o.data.it) >= t.n then return "unloaded nothing" end end),
+}
 G.X.stove = {
 	start = function(p, t, o)
 		t.was = o.data.o:Activated()
