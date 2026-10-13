@@ -25,7 +25,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.78"
+G.VERSION = "0.4.79"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -1284,7 +1284,7 @@ function G.options(p)
 			if ok then add(list, "equip", info, { it = it, both = both }) end
 		end
 		if (instanceof(it, "Clothing") or U.isBackBag(it)) and not worn and count(list, "wear") < 8 then add(list, "wear", info, { it = it }) end
-		if worn and count(list, "take_off") < 4 then add(list, "take_off", info, { it = it }) end
+		if worn and count(list, "take_off") < 8 then add(list, "take_off", info, { it = it }) end
 		if not worn and not shut and not try(function() return it:isFavorite() end) and count(list, "drop") < 6 then add(list, "drop", info, { it = it }) end
 		if crafts < 5 then
 			for _, r in ipairs(G.recipes(p, it)) do
