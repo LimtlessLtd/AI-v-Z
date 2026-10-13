@@ -342,7 +342,8 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   deep wound, take out glass (with tweezers or by hand) or a bullet, clean a burn, splint a fracture. Each follows
   the panel's own item tests and wound conditions, and finds supplies where the panel does (bags, and containers by
   the character). `bandage` now offers each kind of bandage the panel lists. The Lua checks pass; not yet seen in
-  the game. [Conditions](docs/GAP_LIST.md#11-medical-care-beyond-bandages).
+  the game. [Conditions](docs/GAP_LIST.md#11-medical-care-beyond-bandages). A cloud run also called its change
+  0.4.57 (search offered for 8 containers); gym 0.4.58 is the two together.
 
 - **Gym 0.4.56 lets the character fill bottles at a water source** (`fill`: one container, or all of them). Until
   now it could drink only while standing at a tap, and the longest lives died of thirst. `drink_tap` now follows the
