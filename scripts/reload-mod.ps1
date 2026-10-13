@@ -1,4 +1,4 @@
-# Hot-reloads the mod's Lua (AIvZ.lua, AIvZGym.lua, AIvZGymActions.lua) in a running game: the mod's loader
+# Hot-reloads the mod's Lua (including AIvZGymHousehold.lua) in a running game: the mod's loader
 # watches this file and re-runs those files (from the mod folder only) whenever its contents change.
 $f = Join-Path $env:USERPROFILE 'Zomboid\Lua\aivz\reload.txt'
 New-Item -ItemType Directory -Force (Split-Path $f) | Out-Null

@@ -236,3 +236,7 @@ The Lua side still reports these fields; fixing them at the source is separate a
   `client/XpSystem/ISUI/ISCharacterProtection.lua:77-78`). A player sees these, so they go into the network.
 * `obs.knox`: whether the character carries the Knox infection (`BodyDamage:IsInfected`). The game doesn't tell
   the player, so the allow-list keeps it out of the network (a test checks this); only the reward reads it.
+
+## Household settings follow-through (2026-10-13, gym 0.4.71)
+
+`obs.household.panels` contains the current character's real, visible oven/microwave settings windows within the UI's three-tile range. Only kind, displayed temperature/timer knob values, On/Off state and enabled toggle button are included in `agent/features.py` as tokens. Closed fixtures, food temperature, cooking progress and supplier positions are not input. Source/runtime gates and remaining live checks: [HOUSEHOLD_ACTIONS](HOUSEHOLD_ACTIONS.md). Dense layout and features version remain unchanged.

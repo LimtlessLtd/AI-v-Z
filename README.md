@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.8 (gym 0.4.70)` after reloading this update). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.8 (gym 0.4.71)` after reloading this update). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -337,6 +337,16 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 ```
 
 ## Known issues (agent and gym)
+
+- **Gym 0.4.71 adds household supplies and cooking controls.** The bot can open an oven or microwave's real
+  settings window and choose its temperature, timer, On/Off button and Close. It can clean one or all dirty
+  bandages with the water recipes, connect a plumbable fixture with a pipe wrench, switch washers/dryers and
+  choose a combo machine's mode. Every choice follows the installed game's menu or window; the network
+  chooses when to use it. Water choices now use all currently visible fixtures in the surrounding scan,
+  with the selected source retained, and tap drinking handles face masks through the game's callback.
+  All 134 tests pass, including the game's Lua checks; natural execution remains to be checked.
+  The trained network is preserved. An agent restart picks up the new visible cooking-window feedback.
+  [Sources, behavior and remaining coverage](docs/HOUSEHOLD_ACTIONS.md).
 
 - **Gym 0.4.69 adds washing yourself and items**: clothing, bags, weapons and washable bandages, one item or
   all of a category at a visible water source. It uses the game's water requirements, optional soap and

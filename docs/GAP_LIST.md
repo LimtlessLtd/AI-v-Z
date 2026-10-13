@@ -246,10 +246,16 @@ each selected item clean; or a dirty bandage removed and the matching `getItemAf
 increased. An empty action queue alone does not count as success. Bar soap and water consumption, wetness
 and makeup removal are the game's effects, through its own handlers.
 
-**Remaining scope:** the existing water scan is capped at five sources and excludes ground fluid items.
-Automatic washer/dryer controls and the separate `doRecipeUsingWaterMenu` bandage-cleaning recipes remain
-unimplemented. Natural verification must cover body washing, one item, category All, conversion of a dirty
+**Follow-through, gym 0.4.71:** [HOUSEHOLD_ACTIONS](HOUSEHOLD_ACTIONS.md) implements the washer/dryer
+controls and separate bandage-cleaning recipes, along with oven/microwave settings and plumbing. The
+current visible-fixture scan replaces the five-source pre-filter and two-source drink/fill caps;
+ground fluid items remain unimplemented. Natural verification must cover body washing, one item, category All, conversion of a dirty
 bandage and a refusal when water disappears. Do not supply items or script choices to obtain those cases.
+
+**Household follow-through, gym 0.4.71 (2026-10-13):** [HOUSEHOLD_ACTIONS.md](HOUSEHOLD_ACTIONS.md)
+records the installed oven/microwave UI dial values and callbacks, bandage-cleaning recipes, laundry
+toggles/modes, plumbing prerequisites, implementation and limits. All 134 owner-PC tests pass; natural
+execution is still pending. These sources also clear the cloud API blocker for the documented calls.
 
 ### 11. Medical care beyond bandages
 Health-panel handlers in `client/XpSystem/ISUI/ISHealthPanel.lua:1162-1735`; the timed actions take

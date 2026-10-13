@@ -187,6 +187,40 @@ class EncodingTests(unittest.TestCase):
         get_up = F.encode_option({"verb": "get_up"}, OBS)
         self.assertIn(F.bucket("verb:get_up"), get_up[1])
 
+    def test_appliance_panels_add_only_visible_tokens_and_preserve_layout(self):
+        base = F.encode_state({"obs": OBS})
+        panel = {"kind": "oven", "temperature": 200, "minutes": 15, "active": True, "canToggle": True}
+        msg = {"obs": {**OBS, "household": {"panels": [panel]}}}
+        dense, tokens = F.encode_state(msg)
+        self.assertEqual(dense, base[0])
+        self.assertEqual(len(dense), F.STATE_DIM)
+        for token in ("appliance:panel:oven", "appliance:oven:temperature:200", "appliance:oven:minutes:15",
+                      "appliance:oven:active:1", "appliance:oven:canToggle:1"):
+            self.assertIn(F.bucket(token), tokens)
+        hidden = {**panel, "foodTemperature": 99, "cookingProgress": 0.7, "sourcePosition": [500, 800]}
+        self.assertEqual((dense, tokens), F.encode_state({"obs": {**OBS, "household": {"panels": [hidden]}}}))
+        closed = {"panels": [], "closedAppliances": [panel]}
+        self.assertEqual(base, F.encode_state({"obs": {**OBS, "household": closed}}))
+        microwave = {"kind": "microwave", "temperature": 90, "minutes": 2, "active": False, "canToggle": False}
+        micro_tokens = F.encode_state({"obs": {**OBS, "household": {"panels": [microwave]}}})[1]
+        self.assertIn(F.bucket("appliance:panel:microwave"), micro_tokens)
+        self.assertIn(F.bucket("appliance:microwave:active:0"), micro_tokens)
+        self.assertIn(F.bucket("appliance:microwave:canToggle:0"), micro_tokens)
+        self.assertEqual(F.VERSION, 3)
+
+    def test_household_choices_keep_quantity_and_dial_values_distinct(self):
+        one = {"verb": "clean_bandage", "type": "Base.BandageDirty", "how": "one", "from": "Sink"}
+        all_items = dict(one, how="all")
+        self.assertEqual(F.encode_option(one)[0], F.encode_option(all_items)[0])
+        self.assertIn(F.bucket("clean_bandage:how:one"), F.encode_option(one)[1])
+        self.assertIn(F.bucket("clean_bandage:how:all"), F.encode_option(all_items)[1])
+        warm = {"verb": "appliance_temperature", "name": "oven", "how": "150"}
+        hot = dict(warm, how="250")
+        self.assertNotEqual(F.encode_option(warm)[1], F.encode_option(hot)[1])
+        timer = F.encode_option({"verb": "appliance_timer", "minutes": 120, "how": "120"})
+        self.assertEqual(len(timer[0]), F.OPTION_DIM)
+        self.assertIn(F.bucket("appliance_timer:how:120"), timer[1])
+
     def test_pile_and_dragging_go_in_as_tokens(self):
         """Gym 0.4.35: half or all of a pile on the ground is a word on pick_up, and a corpse in tow a state token; the
         dense parts stay as they are."""

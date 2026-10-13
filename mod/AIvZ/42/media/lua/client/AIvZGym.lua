@@ -25,7 +25,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.70"
+G.VERSION = "0.4.71"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -441,6 +441,7 @@ function G.observe(p, dead)
 		end
 	end
 	o.speed = U.getSpeed()
+	if G.householdObservation then o.household = G.householdObservation(p) end
 	return o
 end
 
@@ -509,7 +510,7 @@ function G.scanAround(p)
 	local here = p:getCurrentSquare()
 	local hb = here and here:getBuilding()
 	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {}, fences = {},
-		corpses = {}, lights = {}, stoves = {} }
+		corpses = {}, lights = {}, stoves = {}, water = {}, household = {}, plumbing = {} }
 	local keep = {}   -- the Disassemble readings of the objects this scan looks at (GS.moveProps)
 	local known = seen(p)
 	local vis = {}
@@ -577,6 +578,13 @@ function G.scanAround(p)
 					end
 				end
 				for _, o in ipairs(U.objList(sq)) do
+					-- Actual visible fixture references; no truncation before visibility or substitution
+					-- of another object later on the same square. The baseline's scan stays separate.
+					if U.waterAmount(o) > 0 then
+						out.water[#out.water + 1] = { src = o, w = { x = sq:getX(), y = sq:getY(), z = sq:getZ(), d = r1(d),
+							name = o:getTileName() or o:getObjectName(), tainted = o:isTaintedWater() == true } }
+					end
+					if G.householdScan then G.householdScan(p, o, sq, d, out) end
 					if d <= SCRAP_RANGE and not instanceof(o, "IsoWorldInventoryObject") then
 						local mp = scrapProps(o, keep)
 						if mp and mp.canScrap then out.scrap[#out.scrap + 1] = { o = o, mp = mp, sq = sq, d = d } end
@@ -618,6 +626,8 @@ function G.scanAround(p)
 	table.sort(out.doors, byD); table.sort(out.windows, byD); table.sort(out.curtains, byD); table.sort(out.containers, byD)
 	table.sort(out.floor, byD); table.sort(out.scrap, byD); table.sort(out.fences, byD); table.sort(out.corpses, byD)
 	table.sort(out.lights, byD); table.sort(out.stoves, byD)
+	table.sort(out.water, function(a, b) return a.w.d < b.w.d end)
+	table.sort(out.household, byD); table.sort(out.plumbing, byD)
 	out.building = hb
 	GS.moveProps = keep
 	GS.around = out
@@ -1287,30 +1297,22 @@ function G.options(p)
 			end
 		end
 	end)
-	-- taps and sinks
-	if not GS.water or tick() - GS.water.at > 120 then
-		local seenWater = {}
-		for _, w in ipairs(A.scanWater(p, 10)) do
-			if perceivable(p, sqAt(w.x, w.y, w.z), w.d) then seenWater[#seenWater + 1] = w end
-		end
-		GS.water = { at = tick(), list = seenWater }
-	end
+	-- All water fixtures in the current perceivable-square scan (gym 0.4.71). No stale visibility cache
+	-- or nearest-five/nearest-two cap. Ground fluid items remain a separate adapter.
 	-- A source's menu (J:ISWorldObjectContextMenuLogic.doWashClothingOrYourselfMenu, 42.21) has Drink and Fill only
 	-- for a source in the character's building, or both outdoors (doDrinkWaterMenu, doFillFluidMenu). Drink also
 	-- needs a drink in it (its primary fluid in FluidCategory.Beverage) and no washer or dryer (gym 0.4.56; until
 	-- then drink_tap was offered for the two nearest sources in sight, whichever building they were in).
 	local sources = {}
-	for _, w in ipairs(GS.water.list) do
-		local src = waterObjectAt(w.x, w.y, w.z)
-		if src and src:getSquare():getBuilding() == p:getBuilding() then sources[#sources + 1] = { w = w, src = src } end
+	for _, s in ipairs(ar.water or {}) do
+		local sq = s.src:getSquare()
+		if sq and sq:getBuilding() == p:getBuilding() then sources[#sources + 1] = s end
 	end
-	local drinks = 0
 	for _, s in ipairs(sources) do
 		local fluid, w = s.src:getPrimaryFluid(), s.w
-		if drinks < 2 and fluid and fluid:isCategory(FluidCategory.Beverage)
+		if fluid and fluid:isCategory(FluidCategory.Beverage)
 			and not instanceof(s.src, "IsoClothingWasher") and not instanceof(s.src, "IsoClothingDryer") then
-			drinks = drinks + 1
-			add(list, "drink_tap", { d = w.d, tainted = w.tainted, name = w.name }, { x = w.x, y = w.y, z = w.z })
+			add(list, "drink_tap", { d = w.d, tainted = w.tainted, name = w.name }, { src = s.src, x = w.x, y = w.y, z = w.z })
 		end
 	end
 	-- Fill a carried container (gym 0.4.56), as doFillFluidMenu offers it: not with a full inventory (the entry is
@@ -1324,7 +1326,7 @@ function G.options(p)
 			local fc = it:getFluidContainer()
 			if fc and not fc:isFull() and fc:canAddFluid(Fluid.Water) then cans[#cans + 1] = it end
 		end)
-		for i = 1, (#cans > 0 and math.min(2, #sources) or 0) do
+		for i = 1, (#cans > 0 and #sources or 0) do
 			local w, src = sources[i].w, sources[i].src
 			local into, named = {}, {}
 			for _, it in ipairs(cans) do
@@ -1333,12 +1335,12 @@ function G.options(p)
 					if not named[it:getName()] then
 						named[it:getName()] = true
 						add(list, "fill", { d = w.d, tainted = w.tainted, name = w.name, type = it:getFullType() },
-							{ x = w.x, y = w.y, z = w.z, it = it })
+							{ src = src, x = w.x, y = w.y, z = w.z, it = it })
 					end
 				end
 			end
 			if #into > 1 then
-				add(list, "fill", { d = w.d, tainted = w.tainted, name = w.name, how = "all" }, { x = w.x, y = w.y, z = w.z, all = into })
+				add(list, "fill", { d = w.d, tainted = w.tainted, name = w.name, how = "all" }, { src = src, x = w.x, y = w.y, z = w.z, all = into })
 			end
 		end
 	end
@@ -2148,30 +2150,48 @@ G.X.drink = {
 		if has(p, o.data.it) and (try(function() return o.data.it:getFluidContainer():getAmount() end) or 0) > t.fluid - 0.01 then return "didn't drink" end
 	end),
 }
-G.X.drink_tap = {
-	start = function(p, t, o)
-		local obj = waterObjectAt(o.data.x, o.data.y, o.data.z)
-		if not obj or not luautils.walkAdjObject(p, obj, true, true) then return U.fail(t, "can't reach it") end
+local function beginWaterUse(p, t, o)
+	local src = o.data.src or waterObjectAt(o.data.x, o.data.y, o.data.z)
+	if not src or not src:getSquare() or src:getObjectIndex() == -1 or src:getFluidAmount() <= 0 then
+		return U.fail(t, "no water there")
+	end
+	if o.verb == "drink_tap" then
 		t.thirst = U.stat(p, "THIRST")
-		Q(ISTakeWaterAction:new(p, nil, obj, obj:isTaintedWater()))
-	end,
+		-- The real callback walks, removes an eating mask, drinks, then re-wears it (:2038-2048).
+		ISWorldObjectContextMenu.onDrink(nil, src, p:getPlayerNum())
+	else
+		t.items, t.before = o.data.all or { o.data.it }, {}
+		for i, it in ipairs(t.items) do
+			local fc = it:getFluidContainer()
+			if not has(p, it) or not it:getContainer() or not fc then return U.fail(t, "container gone") end
+			t.before[i] = fc and fc:getAmount() or 0
+		end
+		ISWorldObjectContextMenu.onTakeWater(nil, src, o.data.all, o.data.it, p:getPlayerNum())
+	end
+end
+local function waterUseStart(p, t, o)
+	local up = ISWaitWhileGettingUp:new(p)
+	up:setOnComplete(beginWaterUse, p, t, o)
+	Q(up)
+end
+G.X.drink_tap = {
+	start = waterUseStart,
 	step = queueStep(1200, function(p, t)
+		if t.thirst == nil then return "didn't start drinking" end
 		if t.thirst > 0.05 and U.stat(p, "THIRST") > t.thirst - 0.01 then return "didn't drink" end
 	end),
 }
 -- fill (gym 0.4.56): the Fill menu's own handler, ISWorldObjectContextMenu.onTakeWater (:2050). It walks next to the
 -- source, takes each container into the main inventory, queues ISTakeWaterAction with it and puts it back; with a
 -- list (Fill All) it fills each in turn. Done when one of them holds more than before.
-local function fluidIn(it) return try(function() return it:getFluidContainer():getAmount() end) or 0 end
+local function fluidIn(it)
+	local fc = it and it:getFluidContainer()
+	return fc and fc:getAmount() or 0
+end
 G.X.fill = {
-	start = function(p, t, o)
-		local src = waterObjectAt(o.data.x, o.data.y, o.data.z)
-		if not src then return U.fail(t, "no water there") end
-		t.items, t.before = o.data.all or { o.data.it }, {}
-		for i, it in ipairs(t.items) do t.before[i] = fluidIn(it) end
-		ISWorldObjectContextMenu.onTakeWater(nil, src, o.data.all, o.data.it, p:getPlayerNum())
-	end,
+	start = waterUseStart,
 	step = queueStep(3000, function(p, t)
+		if not t.items then return "didn't start filling" end
 		for i, it in ipairs(t.items) do if fluidIn(it) > t.before[i] + 0.01 then return nil end end
 		return "didn't fill"
 	end),
@@ -2366,6 +2386,8 @@ end
 local MOVING_FIELDS = { d = true, dx = true, dy = true, age = true, zombies = true, closing = true, facing = true }
 local function sameOption(a, b)
 	if not a or not b or a.verb ~= b.verb then return false end
+	local targetCheck = G.sameTargets and G.sameTargets[a.verb]
+	if targetCheck and not targetCheck(a, b) then return false end
 	-- Washing choices may have identical visible labels at different sinks, or for two shirts of the same
 	-- type. Carry on only for the same actual source and selected items. These local references are not input
 	-- to the network. For All, item order may change as soap requirements change, but the target set must match.
@@ -2565,3 +2587,12 @@ function G.tick(p)
 	local why = G.needDecision(p)
 	if why then G.request(p, why) end
 end
+
+-- Bootstrap the new family on the first reload from an older three-file loader. Extending only this
+-- explicit mod-file allow-list also makes subsequent reloads refresh it; no IPC-provided path is run.
+if AIvZLoader and AIvZLoader.FILES then
+	local listed = false
+	for _, f in ipairs(AIvZLoader.FILES) do if f == "AIvZGymHousehold.lua" then listed = true end end
+	if not listed then table.insert(AIvZLoader.FILES, "AIvZGymHousehold.lua") end
+end
+require "AIvZGymHousehold"
