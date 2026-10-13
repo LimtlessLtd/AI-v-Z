@@ -338,6 +338,10 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.66 fires guns.** Until now `attack` with a gun walked up to the zombie and shoved it. Now it shoots from
+  the gun's range, through the game's own attack hook, so the shot makes its noise and needs a round ready. An empty
+  or jammed gun stops the attack, and a reload can come next. Not yet seen in the game.
+
 - **Gym 0.4.65 lets the character keep a gun working**: eject and insert magazines, load and unload rounds (in the
   gun or a magazine), rack it or clear a jam, change the fire mode, all as the inventory menu offers them. Not yet
   seen in the game.
