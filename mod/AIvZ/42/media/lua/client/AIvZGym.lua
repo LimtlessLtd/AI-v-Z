@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.66"
+G.VERSION = "0.4.67"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -955,10 +955,16 @@ function G.options(p)
 			end
 		end
 		table.sort(rl, function(a, c) return a.d < c.d end)
-		for i = 1, math.min(5, #rl) do
-			local e = rl[i]
-			add(list, "go_room", { name = try(function() return e.r:getName() end) or "room", d = r1(e.d), dx = r1(e.dx),
-				dy = r1(e.dy), area = e.r:getW() * e.r:getH() }, { r = e.r })
+		-- the five nearest that go_room can go to: a room with no free square fails at once ("no free square", 109
+		-- times in 13 minutes on 2026-10-13, the network picking it again and again), so it isn't offered (gym 0.4.67)
+		local rooms5 = 0
+		for _, e in ipairs(rl) do
+			if rooms5 >= 5 then break end
+			if try(function() return e.r:getFreeSquare() end) then
+				rooms5 = rooms5 + 1
+				add(list, "go_room", { name = try(function() return e.r:getName() end) or "room", d = r1(e.d), dx = r1(e.dx),
+					dy = r1(e.dy), area = e.r:getW() * e.r:getH() }, { r = e.r })
+			end
 		end
 	end
 	-- zombies
