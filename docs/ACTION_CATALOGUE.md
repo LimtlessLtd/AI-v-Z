@@ -173,7 +173,7 @@ first (`luautils.walkAdj*`).
 
 | Action | Vanilla source | Prerequisites / parameters | Repo status |
 |---|---|---|---|
-| Light switch on/off, add/remove bulb, battery, battery connector | `doLightSwitchOption` (`:1210`) → `onToggleLight` (`:1328`), `onLightBulb` (`:1353`), `onLightBattery` (`:1378`), `onLightModify` (`:1365`) | Power; bulb/battery items | **missing** |
+| Light switch on/off, add/remove bulb, battery, battery connector | `doLightSwitchOption` (`:1210`) → `onToggleLight` (`:1328`), `onLightBulb` (`:1353`), `onLightBattery` (`:1378`), `onLightModify` (`:1365`) | Power; bulb/battery items | **partial** (gym 0.4.60, not live-tested): `light_switch` turns a switch on or off as `doLightSwitchOption` offers it (fetched in a room or modifiable, `isSomethingTo` false, `canSwitchLight`), through `onToggleLight`; bulbs, batteries and the connector are missing |
 | Stove / microwave on/off, settings | `doStoveOption` → `onToggleStove` (`:1189`), `onStoveSetting` (`:1203`), `onMicrowaveSetting` (`:1196`); `client/ISUI/Fireplace/ISOvenUI.lua` | Power or fuel | **missing** |
 | Washer / dryer / combo on/off and mode | `toggleClothingWasher`, `toggleClothingDryer`, `toggleComboWasherDryer` → `:1113`, `:1120`, `:1177`, `:1183` | Power, water | **missing** |
 | Generator: info, on/off, connect/disconnect, fix, add fuel, take | `doGeneratorMenu` → `onInfoGenerator` (`:533`), `onActivateGenerator` (`:547`), `onPlugGenerator` (`:540`), `onFixGenerator` (`:554`), `onAddFuelGenerator` (`:565`), `onTakeGenerator` (`:665`) | Electrical ≥ 3 or known recipe "Generator"; fuel; scrap electronics to fix | **missing** |
@@ -250,7 +250,7 @@ brackets. The menu is built for the selected item(s) in the inventory or loot wi
 | Wring out wet clothes / dry self with towel | `:859` → `onWringClothing` (`:2559`); `:885` → `onDryMyself` (`:2551`) | Wetness > 15 / wet character | **missing** |
 | Dye hair / beard; make-up | `:888-891` → `onDyeHair` (`:2531`); `doMakeUpMenu` (`:4299`) → `client/ISUI/ISMakeUpUI.lua` | Hair dye ≥ 0.5; make-up item | **missing** |
 | Apply bandage (choose body part) | `doBandageMenu` (`:1306`) → `onApplyBandage` (`:2772`) → `ISApplyBandage` | All selected items are bandages; damaged part | **partial**: `bandage` (`AIvZGym.lua:453-466`, `:800-807`) queues `ISApplyBandage:new(p, p, item, part, true)` (signature verified) with the first bandage found, at most 3 parts |
-| Turn on / off (flashlight, lighter-type items) | `:866-879` → `onActivateItem` (`:2880`) | `canBeActivated`, in hand or attached, charge > 0 | **missing** |
+| Turn on / off (flashlight, lighter-type items) | `:248-253`, `:866-879` → `onActivateItem` (`:2880`) | `canBeActivated`; in hand or attached (not a weapon, not SCBA), or worn with uses left; a drainable with uses left; not `CandleLit`, `Lantern_HurricaneLit` or `LIT_LANTERN`; an empty garment greyed out | **covered** (gym 0.4.60, not live-tested): `switch_item` |
 | Repair item (fixers) | `:903-913` → `buildFixingMenu` (`:2393`) → `onFix` (`:2512`) | `FixingManager.getFixes`; fixer item and skill | **missing** |
 | Weapon upgrade add / remove | `:760-791` → `onUpgradeWeapon` (`:3798`), `onRemoveUpgradeWeapon` (`:3789`) | Weapon part, tools | **missing** |
 | Firearms: fire mode, insert/eject magazine, load/unload rounds, rack/unjam | `doChangeFireModeMenu` (`:1793`), `doReloadMenuForWeapon` (`:1876`), `doMagazineMenu` (`:1970`), `doReloadMenuForBullets` (`:1813`) | Ammo, magazine | **missing** |
