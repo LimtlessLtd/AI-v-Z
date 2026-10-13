@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.55"
+G.VERSION = "0.4.56"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -587,6 +587,13 @@ local function count(list, verb)
 	return n
 end
 
+-- the water source on a square, as the water scan found it (A.scanWater: an object holding fluid), or nil
+local function waterObjectAt(x, y, z)
+	local sq = sqAt(x, y, z)
+	if not sq then return nil end
+	for _, o in ipairs(U.objList(sq)) do if U.waterAmount(o) > 0 then return o end end
+end
+
 -- barricades (gym 0.4.36): the tools as the menus find them (J:ISWorldObjectContextMenuLogic.doBarricadeMenu's
 -- hammer test, ISWorldObjectContextMenu's predicateRemoveBarricade), and the planks on one side of an opening
 local function notBroken(it) return not it:isBroken() end
@@ -962,9 +969,52 @@ function G.options(p)
 		end
 		GS.water = { at = tick(), list = seenWater }
 	end
-	for i = 1, math.min(2, #GS.water.list) do
-		local w = GS.water.list[i]
-		add(list, "drink_tap", { d = w.d, tainted = w.tainted, name = w.name }, { x = w.x, y = w.y, z = w.z })
+	-- A source's menu (J:ISWorldObjectContextMenuLogic.doWashClothingOrYourselfMenu, 42.21) has Drink and Fill only
+	-- for a source in the character's building, or both outdoors (doDrinkWaterMenu, doFillFluidMenu). Drink also
+	-- needs a drink in it (its primary fluid in FluidCategory.Beverage) and no washer or dryer (gym 0.4.56; until
+	-- then drink_tap was offered for the two nearest sources in sight, whichever building they were in).
+	local sources = {}
+	for _, w in ipairs(GS.water.list) do
+		local src = waterObjectAt(w.x, w.y, w.z)
+		if src and src:getSquare():getBuilding() == p:getBuilding() then sources[#sources + 1] = { w = w, src = src } end
+	end
+	local drinks = 0
+	for _, s in ipairs(sources) do
+		local fluid, w = s.src:getPrimaryFluid(), s.w
+		if drinks < 2 and fluid and fluid:isCategory(FluidCategory.Beverage)
+			and not instanceof(s.src, "IsoClothingWasher") and not instanceof(s.src, "IsoClothingDryer") then
+			drinks = drinks + 1
+			add(list, "drink_tap", { d = w.d, tainted = w.tainted, name = w.name }, { x = w.x, y = w.y, z = w.z })
+		end
+	end
+	-- Fill a carried container (gym 0.4.56), as doFillFluidMenu offers it: not with a full inventory (the entry is
+	-- greyed out then); a container whose fluid container isn't full and takes water (canAddFluid(Fluid.Water)), and
+	-- that the source can pour into (canTransferFluidTo). The menu has one entry per container name (Fill One fills
+	-- the first) and Fill All for more than one: so has this, at the two nearest sources. The menu searches bags in
+	-- bags (getAllRecurse); this, the inventory and the bags in it.
+	if #sources > 0 and not p:hasFullInventory() then
+		local cans = {}
+		U.eachItem(p:getInventory(), function(it)
+			local fc = it:getFluidContainer()
+			if fc and not fc:isFull() and fc:canAddFluid(Fluid.Water) then cans[#cans + 1] = it end
+		end)
+		for i = 1, (#cans > 0 and math.min(2, #sources) or 0) do
+			local w, src = sources[i].w, sources[i].src
+			local into, named = {}, {}
+			for _, it in ipairs(cans) do
+				if src:canTransferFluidTo(it:getFluidContainer()) then
+					into[#into + 1] = it
+					if not named[it:getName()] then
+						named[it:getName()] = true
+						add(list, "fill", { d = w.d, tainted = w.tainted, name = w.name, type = it:getFullType() },
+							{ x = w.x, y = w.y, z = w.z, it = it })
+					end
+				end
+			end
+			if #into > 1 then
+				add(list, "fill", { d = w.d, tainted = w.tainted, name = w.name, how = "all" }, { x = w.x, y = w.y, z = w.z, all = into })
+			end
+		end
 	end
 	-- wounds that could take a bandage, with the first bandage in the bag
 	local band = nil
@@ -1606,14 +1656,30 @@ G.X.drink = {
 }
 G.X.drink_tap = {
 	start = function(p, t, o)
-		local obj = nil
-		for _, x in ipairs(U.objList(sqAt(o.data.x, o.data.y, o.data.z))) do if U.waterAmount(x) > 0 then obj = x; break end end
+		local obj = waterObjectAt(o.data.x, o.data.y, o.data.z)
 		if not obj or not luautils.walkAdjObject(p, obj, true, true) then return U.fail(t, "can't reach it") end
 		t.thirst = U.stat(p, "THIRST")
 		Q(ISTakeWaterAction:new(p, nil, obj, obj:isTaintedWater()))
 	end,
 	step = queueStep(1200, function(p, t)
 		if t.thirst > 0.05 and U.stat(p, "THIRST") > t.thirst - 0.01 then return "didn't drink" end
+	end),
+}
+-- fill (gym 0.4.56): the Fill menu's own handler, ISWorldObjectContextMenu.onTakeWater (:2050). It walks next to the
+-- source, takes each container into the main inventory, queues ISTakeWaterAction with it and puts it back; with a
+-- list (Fill All) it fills each in turn. Done when one of them holds more than before.
+local function fluidIn(it) return try(function() return it:getFluidContainer():getAmount() end) or 0 end
+G.X.fill = {
+	start = function(p, t, o)
+		local src = waterObjectAt(o.data.x, o.data.y, o.data.z)
+		if not src then return U.fail(t, "no water there") end
+		t.items, t.before = o.data.all or { o.data.it }, {}
+		for i, it in ipairs(t.items) do t.before[i] = fluidIn(it) end
+		ISWorldObjectContextMenu.onTakeWater(nil, src, o.data.all, o.data.it, p:getPlayerNum())
+	end,
+	step = queueStep(3000, function(p, t)
+		for i, it in ipairs(t.items) do if fluidIn(it) > t.before[i] + 0.01 then return nil end end
+		return "didn't fill"
 	end),
 }
 G.X.equip = {
