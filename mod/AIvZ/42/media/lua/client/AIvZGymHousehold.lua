@@ -177,7 +177,7 @@ local function panelValid(p, ui)
 	return ui and ui.character == p and ui:isVisible() and alive(ui.oven) and ui.oven:getContainer()
 		and ui.ok and ui.close and ui.tempKnob and ui.timerKnob
 		and ui.tempKnob.values[ui.tempKnob.selected] and ui.timerKnob.values[ui.timerKnob.selected]
-		and p:getZ() == ui.oven:getZ() and p:DistTo(ui.oven:getX(), ui.oven:getY()) <= 3
+		and p:DistTo(ui.oven:getX(), ui.oven:getY()) <= 3
 end
 local function panels(p, includeCloseOnly)
 	local out, pn = {}, p:getPlayerNum() + 1

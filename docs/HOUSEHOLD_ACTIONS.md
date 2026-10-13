@@ -127,7 +127,10 @@ encode all nine action types and their parameters. The public page's export allo
 
 The loader's fixed mod-file list includes the new file. A bootstrap in `AIvZGym.lua` lets the first
 hot reload from an older three-file loader load it and extend that fixed list, without restarting
-the game or reading executable paths from IPC.
+the game or reading executable paths from IPC. The first reload accepted 0.4.71 at 14:39:47 and wrote
+`obs.household.panels`, proving the family loaded. An additional `require` emitted a warning because
+the running game's require catalogue had not indexed the newly added file; 0.4.72 removes that redundant
+attempt and relies on the fixed reload list (fresh game startup already loads the client files).
 
 **Validation:** all 134 tests pass on the owner's PC, including the installed game's Lua compiler
 and method-name checks. New tests verify visible-panel input, exclusion of food's hidden cooking state,
