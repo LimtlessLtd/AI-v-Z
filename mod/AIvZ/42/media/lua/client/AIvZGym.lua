@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.60"
+G.VERSION = "0.4.61"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -675,6 +675,24 @@ local function injured(bp) return (bp:HasInjury() or bp:stitched() or bp:getSpli
 -- smoked), the entry is greyed out unless one of them, not used up, is in the inventory, or a smokable can be lit
 -- in the vehicle or from an open flame (doPillsMenu :1140-1173).
 local function notUsedUp(it) return it:getCurrentUsesFloat() > 0 end
+-- The inventory menu's Read (ISInventoryPaneContextMenu.lua, 42.21; gym 0.4.61). Literature: category Literature,
+-- not a notebook one can write in, not print media (:242-244). Greyed out (doLiteratureMenu :1030-1137): too dark to
+-- read, asleep, illiterate unless it's pictures, a skill book more than a level above the skill or at or below it;
+-- and the handler skips a blank notebook (UNINTERESTING, onLiteratureItems :2804-2819). "reread" when the menu says
+-- Re-read (the title was read before).
+local function readEntry(p, it)
+	if it:getCategory() ~= "Literature" or it:canBeWrite() or (it:hasModData() and it:getModData().printMedia) then return nil end
+	if p:tooDarkToRead() or p:isAsleep() or it:hasTag(ItemTag.UNINTERESTING) then return nil end
+	if p:hasTrait(CharacterTrait.ILLITERATE) and not it:hasTag(ItemTag.PICTUREBOOK) and not it:hasTag(ItemTag.PICTURE) then return nil end
+	local book = SkillBook[it:getSkillTrained()]
+	if book and book.perk then
+		local lvl = p:getPerkLevel(book.perk)
+		if it:getLvlSkillTrained() ~= -1 and it:getLvlSkillTrained() > lvl + 1 then return nil end
+		if it:getMaxLevelTrained() ~= -1 and it:getMaxLevelTrained() <= lvl then return nil end
+	end
+	local title = it:getModData().literatureTitle
+	return (title and p:isLiteratureRead(title)) and "reread" or "read"
+end
 -- The inventory menu's Turn On / Turn Off (ISInventoryPaneContextMenu.lua :248-253 and :866-879, 42.21; gym 0.4.60):
 -- an item that can be activated, in the hands or attached (not a weapon, not an SCBA), or worn with some use left;
 -- not a drainable that's used up, not a lit candle or lantern (those have their own menus); a garment with nothing
@@ -1065,6 +1083,12 @@ function G.options(p)
 			end
 		end
 		if pillsEntry(p, it) then add(list, "take_pill", info, { it = it }) end
+		local reading = count(list, "read") < 8 and readEntry(p, it)
+		if reading then
+			info.how = reading
+			add(list, "read", info, { it = it })
+			info.how = nil
+		end
 		if switchEntry(p, it) then
 			info.how = it:isActivated() and "off" or "on"
 			add(list, "switch_item", info, { it = it })
@@ -1825,8 +1849,6 @@ G.X.eat = {
 		if has(p, o.data.it) and hungerLeft(o.data.it) == t.left then return "didn't eat it" end
 	end),
 }
--- the menu's own handler (onPillsItems -> takePill, :3667-3686): into the main inventory, the mask off, the pill,
--- the mask back on, the box back where it was. Done when the box has less in it, or is gone.
 -- light_switch: the menu's ISWorldObjectContextMenu.onToggleLight (:1328-1351), which walks to the side of the wall the
 -- switch is on and queues ISToggleLightAction; switch_item: ISInventoryPaneContextMenu.onActivateItem (:2880-2885),
 -- at once (gym 0.4.60)
@@ -1844,6 +1866,27 @@ G.X.switch_item = {
 	end,
 	step = queueStep(60, function(p, t, o) if o.data.it:isActivated() == t.was then return "didn't switch" end end),
 }
+-- read (gym 0.4.61): the menu's onLiteratureItems -> readItem (:2804-2832): into the main inventory, ISReadABook, back
+-- where it was. Done when the pages read moved (a book) or the title is now read (a magazine); a book read to the
+-- end starts again from page 0 when the action is made (ISReadABook:new), so its pages are taken after that.
+G.X.read = {
+	start = function(p, t, o)
+		local it = o.data.it
+		t.title = it:getModData().literatureTitle
+		ISInventoryPaneContextMenu.readItem(it, p:getPlayerNum())
+		t.pages = it:getAlreadyReadPages()
+	end,
+	step = queueStep(20000, function(p, t, o)
+		local it = o.data.it
+		if it:getNumberOfPages() > 0 then
+			if it:getAlreadyReadPages() == t.pages then return "read nothing" end
+		elseif t.title and not p:isLiteratureRead(t.title) then
+			return "read nothing"
+		end
+	end),
+}
+-- the menu's own handler (onPillsItems -> takePill, :3667-3686): into the main inventory, the mask off, the pill,
+-- the mask back on, the box back where it was. Done when the box has less in it, or is gone.
 G.X.take_pill = {
 	start = function(p, t, o)
 		t.left = o.data.it:getCurrentUsesFloat()

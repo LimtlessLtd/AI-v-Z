@@ -265,6 +265,15 @@ to hand that isn't there (`doPillsMenu`, 1140-1173), and runs the menu's `takePi
 `ISReadABook:new(character, item)`. Menu conditions (`doLiteratureMenu`, `:1030`): not
 `tooDarkToRead()`, not Illiterate (unless a picture book), skill book level ≤ perk level + 1 and above the
 max level, not asleep.
+**Checked in installed 42.21 on 2026-10-13 and built in gym 0.4.61 (`read`):** literature is
+`getCategory() == "Literature"`, not `canBeWrite()`, not `getModData().printMedia` (`:242-244`). Greyed out
+(`doLiteratureMenu`, 1030-1137): `playerObj:tooDarkToRead()`; `hasTrait(CharacterTrait.ILLITERATE)` unless
+`hasTag(ItemTag.PICTUREBOOK)` or `ItemTag.PICTURE`; with `SkillBook[item:getSkillTrained()].perk`,
+`getLvlSkillTrained() > getPerkLevel(perk) + 1` (too complicated) or `getMaxLevelTrained() <= getPerkLevel(perk)` (too
+simple); asleep. `onLiteratureItems` (2804-2819) also skips `ItemTag.UNINTERESTING` (a blank notebook). "Re-read"
+when `isLiteratureRead(getModData().literatureTitle)`. `readItem` (2822-2832) moves the item to the main inventory,
+queues `ISReadABook:new(player, item, 150)` and puts it back. A book's progress is `getAlreadyReadPages()`; a
+magazine's is `isLiteratureRead(title)` after `ISReadABook:perform` (`addReadLiterature`).
 
 ### 13. Continuous movement and stance
 No key injection exists (`J:zombie.input.GameKeyboard` only reads). Exposed setters on the player:

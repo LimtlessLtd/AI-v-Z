@@ -122,7 +122,7 @@ class ProbePolicy:
             "take_off", "equip", "unequip", "drop", "door", "window", "curtain", "search", "go_room", "enter",
             "stow", "exercise", "enter_vehicle", "exit_vehicle", "engine_on", "engine_off", "disinfect", "stitch",
             "remove_glass", "remove_bullet", "clean_burn", "splint", "poultice", "take_pill",
-            "light_switch", "switch_item")
+            "light_switch", "switch_item", "read")
     LATE = ("walk", "run", "attack", "shove", "rest", "wait", "sleep")   # now and then: they cost lives or time
     EXPLORE = ("search", "enter", "go_room", "walk")
 
