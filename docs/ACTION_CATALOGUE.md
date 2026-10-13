@@ -237,7 +237,7 @@ brackets. The menu is built for the selected item(s) in the inventory or loot wi
 | Pour on ground / dump contents | `:453` → `onDumpContents` (`:4100`) | `canReplaceStoreWater` | **missing** |
 | Consolidate drainables | `checkConsolidate` (`:2153`) → `onConsolidate` (`:2192`), `onConsolidateAll` (`:2196`) | Several partial drainables | **missing** |
 | Fluid: container info, transfer, empty, autodrink on/off | `client/ISUI/ISFluidContainerMenu.lua:9-37`, `client/Fluids/ISFluidTransferUI.lua` | Fluid container | **missing** |
-| Read / look at pictures / reread | `doLiteratureMenu` (`:1030`) → `onLiteratureItems` (`:2804`) → `readItem` (`:2825`) | `notAvailable` when `tooDarkToRead()`, illiterate (unless picture book), skill book too hard (`getLvlSkillTrained > level + 1`) or too easy; asleep | **missing** |
+| Read / look at pictures / reread | `doLiteratureMenu` (`:1030`) → `onLiteratureItems` (`:2804`) → `readItem` (`:2825`) | `notAvailable` when `tooDarkToRead()`, illiterate (unless picture book), skill book too hard (`getLvlSkillTrained > level + 1`) or too easy; asleep | **covered** (gym 0.4.61, not live-tested): `read` (`how` read or reread), the menu's tests (GAP_LIST item 12) and its `readItem`; at most 8 a decision |
 | Inspect print media; check back cover (media) | `doPrintMediaMenu` (`:1007`), `onMediaText` (`:2974`) | Light, literate | **missing** |
 | Read / write note | `:573-575` → `onWriteSomething` (`:2699`) | Pen/pencil to write; light; literate | **missing** |
 | Read map / rename map | `:595-603` → `onCheckMap` (`:2661`), `onRenameMap` (`:2634`) | Light | **missing** |

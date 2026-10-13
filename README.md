@@ -338,6 +338,9 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.61 adds reading** (`read`: skill books, magazines, picture books), with the menu's rules: not in the
+  dark, not illiterate (except pictures), not a skill book too hard or too easy. Not yet seen in the game.
+
 - **Gym 0.4.60 adds lights**: turning a room's light on or off at its switch, and a torch (or other item that
   switches) in the hands, attached or worn, as the game's menus offer them. Not yet seen in the game.
 
