@@ -33,7 +33,7 @@ hidden world state and changes to settings are not normal character actions.
 
 The implemented verbs are `attack`, `bandage`, `clear_glass`, `climb`, `craft`, `curtain`, `door`,
 `drink`, `drink_tap`, `drop`, `eat`, `enter`, `equip`, `go_room`, `rest`, `run`, `search`, `shove`,
-`sleep`, `smash`, `take`, `take_off`, `unequip`, `wait`, `walk`, `wear`, `window`, plus `continue`
+`sleep`, `smash`, `take`, `take_off`, `unbandage`, `unequip`, `unsplint`, `unstitch`, `wait`, `walk`, `wear`, `window`, plus `continue`
 for an action already running. Families above are an audit checklist, not a claim of exhaustive coverage.
 
 `G.options` imposes per-verb caps: for example, at most five crafts, three wear options, three equip
