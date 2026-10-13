@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.8 (gym 0.4.72)` after reloading this update). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.8 (gym 0.4.73)` after reloading this update). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -339,14 +339,17 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 ## Known issues (agent and gym)
 
 - **Gym 0.4.71 adds household supplies and cooking controls.** The bot can open an oven or microwave's real
-  settings window and choose its temperature, timer, On/Off button and Close. It can clean one or all dirty
-  bandages with the water recipes, connect a plumbable fixture with a pipe wrench, switch washers/dryers and
+  settings window and choose its temperature, timer, On/Off button and Close. It can reuse dirty
+  bandages with the installed CleanBandage recipe and carried water, connect a plumbable fixture with a pipe wrench, switch washers/dryers and
   choose a combo machine's mode. Every choice follows the installed game's menu or window; the network
   chooses when to use it. Water choices now use all currently visible fixtures in the surrounding scan,
   with the selected source retained, and tap drinking handles face masks through the game's callback.
   All 134 tests pass, including the game's Lua checks; natural execution remains to be checked. The new
   family loaded through the running game's fixed file list. Gym 0.4.72 removes a redundant loading attempt
   that warned when the running game had not indexed the newly added module yet.
+  Gym 0.4.73 uses this build's modern CleanBandage crafting recipe (0.5 L of carried water per item);
+  the older sink recipe definitions are absent from the installed scripts. Legacy One/All entries remain
+  conditional on those definitions existing; normal 42.21 inventory crafting offers One.
   The trained network is preserved. An agent restart picks up the new visible cooking-window feedback.
   [Sources, behavior and remaining coverage](docs/HOUSEHOLD_ACTIONS.md).
 

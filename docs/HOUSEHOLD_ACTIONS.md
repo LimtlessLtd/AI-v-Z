@@ -50,6 +50,25 @@ Do not expose internal food temperature, cooking progress or a closed appliance'
 
 ## Cleaning reusable bandages
 
+**Installed recipe corrected in 0.4.73:** `media/scripts/generated/recipes/recipes_medical.txt:108-130`
+defines **`craftRecipe CleanBandage`**, an InHandCraft/Health recipe taking one dirty bandage/strip/rag
+and **0.5 L of water from a fluid item**, with the `ragType` mapper returning the corresponding clean item.
+There are no definitions of the four old spaced-name `Recipe`s in this installed build. The jar confirms
+`ScriptManager:getRecipe` reads the legacy `recipes` collection; `getCraftRecipe` is a different collection.
+Checking method existence alone did not establish that those old recipe entries could ever be offered.
+
+The gym now offers `clean_bandage` for the current recipe, for each carried dirty item, wherever the
+inventory menu's `HandcraftLogic` can perform it using that selected item. It checks the same containers
+and craft surface as `ISInventoryPaneContextMenu.OnNewCraft` (`:3428-3476`), then invokes that callback
+with `all=false`, as `createNewRecipeContextMenu` does (`:3375-3417`). No water is supplied automatically;
+the network may choose Fill and then clean with what it carries. Conversion requires the selected dirty
+item to disappear and its mapped clean-item count to increase. No extra taint rule is invented for this
+recipe: its own fluid-category validation controls availability.
+
+The modern inventory menu offers **One**. All through the full crafting window remains a separate
+adapter gap; the existing Wash All Bandages is still a different legal action at a fixture. The legacy
+adapter below is retained only when those optional recipe definitions actually exist.
+
 `J:ISWorldObjectContextMenuLogic.doRecipeUsingWaterMenu` lists four recipes if present in the installed
 script manager and the corresponding dirty item is carried (recursively):
 
@@ -107,6 +126,7 @@ That is proof of connecting, not of a full supplier. Disappeared squares/objects
 **Implemented in gym 0.4.71:** nine action types in `AIvZGymHousehold.lua`:
 `appliance_settings`, `appliance_temperature`, `appliance_timer`, `appliance_toggle`, `appliance_close`,
 `clean_bandage`, `laundry`, `laundry_mode`, `plumb`. Open settings and configure them are separate choices.
+The 0.4.73 correction connects cleaning to this installed build's actual crafting recipe, as above.
 Closing an owned visible panel remains possible if the fixture disappears. Native cleaning/plumbing
 validity checks have an additional missing-fixture guard. Other expected missing squares, containers,
 sources and disabled buttons are checked before calls. Outcomes check the actual state or inventory change.
@@ -138,3 +158,11 @@ distinct dial/quantity choices, and preservation of the network layout. Natural 
 The network chooses every action.
 Ground fluid items, general fluid-transfer UI, fuel pumps, generators and campfire/BBQ controls remain
 separate catalogue gaps. Live verification must use natural opportunities and report missing cases.
+
+## First live reload checks
+
+0.4.72 loaded at 14:54:36. A passive 14:54:38–14:57:38 check sampled 490 decisions and wrote
+`obs.household.panels` with no gym error. Wash Yourself was offered in 18 and tap drinking in 52.
+None of the new household choices was offered, so this does not verify their executors or UI dial sets.
+The only new console exception was the known `act.txt` sharing clash (backlog N15); no new module warning.
+The 0.4.73 recipe correction requires further natural dirty-item/water opportunities.
