@@ -71,6 +71,20 @@ local CLEAN = {
 	{ "Base.BandageDirty", "Base.Clean Bandage" }, { "Base.DenimStripsDirty", "Base.Clean Denim Strips" },
 	{ "Base.LeatherStripsDirty", "Base.Clean Leather Strips" }, { "Base.RippedSheetsDirty", "Base.Clean Rag" },
 }
+-- The default installed build defines craftRecipe CleanBandage (generated/recipes/recipes_medical.txt),
+-- not the old spaced-name Recipe definitions used by the legacy sink menu. It consumes 0.5 L of carried
+-- water. Keep the legacy adapter only when those recipes exist, and offer the current inventory-menu path.
+local CLEAN_RESULTS = { ["Base.BandageDirty"] = "Base.Bandage", ["Base.DenimStripsDirty"] = "Base.DenimStrips",
+	["Base.LeatherStripsDirty"] = "Base.LeatherStrips", ["Base.RippedSheetsDirty"] = "Base.RippedSheets" }
+local function modernCleanReady(p, it, recipe)
+	if not recipe or not p:getCurrentSquare() or not G.has(p, it)
+		or not getPlayerInventory(p:getPlayerNum()) or not getPlayerLoot(p:getPlayerNum()) then return false end
+	local logic = HandcraftLogic.new(p, nil, nil)
+	logic:setIsoObject(logic:findCraftSurface(p, 2))
+	logic:setContainers(ISInventoryPaneContextMenu.getContainers(p))
+	logic:setRecipeFromContextClick(recipe, it)
+	return logic:canPerformCurrentRecipe() and logic:getRecipeData():getAllInputItems():contains(it)
+end
 local function cleanSource(o)
 	if not alive(o) or not o:hasWater() or o:getFluidAmount() < 1 then return false end
 	if instanceof(o, "IsoClothingWasher") or instanceof(o, "IsoClothingDryer") or instanceof(o, "IsoCombinationWasherDryer") then return false end
@@ -116,8 +130,22 @@ local function beginClean(p, t, o)
 	end
 end
 G.X.clean_bandage = {
-	start = function(p, t, o) ISTimedActionQueue.queueActions(p, beginClean, t, o) end,
-	step = G.queueStep(20000, function(p, t)
+	start = function(p, t, o)
+		if o.data.craft then
+			if not modernCleanReady(p, o.data.it, o.data.craft) then return U.fail(t, "cleaning supplies unavailable") end
+			t.modern, t.result = true, CLEAN_RESULTS[o.data.it:getFullType()]
+			if not t.result then return U.fail(t, "item no longer dirty") end
+			t.resultBefore = p:getInventory():getCountTypeRecurse(t.result)
+			ISInventoryPaneContextMenu.OnNewCraft(o.data.it, o.data.craft, p:getPlayerNum(), false)
+		else
+			ISTimedActionQueue.queueActions(p, beginClean, t, o)
+		end
+	end,
+	step = G.queueStep(20000, function(p, t, o)
+		if t.modern then
+			if G.has(p, o.data.it) or p:getInventory():getCountTypeRecurse(t.result) <= t.resultBefore then return "bandage not cleaned" end
+			return nil
+		end
 		if not t.items then return "didn't start cleaning" end
 		for _, it in ipairs(t.items) do if G.has(p, it) then return "bandage still dirty" end end
 		for result, n in pairs(t.results) do
@@ -236,6 +264,22 @@ end, step = G.queueStep(90, function(p, t, o) if o.data.ui:isVisible() then retu
 
 G.hooks.household = function(p, list, add)
 	local ar = G.s.around or {}
+	local cleanCraft = getScriptManager():getCraftRecipe("CleanBandage")
+	if cleanCraft then
+		for _, def in ipairs(CLEAN) do
+			local n = p:getInventory():getCountTypeRecurse(def[1])
+			if n > 0 then
+				local items = p:getInventory():getSomeTypeRecurse(def[1], n)
+				for i = 0, items:size() - 1 do
+					local it = items:get(i)
+					if modernCleanReady(p, it, cleanCraft) then
+						add(list, "clean_bandage", { name = getText(cleanCraft:getTranslationName()), type = def[1],
+							from = "inventory", how = "one" }, { it = it, craft = cleanCraft })
+					end
+				end
+			end
+		end
+	end
 	for _, e in ipairs(ar.stoves or {}) do
 		local c = e.o:getContainer()
 		if accessible(p, e.o) and c and c:isPowered() and (c:isStove() or c:isMicrowave()) then
@@ -298,6 +342,9 @@ for _, verb in ipairs({ "clean_bandage", "laundry", "laundry_mode", "plumb", "ap
 end
 
 G.sameTargets.drink_tap = function(a, b) return a.data.src == b.data.src end
+G.sameTargets.clean_bandage = function(a, b)
+	return a.data.o == b.data.o and a.data.it == b.data.it and a.data.craft == b.data.craft
+end
 G.sameTargets.fill = function(a, b)
 	if a.data.src ~= b.data.src or a.data.it ~= b.data.it then return false end
 	local aa, bb = a.data.all or {}, b.data.all or {}
