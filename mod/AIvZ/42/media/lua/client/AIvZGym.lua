@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.54"
+G.VERSION = "0.4.55"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -403,8 +403,11 @@ end
 -- doors, windows, curtains and containers on this floor within 8 tiles
 -- What the Disassemble menu would read for an object (ISDisassembleMenu.createMenu: ISMoveableSpriteProps.fromObject,
 -- and a multi-tile object only while its whole sprite grid stands), kept per object: at 20x decisions come several
--- times a second
-GS.moveProps = GS.moveProps or setmetatable({}, { __mode = "k" })
+-- times a second. Only the objects the last scan looked at are kept (G.scanAround swaps in the new set). The game's
+-- Lua (Kahlua, projectzomboid.jar se/krka/kahlua) has no weak tables, no __mode anywhere, so a table keyed by
+-- objects keeps every one alive: gym 0.4.28-0.4.54 kept every object ever scanned, across lives, and the game ran out
+-- of Java heap after 31k and 87k decisions (2026-10-12 17:15, 2026-10-13 04:10). A reload drops the old table.
+GS.moveProps = {}
 local SCRAP_RANGE = 3
 -- Fences: a square's north and west edges, with the flags the Interact key reads (IsoPlayer.doContextHopOverFence:
 -- HoppableN/W on the square; doContextClimbOverWall for the tall ones). `back` is the climb from the other side.
@@ -417,15 +420,15 @@ local function fenceEdges()
 	}
 	return FENCE_EDGES
 end
-local function scrapProps(o)
+local function scrapProps(o, keep)
 	local mp = GS.moveProps[o]
 	if mp == nil then
 		-- guarded: the menu only reads objects a player clicks, and an error here would take every option down.
-		-- A failure is cached, so it is logged once per object.
+		-- A failure is cached, so it is logged once while the object stays in range.
 		mp = try(function() return ISMoveableSpriteProps.fromObject(o) end) or false
 		if mp and mp.isMultiSprite and not mp:getSpriteGridInfo(o:getSquare(), true) then mp = false end
-		GS.moveProps[o] = mp
 	end
+	keep[o] = mp
 	return mp or nil
 end
 
@@ -462,6 +465,7 @@ function G.scanAround(p)
 	local hb = here and here:getBuilding()
 	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {}, fences = {},
 		corpses = {} }
+	local keep = {}   -- the Disassemble readings of the objects this scan looks at (GS.moveProps)
 	local known = seen(p)
 	local vis = {}
 	local function sees(dx, dy)
@@ -529,7 +533,7 @@ function G.scanAround(p)
 				end
 				for _, o in ipairs(U.objList(sq)) do
 					if d <= SCRAP_RANGE and not instanceof(o, "IsoWorldInventoryObject") then
-						local mp = scrapProps(o)
+						local mp = scrapProps(o, keep)
 						if mp and mp.canScrap then out.scrap[#out.scrap + 1] = { o = o, mp = mp, sq = sq, d = d } end
 					end
 					if U.isDoor(o) or U.isWindow(o) then addOpening(out, p, o, sq, d, pz) end
@@ -562,6 +566,7 @@ function G.scanAround(p)
 	table.sort(out.doors, byD); table.sort(out.windows, byD); table.sort(out.curtains, byD); table.sort(out.containers, byD)
 	table.sort(out.floor, byD); table.sort(out.scrap, byD); table.sort(out.fences, byD); table.sort(out.corpses, byD)
 	out.building = hb
+	GS.moveProps = keep
 	GS.around = out
 	return out
 end
