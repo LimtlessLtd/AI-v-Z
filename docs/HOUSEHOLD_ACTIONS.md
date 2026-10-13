@@ -166,3 +166,12 @@ separate catalogue gaps. Live verification must use natural opportunities and re
 None of the new household choices was offered, so this does not verify their executors or UI dial sets.
 The only new console exception was the known `act.txt` sharing clash (backlog N15); no new module warning.
 The 0.4.75 recipe correction requires further natural dirty-item/water opportunities.
+
+**0.4.75 follow-up:** the loader accepted this version at 15:26:36. A passive 15:27:13–15:29:13
+check sampled 429 decisions with no gym error. Tap drinking was offered in 424, Wash Yourself in 27,
+and item washing in nine. After an earlier failed attempt at each, Wash Yourself completed at 15:29:02
+(decision 29054), and tap drinking completed at 15:29:05 (29059). These are natural terminal-action
+results; the check only read observations and console output. None of the nine new household choices
+was offered and no appliance panel was open, so their execution remains unverified. The console had
+one known act.txt sharing clash and another pre-existing vanilla ISEquippedItem.checkToolTip/isAnyVisible
+exception; neither was a household-module error.

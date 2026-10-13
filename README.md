@@ -357,7 +357,8 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   choose a combo machine's mode. Every choice follows the installed game's menu or window; the network
   chooses when to use it. Water choices now use all currently visible fixtures in the surrounding scan,
   with the selected source retained, and tap drinking handles face masks through the game's callback.
-  All 138 tests pass, including the game's Lua checks; natural execution remains to be checked. The new
+  All 138 tests pass, including the game's Lua checks. Wash Yourself and tap drinking completed naturally
+  in the 0.4.75 follow-up; the nine new controls still need natural execution checks. The new
   family loaded through the running game's fixed file list. Gym 0.4.72 removes a redundant loading attempt
   that warned when the running game had not indexed the newly added module yet.
   Gym 0.4.75 uses this build's modern CleanBandage crafting recipe (0.5 L of carried water per item);
