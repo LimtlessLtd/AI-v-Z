@@ -114,6 +114,12 @@ mod once per save, and load/start the save. The agent plays with the network and
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
 which is killed when that session closes (backlog N3).
 
+It also starts `scripts\watch-game.ps1` in a minimized window ("AI-v-Z game watcher"), unless one is already
+running. The watcher turns on the game's GC log (`logs\gc-<pid>.log`). If the game's window stops responding for
+a minute, it saves three thread dumps and the heap to `logs\hang-<time>-<pid>.txt` (backlog N16, N17). It reads only
+and never stops the game. It needs a JDK 25's `jcmd`: the one in `E:\Tools\zulu25...` (Azul Zulu, portable, not
+on PATH), or `$env:AIVZ_JCMD`. `watch-game.ps1 -DumpNow` saves one set of dumps by hand.
+
 ## Run (rules baseline)
 
 1. Start the bridge from the repo root:
@@ -323,7 +329,8 @@ site/               the public page (static HTML/JS: Learning, Replays, The netw
 bridge/             bridge.py (rules baseline decision loop, dashboard server) and mind.html
 brain/              baseline decision code: goals, rules, percept conversion, strategy
 tests/              unit tests, the 31 benchmark situations, LuaCheck.java (the Lua compile check)
-scripts/            start.ps1 (one-click start), install-mod.ps1, reload-mod.ps1, publish-site.ps1 (the public page)
+scripts/            start.ps1 (one-click start), install-mod.ps1, reload-mod.ps1, publish-site.ps1 (the public page),
+                    watch-game.ps1 (GC logs and thread dumps of a hung game)
 docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and verification; ACTION_CATALOGUE,
                     OBSERVATION_AUDIT and GAP_LIST (audit against the installed game); REWARD_RESEARCH (reward
                     version 3); archive/ (BENCHMARK and DECISION_MODELS: the Phase 0 record, Qwen era)
@@ -334,12 +341,14 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 - **Gym 0.4.55 fixes the game running out of memory.** The game crashed at 04:10 on 2026-10-13 with
   `OutOfMemoryError: Java heap space` after 87,000 decisions, and had run out once before. The Disassemble check
   kept a reading for every object the character had ever been near, because the game's Lua has no weak tables;
-  it now keeps only the current surroundings. Lua checks and tests pass; not yet run in the game.
+  it now keeps only the current surroundings. In the game since 10:26 on 2026-10-13, no `AIvZ` errors. The 3 GB
+  heap is still tight: 1.45 GB of it was live 9 minutes into that session, with peaks at 94%.
   [Details](docs/BACKLOG.md#out-of-memory-and-a-hang-after-a-respawn-2026-10-13).
 
 - **The game can hang right after a new character arrives** (twice in about 700 respawns). The window stops
-  responding; close it and run `scripts\start.ps1` again. The cause isn't known yet: it needs a Java thread dump
-  taken during a hang (backlog N17).
+  responding. **Leave it a minute before you close it**: the game watcher saves thread dumps to
+  `logs\hang-*.txt` after a minute without a response. Then close it and run `scripts\start.ps1` again. The cause
+  isn't known yet (backlog N17).
 
 - **Gym 0.4.45/0.4.46 add removal of bandages, stitches and splints (G11).** `unbandage`, `unstitch` and
   `unsplint` are offered for up to 3 body parts each and queue the same timed actions as the health panel's
