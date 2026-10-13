@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.59"
+G.VERSION = "0.4.60"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -465,7 +465,7 @@ function G.scanAround(p)
 	local here = p:getCurrentSquare()
 	local hb = here and here:getBuilding()
 	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {}, fences = {},
-		corpses = {} }
+		corpses = {}, lights = {} }
 	local keep = {}   -- the Disassemble readings of the objects this scan looks at (GS.moveProps)
 	local known = seen(p)
 	local vis = {}
@@ -538,6 +538,11 @@ function G.scanAround(p)
 						if mp and mp.canScrap then out.scrap[#out.scrap + 1] = { o = o, mp = mp, sq = sq, d = d } end
 					end
 					if U.isDoor(o) or U.isWindow(o) then addOpening(out, p, o, sq, d, pz) end
+					-- a light switch, as the world menu fetches one (J:ISWorldObjectContextMenuLogic.fetch, 42.21): on a
+					-- square in a room, or one that can be modified (gym 0.4.60)
+					if instanceof(o, "IsoLightSwitch") and (sq:getRoom() ~= nil or o:getCanBeModified()) then
+						out.lights[#out.lights + 1] = { o = o, sq = sq, d = d }
+					end
 				end
 				-- fences on this square's edges (gym 0.4.33). Each edge is listed once, from the side the character is on:
 				-- it stands on that square and climbs toward the other. "drop": nothing to stand on beyond
@@ -566,6 +571,7 @@ function G.scanAround(p)
 	local byD = function(a, b) return a.d < b.d end
 	table.sort(out.doors, byD); table.sort(out.windows, byD); table.sort(out.curtains, byD); table.sort(out.containers, byD)
 	table.sort(out.floor, byD); table.sort(out.scrap, byD); table.sort(out.fences, byD); table.sort(out.corpses, byD)
+	table.sort(out.lights, byD)
 	out.building = hb
 	GS.moveProps = keep
 	GS.around = out
@@ -669,6 +675,19 @@ local function injured(bp) return (bp:HasInjury() or bp:stitched() or bp:getSpli
 -- smoked), the entry is greyed out unless one of them, not used up, is in the inventory, or a smokable can be lit
 -- in the vehicle or from an open flame (doPillsMenu :1140-1173).
 local function notUsedUp(it) return it:getCurrentUsesFloat() > 0 end
+-- The inventory menu's Turn On / Turn Off (ISInventoryPaneContextMenu.lua :248-253 and :866-879, 42.21; gym 0.4.60):
+-- an item that can be activated, in the hands or attached (not a weapon, not an SCBA), or worn with some use left;
+-- not a drainable that's used up, not a lit candle or lantern (those have their own menus); a garment with nothing
+-- left is greyed out
+local function switchEntry(p, it)
+	if not it:canBeActivated() then return false end
+	local reach = ((p:isHandItem(it) or (p:isAttachedItem(it) and not instanceof(it, "HandWeapon"))) and not it:hasTag(ItemTag.SCBA))
+		or (it:isWorn() and it:getCurrentUsesFloat() > 0)
+	if not reach or (instanceof(it, "Drainable") and it:getCurrentUsesFloat() <= 0) then return false end
+	local t = it:getType()
+	if t == "CandleLit" or t == "Lantern_HurricaneLit" or it:hasTag(ItemTag.LIT_LANTERN) then return false end
+	return not (instanceof(it, "Clothing") and it:getUsedDelta() == 0)
+end
 local function pillsEntry(p, it)
 	if not it:hasTag(ItemTag.CONSUMABLE) or not instanceof(it, "DrainableComboItem") then return false end
 	local need = it:getRequireInHandOrInventory()
@@ -1003,10 +1022,23 @@ function G.options(p)
 			end
 		end
 	end
+	-- Turn a light on or off at its switch, as the switch's menu offers it (ISWorldObjectContextMenu.doLightSwitchOption,
+	-- 42.21): nothing in the way between the character and it (isSomethingTo), and canSwitchLight (gym 0.4.60)
+	for _, l in ipairs(ar.lights) do
+		if not ISWorldObjectContextMenu.isSomethingTo(l.o, p:getPlayerNum()) and l.o:canSwitchLight() then
+			add(list, "light_switch", { d = r1(l.d), dx = r1(l.sq:getX() + 0.5 - p:getX()), dy = r1(l.sq:getY() + 0.5 - p:getY()),
+				how = l.o:isActivated() and "off" or "on" }, { o = l.o })
+		end
+	end
 	-- the inventory
 	local shut = shutIn(p)
 	local held = p:getPrimaryHandItem()
 	if held then add(list, "unequip", G.itemInfo(p, held), { it = held }) end
+	if held and switchEntry(p, held) then
+		local info = G.itemInfo(p, held)
+		info.how = held:isActivated() and "off" or "on"
+		add(list, "switch_item", info, { it = held })
+	end
 	local crafts = 0
 	local stuffed = U.moodle(p, "FOOD_EATEN") >= 3
 	U.eachItem(p:getInventory(), function(it)
@@ -1033,6 +1065,11 @@ function G.options(p)
 			end
 		end
 		if pillsEntry(p, it) then add(list, "take_pill", info, { it = it }) end
+		if switchEntry(p, it) then
+			info.how = it:isActivated() and "off" or "on"
+			add(list, "switch_item", info, { it = it })
+			info.how = nil
+		end
 		if instanceof(it, "HandWeapon") and count(list, "equip") < 3 then
 			local ok, both = equipEntry(p, it)
 			if ok then add(list, "equip", info, { it = it, both = both }) end
@@ -1790,6 +1827,23 @@ G.X.eat = {
 }
 -- the menu's own handler (onPillsItems -> takePill, :3667-3686): into the main inventory, the mask off, the pill,
 -- the mask back on, the box back where it was. Done when the box has less in it, or is gone.
+-- light_switch: the menu's ISWorldObjectContextMenu.onToggleLight (:1328-1351), which walks to the side of the wall the
+-- switch is on and queues ISToggleLightAction; switch_item: ISInventoryPaneContextMenu.onActivateItem (:2880-2885),
+-- at once (gym 0.4.60)
+G.X.light_switch = {
+	start = function(p, t, o)
+		t.was = o.data.o:isActivated()
+		ISWorldObjectContextMenu.onToggleLight(nil, o.data.o, p:getPlayerNum())
+	end,
+	step = queueStep(900, function(p, t, o) if o.data.o:isActivated() == t.was then return "didn't switch" end end),
+}
+G.X.switch_item = {
+	start = function(p, t, o)
+		t.was = o.data.it:isActivated()
+		ISInventoryPaneContextMenu.onActivateItem(o.data.it, p:getPlayerNum())
+	end,
+	step = queueStep(60, function(p, t, o) if o.data.it:isActivated() == t.was then return "didn't switch" end end),
+}
 G.X.take_pill = {
 	start = function(p, t, o)
 		t.left = o.data.it:getCurrentUsesFloat()

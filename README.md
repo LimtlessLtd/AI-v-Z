@@ -338,6 +338,9 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.60 adds lights**: turning a room's light on or off at its switch, and a torch (or other item that
+  switches) in the hands, attached or worn, as the game's menus offer them. Not yet seen in the game.
+
 - **Gym 0.4.59 adds taking pills** (`take_pill`: painkillers, vitamins, sleeping tablets and the like, as the
   inventory menu offers them). Not yet seen in the game.
 
