@@ -50,7 +50,7 @@ Do not expose internal food temperature, cooking progress or a closed appliance'
 
 ## Cleaning reusable bandages
 
-**Installed recipe corrected in 0.4.73:** `media/scripts/generated/recipes/recipes_medical.txt:108-130`
+**Installed recipe corrected in 0.4.75:** `media/scripts/generated/recipes/recipes_medical.txt:108-130`
 defines **`craftRecipe CleanBandage`**, an InHandCraft/Health recipe taking one dirty bandage/strip/rag
 and **0.5 L of water from a fluid item**, with the `ragType` mapper returning the corresponding clean item.
 There are no definitions of the four old spaced-name `Recipe`s in this installed build. The jar confirms
@@ -126,7 +126,7 @@ That is proof of connecting, not of a full supplier. Disappeared squares/objects
 **Implemented in gym 0.4.71:** nine action types in `AIvZGymHousehold.lua`:
 `appliance_settings`, `appliance_temperature`, `appliance_timer`, `appliance_toggle`, `appliance_close`,
 `clean_bandage`, `laundry`, `laundry_mode`, `plumb`. Open settings and configure them are separate choices.
-The 0.4.73 correction connects cleaning to this installed build's actual crafting recipe, as above.
+The 0.4.75 correction connects cleaning to this installed build's actual crafting recipe, as above.
 Closing an owned visible panel remains possible if the fixture disappears. Native cleaning/plumbing
 validity checks have an additional missing-fixture guard. Other expected missing squares, containers,
 sources and disabled buttons are checked before calls. Outcomes check the actual state or inventory change.
@@ -165,4 +165,4 @@ separate catalogue gaps. Live verification must use natural opportunities and re
 `obs.household.panels` with no gym error. Wash Yourself was offered in 18 and tap drinking in 52.
 None of the new household choices was offered, so this does not verify their executors or UI dial sets.
 The only new console exception was the known `act.txt` sharing clash (backlog N15); no new module warning.
-The 0.4.73 recipe correction requires further natural dirty-item/water opportunities.
+The 0.4.75 recipe correction requires further natural dirty-item/water opportunities.
