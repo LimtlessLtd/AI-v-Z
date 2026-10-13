@@ -338,6 +338,10 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.62 adds stoves and microwaves**: switching one on or off, as its menu offers it (powered, nothing in
+  the way). Cooking is the rest of the player's own doing: search it, put food in, switch on, take it out. The
+  temperature and timer settings open a window and are left out. Not yet seen in the game.
+
 - **Gym 0.4.61 adds reading** (`read`: skill books, magazines, picture books), with the menu's rules: not in the
   dark, not illiterate (except pictures), not a skill book too hard or too easy. Not yet seen in the game.
 
@@ -423,9 +427,9 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   First, the game's sound, music and ambient volumes are 0 in its options, so everything captured is silence
   (owner decision, backlog). Second, the network doesn't use the record yet: that comes after there's real audio
   to look at. Cost measured on the PC: about 7% of a core, 2.2 KB per record before compression.
-- **One hidden-information leak remains in the gym.** Zombie visibility uses line of sight plus light instead of
-  the game's own spotted list. (Mod 0.5.7 stopped the `enter` macro picking a window by its lock state or among
-  windows never seen.) The other leaks are fixed in the gym or kept out of the network's input
+- **The known hidden-information leaks are fixed.** Zombie visibility follows the game's own spotted list since
+  gym 0.4.43 (it used line of sight plus light before). Mod 0.5.7 stopped the `enter` macro picking a window by its
+  lock state or among windows never seen. The other leaks are fixed in the gym or kept out of the network's input
   ([OBSERVATION_AUDIT.md](docs/OBSERVATION_AUDIT.md), section 5).
 - **Gym 0.4.39 is new**: `rest` on the nearest bed as the bed menu offers it (backlog G7).
 - **Gym 0.4.38**: `equip` follows the inventory menu (both hands for a working two-handed weapon; one hand

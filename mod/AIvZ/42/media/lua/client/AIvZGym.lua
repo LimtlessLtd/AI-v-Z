@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.61"
+G.VERSION = "0.4.62"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -465,7 +465,7 @@ function G.scanAround(p)
 	local here = p:getCurrentSquare()
 	local hb = here and here:getBuilding()
 	local out = { tick = tick(), doors = {}, windows = {}, curtains = {}, containers = {}, floor = {}, scrap = {}, fences = {},
-		corpses = {}, lights = {} }
+		corpses = {}, lights = {}, stoves = {} }
 	local keep = {}   -- the Disassemble readings of the objects this scan looks at (GS.moveProps)
 	local known = seen(p)
 	local vis = {}
@@ -543,6 +543,8 @@ function G.scanAround(p)
 					if instanceof(o, "IsoLightSwitch") and (sq:getRoom() ~= nil or o:getCanBeModified()) then
 						out.lights[#out.lights + 1] = { o = o, sq = sq, d = d }
 					end
+					-- a stove or microwave, as the world menu fetches one (fetch: IsoStove with a container) (gym 0.4.62)
+					if instanceof(o, "IsoStove") and o:getContainer() then out.stoves[#out.stoves + 1] = { o = o, sq = sq, d = d } end
 				end
 				-- fences on this square's edges (gym 0.4.33). Each edge is listed once, from the side the character is on:
 				-- it stands on that square and climbs toward the other. "drop": nothing to stand on beyond
@@ -571,7 +573,7 @@ function G.scanAround(p)
 	local byD = function(a, b) return a.d < b.d end
 	table.sort(out.doors, byD); table.sort(out.windows, byD); table.sort(out.curtains, byD); table.sort(out.containers, byD)
 	table.sort(out.floor, byD); table.sort(out.scrap, byD); table.sort(out.fences, byD); table.sort(out.corpses, byD)
-	table.sort(out.lights, byD)
+	table.sort(out.lights, byD); table.sort(out.stoves, byD)
 	out.building = hb
 	GS.moveProps = keep
 	GS.around = out
@@ -1046,6 +1048,16 @@ function G.options(p)
 		if not ISWorldObjectContextMenu.isSomethingTo(l.o, p:getPlayerNum()) and l.o:canSwitchLight() then
 			add(list, "light_switch", { d = r1(l.d), dx = r1(l.sq:getX() + 0.5 - p:getX()), dy = r1(l.sq:getY() + 0.5 - p:getY()),
 				how = l.o:isActivated() and "off" or "on" }, { o = l.o })
+		end
+	end
+	-- Turn a stove or microwave on or off, as its menu offers it (J:ISWorldObjectContextMenuLogic.doStoveOption, 42.21):
+	-- nothing in the way (isSomethingTo), and its container has power. Cooking is the rest of the player's own doing:
+	-- search it, stow food in, switch on, take the food out. The menu's Settings open a window and are left out.
+	-- (gym 0.4.62)
+	for _, s in ipairs(ar.stoves) do
+		if not ISWorldObjectContextMenu.isSomethingTo(s.o, p:getPlayerNum()) and s.o:getContainer():isPowered() then
+			add(list, "stove", { d = r1(s.d), dx = r1(s.sq:getX() + 0.5 - p:getX()), dy = r1(s.sq:getY() + 0.5 - p:getY()),
+				how = s.o:Activated() and "off" or "on", what = s.o:isMicrowave() and "microwave" or "stove" }, { o = s.o })
 		end
 	end
 	-- the inventory
@@ -1865,6 +1877,14 @@ G.X.switch_item = {
 		ISInventoryPaneContextMenu.onActivateItem(o.data.it, p:getPlayerNum())
 	end,
 	step = queueStep(60, function(p, t, o) if o.data.it:isActivated() == t.was then return "didn't switch" end end),
+}
+-- stove: the menu's ISWorldObjectContextMenu.onToggleStove (:1189-1194): next to it, ISToggleStoveAction (gym 0.4.62)
+G.X.stove = {
+	start = function(p, t, o)
+		t.was = o.data.o:Activated()
+		ISWorldObjectContextMenu.onToggleStove(nil, o.data.o, p:getPlayerNum())
+	end,
+	step = queueStep(900, function(p, t, o) if o.data.o:Activated() == t.was then return "didn't switch" end end),
 }
 -- read (gym 0.4.61): the menu's onLiteratureItems -> readItem (:2804-2832): into the main inventory, ISReadABook, back
 -- where it was. Done when the pages read moved (a book) or the title is now read (a magazine); a book read to the
