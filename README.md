@@ -331,6 +331,16 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.55 fixes the game running out of memory.** The game crashed at 04:10 on 2026-10-13 with
+  `OutOfMemoryError: Java heap space` after 87,000 decisions, and had run out once before. The Disassemble check
+  kept a reading for every object the character had ever been near, because the game's Lua has no weak tables;
+  it now keeps only the current surroundings. Lua checks and tests pass; not yet run in the game.
+  [Details](docs/BACKLOG.md#out-of-memory-and-a-hang-after-a-respawn-2026-10-13).
+
+- **The game can hang right after a new character arrives** (twice in about 700 respawns). The window stops
+  responding; close it and run `scripts\start.ps1` again. The cause isn't known yet: it needs a Java thread dump
+  taken during a hang (backlog N17).
+
 - **Gym 0.4.45/0.4.46 add removal of bandages, stitches and splints (G11).** `unbandage`, `unstitch` and
   `unsplint` are offered for up to 3 body parts each and queue the same timed actions as the health panel's
   remove entries ([GAP_LIST item 11](docs/GAP_LIST.md#11-medical-care-beyond-bandages)). Written without the
