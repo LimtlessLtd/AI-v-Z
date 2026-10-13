@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.58"
+G.VERSION = "0.4.59"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -664,6 +664,25 @@ end
 -- BaseHandler:isInjured (:1032-1035)
 local function injured(bp) return (bp:HasInjury() or bp:stitched() or bp:getSplintFactor() > 0) and not bp:bandaged() end
 
+-- The inventory menu's Take Pills (ISInventoryPaneContextMenu.lua, 42.21; gym 0.4.59): a DrainableComboItem tagged
+-- CONSUMABLE (:301-307). When it lists items it needs to hand (getRequireInHandOrInventory, a lighter for something
+-- smoked), the entry is greyed out unless one of them, not used up, is in the inventory, or a smokable can be lit
+-- in the vehicle or from an open flame (doPillsMenu :1140-1173).
+local function notUsedUp(it) return it:getCurrentUsesFloat() > 0 end
+local function pillsEntry(p, it)
+	if not it:hasTag(ItemTag.CONSUMABLE) or not instanceof(it, "DrainableComboItem") then return false end
+	local need = it:getRequireInHandOrInventory()
+	if not need then return true end
+	if it:hasTag(ItemTag.SMOKABLE) then
+		local v = p:getVehicle()
+		if (v and v:canLightSmoke(p)) or ISInventoryPaneContextMenu.hasOpenFlame(p) then return true end
+	end
+	for i = 0, need:size() - 1 do
+		if p:getInventory():getFirstTypeEvalRecurse(moduleDotType(it:getModule(), need:get(i)), notUsedUp) then return true end
+	end
+	return false
+end
+
 -- barricades (gym 0.4.36): the tools as the menus find them (J:ISWorldObjectContextMenuLogic.doBarricadeMenu's
 -- hammer test, ISWorldObjectContextMenu's predicateRemoveBarricade), and the planks on one side of an opening
 local function notBroken(it) return not it:isBroken() end
@@ -1013,6 +1032,7 @@ function G.options(p)
 				info.open, info.portion = nil, nil
 			end
 		end
+		if pillsEntry(p, it) then add(list, "take_pill", info, { it = it }) end
 		if instanceof(it, "HandWeapon") and count(list, "equip") < 3 then
 			local ok, both = equipEntry(p, it)
 			if ok then add(list, "equip", info, { it = it, both = both }) end
@@ -1767,6 +1787,15 @@ G.X.eat = {
 		-- eaten: gone, or less of it left (an opened can becomes a new item, so the sealed one is gone too)
 		if has(p, o.data.it) and hungerLeft(o.data.it) == t.left then return "didn't eat it" end
 	end),
+}
+-- the menu's own handler (onPillsItems -> takePill, :3667-3686): into the main inventory, the mask off, the pill,
+-- the mask back on, the box back where it was. Done when the box has less in it, or is gone.
+G.X.take_pill = {
+	start = function(p, t, o)
+		t.left = o.data.it:getCurrentUsesFloat()
+		ISInventoryPaneContextMenu.takePill(o.data.it, p:getPlayerNum())
+	end,
+	step = queueStep(900, function(p, t, o) if o.data.it:getCurrentUsesFloat() >= t.left then return "didn't take it" end end),
 }
 G.X.drink = {
 	start = function(p, t, o)

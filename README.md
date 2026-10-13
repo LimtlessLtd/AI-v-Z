@@ -338,6 +338,9 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.59 adds taking pills** (`take_pill`: painkillers, vitamins, sleeping tablets and the like, as the
+  inventory menu offers them). Not yet seen in the game.
+
 - **Gym 0.4.57 gives the character the whole health panel.** Besides bandaging: disinfect, poultices, stitch a
   deep wound, take out glass (with tweezers or by hand) or a bullet, clean a burn, splint a fracture. Each follows
   the panel's own item tests and wound conditions, and finds supplies where the panel does (bags, and containers by
