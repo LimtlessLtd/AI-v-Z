@@ -331,6 +331,11 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.45/0.4.46 add removal of bandages, stitches and splints (G11).** `unbandage`, `unstitch` and
+  `unsplint` are offered for up to 3 body parts each and queue the same timed actions as the health panel's
+  remove entries ([GAP_LIST item 11](docs/GAP_LIST.md#11-medical-care-beyond-bandages)). Written without the
+  game: not run in the game, and `python -m unittest tests.test_lua` still has to be run on the PC with it.
+
 - **Gym 0.4.44 adds profession choice before traits.** It offers the game's real list and uses its
   handler to apply skills, free traits and points. The existing trait debt rule stays the same. Next
   now respects the actual disabled button and known nonnegative points, and emergency debt repair
