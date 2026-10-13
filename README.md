@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.8 (gym 0.4.71)` after reloading this update). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.8 (gym 0.4.72)` after reloading this update). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -344,7 +344,9 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   choose a combo machine's mode. Every choice follows the installed game's menu or window; the network
   chooses when to use it. Water choices now use all currently visible fixtures in the surrounding scan,
   with the selected source retained, and tap drinking handles face masks through the game's callback.
-  All 134 tests pass, including the game's Lua checks; natural execution remains to be checked.
+  All 134 tests pass, including the game's Lua checks; natural execution remains to be checked. The new
+  family loaded through the running game's fixed file list. Gym 0.4.72 removes a redundant loading attempt
+  that warned when the running game had not indexed the newly added module yet.
   The trained network is preserved. An agent restart picks up the new visible cooking-window feedback.
   [Sources, behavior and remaining coverage](docs/HOUSEHOLD_ACTIONS.md).
 
