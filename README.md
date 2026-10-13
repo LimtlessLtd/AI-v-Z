@@ -338,6 +338,12 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.57 gives the character the whole health panel.** Besides bandaging: disinfect, poultices, stitch a
+  deep wound, take out glass (with tweezers or by hand) or a bullet, clean a burn, splint a fracture. Each follows
+  the panel's own item tests and wound conditions, and finds supplies where the panel does (bags, and containers by
+  the character). `bandage` now offers each kind of bandage the panel lists. The Lua checks pass; not yet seen in
+  the game. [Conditions](docs/GAP_LIST.md#11-medical-care-beyond-bandages).
+
 - **Gym 0.4.56 lets the character fill bottles at a water source** (`fill`: one container, or all of them). Until
   now it could drink only while standing at a tap, and the longest lives died of thirst. `drink_tap` now follows the
   game's own Drink menu too: only for a source in the character's building (or both outdoors) that holds a drink.
