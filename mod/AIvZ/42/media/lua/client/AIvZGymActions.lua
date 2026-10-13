@@ -160,7 +160,7 @@ G.hooks.stow = function(p, list, add)
 		U.eachItem(d.c, function(it) consider(it, it:getContainer()) end, 1)
 	end
 	local page = G.s.id or 0
-	eachWindowed(moves, 12, page, function(m)
+	eachWindowed(moves, 16, page, function(m)
 		local info = G.itemInfo(p, m.it)
 		info.to, info.toKind = m.dest.name, m.dest.kind
 		info.from = try(function() return m.src:getType() end) or "container"
