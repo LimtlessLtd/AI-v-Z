@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.50"
+G.VERSION = "0.4.51"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -775,7 +775,7 @@ function G.options(p)
 			local dx, dy = at(e)
 			local info = { d = r1(e.d), dx = dx, dy = dy, open = e.open, exterior = e.exterior, smashed = e.smashed, glass = e.glass }
 			if not e.smashed and nw < 8 then nw = nw + 1; add(list, "window", info, e) end
-			if e.d < 2.5 and nc < 2 and try(function() return e.o:canClimbThrough(p) end) then
+			if e.d < 2.5 and nc < 8 and try(function() return e.o:canClimbThrough(p) end) then
 				nc = nc + 1; add(list, "climb", { d = info.d, dx = dx, dy = dy, exterior = e.exterior, glass = e.glass }, e)
 			end
 			-- the Smash entry exists only for a closed, unbroken window (ISWorldObjectContextMenuLogic.doWindowMenu)
