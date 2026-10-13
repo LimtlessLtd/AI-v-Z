@@ -240,8 +240,7 @@ G.hooks.vehicle = function(p, list, add)
 		end
 		return
 	end
-	for i, e in ipairs(nearVehicles(p, 4)) do
-		if i > 2 then break end
+	for _, e in ipairs(nearVehicles(p, 4)) do
 		local seats = try(function() return e.v:getMaxPassengers() end) or 0
 		for s = 0, seats - 1 do
 			if try(function() return e.v:isSeatInstalled(s) and not e.v:isSeatOccupied(s) end) then
