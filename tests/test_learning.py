@@ -429,6 +429,19 @@ class TraitRuleLuaTest(unittest.TestCase):
         self.assertIn("inv:ammo_level:0", F.item_status_tokens(dict(gun, loaded=0), "inv"))   # empty is not full
         self.assertIn("inv:ammo_level:3", F.item_status_tokens(dict(gun, loaded=15), "inv"))
         self.assertEqual(F.item_status_tokens({"type": "Base.Axe"}, "held"), [])
+        bread = {"type": "Base.Bread", "cat": "food", "fresh": "stale", "uncooked": False, "frozen": True, "kcal": 450}
+        toks = F.item_status_tokens(bread, "inv")
+        self.assertIn("inv:fresh:stale", toks)
+        self.assertIn("inv:frozen", toks)
+        self.assertNotIn("inv:uncooked", toks)
+        self.assertIn("inv:kcal:2", toks)
+        self.assertIn("inv:left:0", F.item_status_tokens({"type": "Base.Pills", "left": 0.0}, "inv"))   # used up
+        self.assertIn("inv:left:4", F.item_status_tokens({"type": "Base.Pills", "left": 1.0}, "inv"))
+        self.assertIn("inv:pages:3", F.item_status_tokens({"type": "Base.BookTailoring1", "pages": 1.0}, "inv"))
+        self.assertIn("inv:beenRead", F.item_status_tokens({"type": "Base.Magazine", "beenRead": True}, "inv"))
+        _, otoks = F.encode_option({"verb": "eat", "type": "Base.Bread", "fresh": "stale", "burnt": True})
+        self.assertIn(F.bucket("eat:fresh:stale"), otoks)
+        self.assertIn(F.bucket("eat:burnt"), otoks)
         base = {"obs": dict(OBS, inv=[gun, vest])}
         v0, _ = F.encode_state({"obs": dict(OBS, inv=[])})
         v1, t1 = F.encode_state(base)

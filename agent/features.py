@@ -54,10 +54,12 @@ OPTION_NUMBERS = {
 }
 OPTION_WORDS = ("name", "type", "cat", "dir", "recipe", "part", "trait", "what", "area", "from", "to", "toKind",
                 "fluidType", "item", "list", "ammo", "mag", "slot", "fire", "how",   # how: gym 0.4.35, half or all
-                "planks")   # gym 0.4.36: planks up on that side of a door or window (0-4), as a word
+                "planks",   # gym 0.4.36: planks up on that side of a door or window (0-4), as a word
+                "fresh")    # gym 0.4.64: fresh, stale or rotten, as the food's name says
 # yes/no option fields added after the dense layout was fixed: a token when true, so the layout (and the trained
 # network) stays. Gym 0.4.33: a tall fence, a drop beyond a fence, a sheet or curtain on a door.
-OPTION_FLAGS = ("tall", "drop", "door")
+OPTION_FLAGS = ("tall", "drop", "door",
+                "burnt", "uncooked", "frozen", "beenRead")   # gym 0.4.64: food and literature, as the inventory shows
 
 # the protection panel's body parts (BodyPartType order); obs.protection gives each one's bite and scratch defence
 PARTS = ("Hand_L", "Hand_R", "ForeArm_L", "ForeArm_R", "UpperArm_L", "UpperArm_R", "Torso_Upper", "Torso_Lower", "Head",
@@ -182,6 +184,21 @@ def item_status_tokens(it, prefix):
             toks.append(f"{prefix}:{k}:{_bin(_num(it[k]))}")
     if it.get("bite") or it.get("scratch"):
         toks.append(f"{prefix}:defence:{_bin(_num(it.get('bite')) + _num(it.get('scratch')), (5, 20, 50))}")
+    # gym 0.4.64 (backlog O5): what food's name says, drainables' Remaining bar, literature read or not and how far,
+    # a bag's weight reduction, calories when the tooltip shows them
+    if it.get("fresh") in ("fresh", "stale", "rotten"):
+        toks.append(f"{prefix}:fresh:{it['fresh']}")
+    for k in ("cooked", "burnt", "uncooked", "frozen", "beenRead"):
+        if it.get(k) is True:
+            toks.append(f"{prefix}:{k}")
+    if it.get("left") is not None:
+        toks.append(f"{prefix}:left:{_bin(_num(it['left']), (0.0, 0.25, 0.5, 0.75))}")   # 0 = used up
+    if it.get("pages") is not None:
+        toks.append(f"{prefix}:pages:{_bin(_num(it['pages']), (0.0, 0.5, 0.99))}")   # 0 unread .. 3 finished
+    if it.get("reduce"):
+        toks.append(f"{prefix}:reduce:{_bin(_num(it['reduce']), (20, 50, 75))}")
+    if it.get("kcal") is not None:
+        toks.append(f"{prefix}:kcal:{_bin(_num(it['kcal']), (100, 300, 600))}")
     return toks
 
 

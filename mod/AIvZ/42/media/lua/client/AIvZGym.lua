@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.63"
+G.VERSION = "0.4.64"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -236,7 +236,48 @@ function G.itemInfo(p, it)
 	if instanceof(it, "Clothing") or instanceof(it, "InventoryContainer") then
 		i.worn = try(function() return p:isEquipped(it) end) == true
 	end
+	G.itemStatus(i, p, it)
 	return i
+end
+
+-- More of what the inventory shows a player (gym 0.4.64, backlog O5; read in the decompiled 42.21 jar and the Lua):
+-- * food: what its name says (Food.getName: Fresh while age < offAge, Rotten from offAgeMax, Stale between; Burnt;
+--   Uncooked for a cookable one not cooked; Frozen), and the tooltip's other changes (Food.DoTooltip: endurance,
+--   stress, boredom), with calories only when the tooltip shows nutrition: a package the character can read (not
+--   illiterate, not too dark, labelled) or the Nutritionist trait;
+-- * a drainable: the Remaining bar (ISInventoryPane:drawItemDetails, unless HIDE_REMAINING);
+-- * literature: has been read (Literature.DoTooltip, its title) and how far into a book (pages);
+-- * a bag: its weight reduction (InventoryContainer.DoTooltip).
+function G.itemStatus(i, p, it)
+	if instanceof(it, "Food") then
+		if it:isBurnt() then
+			i.burnt = true
+		elseif not it:isFertilized() then
+			local age, off, offMax = it:getAge(), it:getOffAge(), it:getOffAgeMax()
+			if off < 1000000000 and age < off then i.fresh = "fresh"
+			elseif offMax < 1000000000 and age >= offMax then i.fresh = "rotten"
+			elseif offMax < 1000000000 and age >= off then i.fresh = "stale" end
+		end
+		if not i.cooked and not i.burnt and it:isIsCookable() and not it:hasTag(ItemTag.HIDE_COOKED) and not it:hasTag(ItemTag.HIDE_UNCOOKED) then
+			i.uncooked = true
+		end
+		if it:isFrozen() then i.frozen = true end
+		if it:getEnduranceChange() ~= 0 then i.endurance = r2(it:getEnduranceChange()) end
+		if it:getStressChange() ~= 0 then i.stress = r2(it:getStressChange()) end
+		if it:getBoredomChange() ~= 0 then i.boredom = r2(it:getBoredomChange()) end
+		local readable = it:isPackaged() and not p:hasTrait(CharacterTrait.ILLITERATE) and not p:tooDarkToRead()
+			and it:getModData().NoLabel == nil
+		if readable or p:hasTrait(CharacterTrait.NUTRITIONIST) or p:hasTrait(CharacterTrait.NUTRITIONIST2) then
+			i.kcal = math.floor(it:getCalories() + 0.5)
+		end
+	end
+	if instanceof(it, "Drainable") and not it:hasTag(ItemTag.HIDE_REMAINING) then i.left = r2(it:getCurrentUsesFloat()) end
+	if instanceof(it, "Literature") then
+		local title = it:getModData().literatureTitle
+		if title then i.beenRead = p:isLiteratureRead(title) end
+		if it:getNumberOfPages() > 0 then i.pages = r2(it:getAlreadyReadPages() / it:getNumberOfPages()) end
+	end
+	if instanceof(it, "InventoryContainer") and it:getWeightReduction() ~= 0 then i.reduce = it:getWeightReduction() end
 end
 
 ---------------------------------------------------------------- what the character perceives
