@@ -25,7 +25,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.72"
+G.VERSION = "0.4.73"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -1247,7 +1247,7 @@ function G.options(p)
 		if it == held or it:isHidden() then return end
 		local info = G.itemInfo(p, it)
 		local worn = info.worn
-		if not stuffed and count(list, "eat") < 6 then
+		if not stuffed and count(list, "eat") < 8 then
 			local ok, opening = G.eatable(p, it)
 			if ok then
 				info.open = opening ~= nil
