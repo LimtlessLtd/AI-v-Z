@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.62"
+G.VERSION = "0.4.63"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -2083,9 +2083,26 @@ local function label(o)
 	return (o.verb:gsub("_", " ") .. " " .. tostring(what)):gsub("%s+$", "")
 end
 
+-- The option that is running, picked again: the same verb and the same visible fields, leaving out those that change
+-- as the character moves or the target turns (distance, direction, age, zombies that way, closing, facing).
+local MOVING_FIELDS = { d = true, dx = true, dy = true, age = true, zombies = true, closing = true, facing = true }
+local function sameOption(a, b)
+	if not a or not b or a.verb ~= b.verb then return false end
+	for k, v in pairs(a.info) do if not MOVING_FIELDS[k] and b.info[k] ~= v then return false end end
+	for k, v in pairs(b.info) do if not MOVING_FIELDS[k] and a.info[k] ~= v then return false end end
+	return true
+end
+
 function G.start(p, o, note)
 	H.why = note or ""
 	if o.verb == "continue" then return end
+	-- Picking the running option again carries on with it, as continue does (gym 0.4.63). Decisions come every game
+	-- minute while an action runs (gym 0.4.21), at 20x every few ticks, and starting over each time (stopMoving, a
+	-- new path, the age back to 0) kept actions from finishing: on 2026-10-13 (09:30-11:40), 1,801 decisions picked
+	-- the running option again (craft 756, climb_fence 361, rest 221, pick_up 157, go_room 118), against 1,530
+	-- that picked continue. A different target still starts the new one.
+	local cur = GS.cur
+	if cur and cur.status == "running" and sameOption(cur.o, o) then return end
 	stopMoving(p)
 	local t = { verb = o.verb, goal = o.verb, status = "running", t0 = tick(), args = {}, msg = "", o = o }
 	GS.cur = t

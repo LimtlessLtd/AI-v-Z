@@ -338,6 +338,13 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.63: picking the running option again carries on with it.** Decisions come every game minute while an
+  action runs, which at 20x is every few ticks. Until now, picking the same option again started it over: the
+  character stopped, a new path was requested and the age went back to 0. So walking actions often never arrived.
+  On 2026-10-13 that happened 1,801 times in two hours (`craft` 756, `climb_fence` 361, `rest` 221...), more often
+  than `continue` was picked. The same option means the same verb with the same visible fields, apart from
+  distance, direction and the like; a different target still starts the new one.
+
 - **Gym 0.4.62 adds stoves and microwaves**: switching one on or off, as its menu offers it (powered, nothing in
   the way). Cooking is the rest of the player's own doing: search it, put food in, switch on, take it out. The
   temperature and timer settings open a window and are left out. Not yet seen in the game.
