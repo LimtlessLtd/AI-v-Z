@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.53"
+G.VERSION = "0.4.54"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -816,7 +816,7 @@ function G.options(p)
 	-- out by the menu when a sheet wouldn't fit (ISWorldObjectContextMenu.addRemoveCurtainOption)
 	local sheetItem = getScriptManager():FindItem("Base.Sheet")
 	local roomForSheet = sheetItem ~= nil and inv:hasRoomFor(p, sheetItem:getActualWeight())
-	for i = 1, math.min(3, #ar.curtains) do
+	for i = 1, math.min(8, #ar.curtains) do
 		local e = ar.curtains[i]
 		local dx, dy = at(e)
 		add(list, "curtain", { d = r1(e.d), dx = dx, dy = dy, open = e.open, door = e.door }, e)
