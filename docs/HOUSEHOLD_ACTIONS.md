@@ -152,7 +152,7 @@ the game or reading executable paths from IPC. The first reload accepted 0.4.71 
 the running game's require catalogue had not indexed the newly added file; 0.4.72 removes that redundant
 attempt and relies on the fixed reload list (fresh game startup already loads the client files).
 
-**Validation:** all 134 tests pass on the owner's PC, including the installed game's Lua compiler
+**Validation:** all 138 tests pass on the owner's PC, including the installed game's Lua compiler
 and method-name checks. New tests verify visible-panel input, exclusion of food's hidden cooking state,
 distinct dial/quantity choices, and preservation of the network layout. Natural use is not yet verified.
 The network chooses every action.

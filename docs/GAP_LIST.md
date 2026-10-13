@@ -254,7 +254,7 @@ bandage and a refusal when water disappears. Do not supply items or script choic
 
 **Household follow-through, gym 0.4.71 (2026-10-13):** [HOUSEHOLD_ACTIONS.md](HOUSEHOLD_ACTIONS.md)
 records the installed oven/microwave UI dial values and callbacks, bandage-cleaning recipes, laundry
-toggles/modes, plumbing prerequisites, implementation and limits. All 134 owner-PC tests pass; natural
+toggles/modes, plumbing prerequisites, implementation and limits. All 138 owner-PC tests pass; natural
 execution is still pending. These sources also clear the cloud API blocker for the documented calls.
 
 ### 11. Medical care beyond bandages
