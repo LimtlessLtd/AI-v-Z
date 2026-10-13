@@ -338,6 +338,11 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.64 shows the network more of what the inventory shows a player** (backlog O5): fresh, stale, rotten,
+  burnt, uncooked and frozen food as its name says, the tooltip's endurance, stress and boredom changes and (when shown)
+  calories; how much is left in a drainable; whether a magazine or book has been read; a bag's weight reduction. As
+  tokens, so the trained network is kept. The playing agent picks them up at its next restart.
+
 - **Gym 0.4.63: picking the running option again carries on with it.** Decisions come every game minute while an
   action runs, which at 20x is every few ticks. Until now, picking the same option again started it over: the
   character stopped, a new path was requested and the age went back to 0. So walking actions often never arrived.
