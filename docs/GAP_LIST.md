@@ -251,6 +251,8 @@ Automatic washer/dryer controls and the separate `doRecipeUsingWaterMenu` bandag
 unimplemented. Natural verification must cover body washing, one item, category All, conversion of a dirty
 bandage and a refusal when water disappears. Do not supply items or script choices to obtain those cases.
 
+**Household follow-through source audit, 2026-10-13:** [HOUSEHOLD_ACTIONS.md](HOUSEHOLD_ACTIONS.md) records the installed oven/microwave UI dial values and callbacks, bandage-cleaning recipes, laundry toggles/modes and plumbing prerequisites. These source facts clear the cloud API blocker; implementation and natural-play status are recorded separately.
+
 ### 11. Medical care beyond bandages
 Health-panel handlers in `client/XpSystem/ISUI/ISHealthPanel.lua:1162-1735`; the timed actions take
 `(character, otherPlayer, …)`, with the character as its own patient:
