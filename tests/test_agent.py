@@ -631,8 +631,8 @@ class MenuPrerequisiteStaticTest(unittest.TestCase):
         self.assertNotIn("locked", line)
 
     def test_smash_needs_closed_window_and_clear_glass_needs_held_item(self):
-        self.assertIn("not e.smashed and not e.open and ns < 2", self.src)
-        self.assertIn("e.glass and p:getPrimaryHandItem() and ng < 1", self.src)
+        self.assertIn("not e.smashed and not e.open and ns < 8", self.src)
+        self.assertIn("e.glass and p:getPrimaryHandItem() and ng < 8", self.src)
 
     def test_drop_skips_favourites(self):
         self.assertIn("isFavorite()", self.src)
