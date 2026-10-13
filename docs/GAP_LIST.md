@@ -256,8 +256,9 @@ getSplintFactor() > 0) and not bandaged()`. Each submenu lists one entry per ite
 
 Each action's `complete` (in `shared/TimedActions/`) is what the gym checks afterwards: `setAlcoholLevel` up,
 `setStitched(true)`, `setSplint(true, …)`, `setHaveGlass(false)`, `setHaveBullet(false, …)`,
-`setNeedBurnWash(false)`, and the poultice factors. Pills are on the inventory menu (`doPillsMenu`), not here: still
-missing.
+`setNeedBurnWash(false)`, and the poultice factors. Pills are on the inventory menu: `take_pill` (gym 0.4.59) offers
+a `DrainableComboItem` tagged `CONSUMABLE` (`ISInventoryPaneContextMenu.lua:301-307`), except when it needs an item
+to hand that isn't there (`doPillsMenu`, 1140-1173), and runs the menu's `takePill` (3667-3686).
 
 ### 12. Reading
 `ISInventoryPaneContextMenu.onLiteratureItems(items, playerNum)` (`:2804`) → `readItem` →
