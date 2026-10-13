@@ -36,6 +36,13 @@ $gym = Select-String -Path (Join-Path $repo 'mod\AIvZ\42\media\lua\client\AIvZGy
   Select-Object -First 1
 if ($gym) { Write-Host "This checkout: gym $($gym.Matches[0].Groups[1].Value)" }
 
+# the game watcher (backlog N16, N17): GC logs, and thread dumps if the game hangs. One at a time, minimized.
+$watcher = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match 'watch-game\.ps1' }
+if (-not $watcher) {
+  Start-Process powershell -WindowStyle Minimized -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    ('"{0}"' -f (Join-Path $PSScriptRoot 'watch-game.ps1'))
+}
+
 Write-Host "Starting the agent (Ctrl+C stops it; the rules baseline then takes the character back)."
 Write-Host "In the game: Mods -> AI-v-Z enabled (once per save), then Load/start a singleplayer game. Hands off."
 Write-Host "Dashboard: http://127.0.0.1:8799/"
