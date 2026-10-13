@@ -21,7 +21,7 @@ local A = AIvZ
 local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
-G.VERSION = "0.4.46"
+G.VERSION = "0.4.47"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -733,7 +733,7 @@ function G.options(p)
 	end
 	-- zombies
 	for _, e in ipairs(zs) do
-		if e.d > 8 or count(list, "attack") >= 4 then break end
+		if e.d > 8 or count(list, "attack") >= 8 then break end
 		local info = zombieView(e)
 		add(list, "attack", info, { z = e.z })
 		if e.d < 1.6 and count(list, "shove") < 2 then add(list, "shove", info, { z = e.z }) end
