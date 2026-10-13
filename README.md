@@ -338,6 +338,12 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gym 0.4.56 lets the character fill bottles at a water source** (`fill`: one container, or all of them). Until
+  now it could drink only while standing at a tap, and the longest lives died of thirst. `drink_tap` now follows the
+  game's own Drink menu too: only for a source in the character's building (or both outdoors) that holds a drink.
+  Those menus are built in Java in 42.21; their conditions are in [GAP_LIST item 10](docs/GAP_LIST.md). The Lua
+  checks pass; not yet seen in the game.
+
 - **Gym 0.4.55 fixes the game running out of memory.** The game crashed at 04:10 on 2026-10-13 with
   `OutOfMemoryError: Java heap space` after 87,000 decisions, and had run out once before. The Disassemble check
   kept a reading for every object the character had ever been near, because the game's Lua has no weak tables;

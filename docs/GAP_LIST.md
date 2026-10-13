@@ -189,6 +189,16 @@ after the reload. Furniture rests and completion of the separate `get_up` still 
   `server/BuildingObjects/ISMoveableCursor.lua:186`, and similar) — **live test** per cursor.
 
 ### 10. Water, washing, cooking, light
+* **The water menu is built in Java in 42.21** (checked 2026-10-13 by decompiling `projectzomboid.jar`): no Lua
+  calls `onDrink` or `onTakeWater` (except the tutorial). `J:zombie.iso.ISWorldObjectContextMenuLogic.
+  doWashClothingOrYourselfMenu` lists each object with `hasFluid()` and calls `doWashClothingMenu`,
+  `doRecipeUsingWaterMenu`, `doDrinkWaterMenu` and `doFillFluidMenu`. Drink: the source's
+  `getSquare():getBuilding() == player:getBuilding()`, not `IsoClothingDryer`/`IsoClothingWasher`, and
+  `getPrimaryFluid():isCategory(FluidCategory.Beverage)`. Fill: the same building test; `notAvailable` with
+  `player:hasFullInventory()`; the containers are `getAllRecurse(item:getFluidContainer() and not isFull() and
+  canAddFluid(Fluid.Water))` with `source:canTransferFluidTo(item:getFluidContainer())`; one entry per item name
+  (`onTakeWater(worldobjects, source, {}, item, playerNum)`, Fill One) and Fill All with the list. Both built in
+  gym 0.4.56 (`drink_tap`, `fill`). Washing and stoves are next; read `doWashClothingMenu` there first.
 * Drink from a source: `ISWorldObjectContextMenu.onDrink(worldobjects, waterObject, playerNum)` (`:2038`):
   walk, remove eating mask (`ISInventoryPaneContextMenu.getEatingMask(playerObj, true)`),
   `ISTakeWaterAction:new(character, nil, waterObject, waterObject:isTaintedWater())`, re-wear the mask.

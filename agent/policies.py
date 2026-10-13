@@ -118,7 +118,7 @@ class ProbePolicy:
     """Tries each verb up to `tries` times, the first ones in TEST first, and explores to find more to try."""
 
     name = "probe"
-    TEST = ("bandage", "eat", "drink", "craft", "take", "climb", "smash", "clear_glass", "drink_tap", "wear",
+    TEST = ("bandage", "eat", "drink", "craft", "take", "climb", "smash", "clear_glass", "drink_tap", "fill", "wear",
             "take_off", "equip", "unequip", "drop", "door", "window", "curtain", "search", "go_room", "enter",
             "stow", "exercise", "enter_vehicle", "exit_vehicle", "engine_on", "engine_off")
     LATE = ("walk", "run", "attack", "shove", "rest", "wait", "sleep")   # now and then: they cost lives or time
