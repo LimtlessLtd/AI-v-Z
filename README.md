@@ -28,7 +28,7 @@ network itself (a snapshot the owner publishes from the PC that plays; see [Publ
 | 2. Survival | Home base, nights, sleep, windows, loads, bandages, cans | Done: the rules baseline |
 | **3. The game as a gym** | Expose normal player actions, including menus, specialised screens and continuous controls; provide player-visible and audible observations; execute choices and respawn after death. Keep the game speed you pick. | Closed 2026-10-11 ([PR #25](https://github.com/LimtlessLtd/AI-v-Z/pull/25)) with 27 action types working; the gaps (more actions, hearing, the last hidden-information leaks) are filled alongside Phase 4. See [verification](docs/PHASE3_VERIFICATION.md) and [coverage audit](docs/PHASE3_COVERAGE.md). |
 | **4. Learning** | A small network scores every option; the reward is a big, steady gain for time alive, costs for lost health and new wounds, small bonuses for progress (places, items, kills), a death cost that outweighs everything else (charged when the Knox infection happens), and hints for health, wound care and clothing protection that can't be farmed. It trains on the CPU while the game runs. A Learning page on the dashboard. | In progress: the network plays and retrains every 5 min (see [Run (self-taught agent)](#run-self-taught-agent)). The Learning page also compares the rules baseline (hours, kills). |
-| 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | |
+| 5. Unattended weeks | Watchdog, crash recovery, weekly progress report, comparison with the rules baseline | The game watcher restarts a hung or crashed game and the mod continues the save (2026-10-13, not yet run in the game) |
 | 6. Watchability | HUD shows what it's weighing; replays of its best lives | Replays of real lives are on the [public page](#public-page) (2026-10-12) |
 
 Decisions so far: it learns from natural play only (no staged practice situations), and only from its own
@@ -108,17 +108,30 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.8 (gym 0.4.72)` after reloading this update). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.8 (gym 0.4.74)` after reloading this update). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
-mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
+mod once per save, and load/start the save. After a crash or a hang, the game watcher starts the game again and
+the mod continues the save (see below). The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
 which is killed when that session closes (backlog N3).
 
 It also starts `scripts\watch-game.ps1` in a minimized window ("AI-v-Z game watcher"), unless one is already
-running. The watcher turns on the game's GC log (`logs\gc-<pid>.log`). If the game's window stops responding for
-a minute, it saves three thread dumps and the heap to `logs\hang-<time>-<pid>.txt` (backlog N16, N17). It reads only
-and never stops the game. It needs a JDK 25's `jcmd`: the one in `E:\Tools\zulu25...` (Azul Zulu, portable, not
-on PATH), or `$env:AIVZ_JCMD`. `watch-game.ps1 -DumpNow` saves one set of dumps by hand.
+running. The watcher keeps the game going while the agent runs (backlog N16, N17):
+
+- If the game's window stops responding for a minute, it saves three thread dumps, the native stacks of every
+  thread (`scripts\native_stacks.py`) and the heap to `logs\hang-<time>-<pid>.txt`.
+- If the window still hasn't responded after 5 minutes, it closes the game and starts it again through Steam.
+  It does the same when the game ends without being quit, such as a crash out of memory or a hung window
+  someone closed. A quit from the game's menu is left alone, and nothing restarts while the agent isn't running.
+- Before starting the game again it writes the time to `Zomboid\Lua\aivz\resume.txt`. The mod then presses the
+  main menu's own Continue, and goes through the new-character screens if the saved character had died.
+- At most 4 restarts an hour. Each one is logged in `logs\watcher.log`.
+- `-RestartMinutes 0` turns restarts off, and `-RestartMinutes`/`-MaxRestarts` change them.
+
+The watcher also turns on the game's GC log (`logs\gc-<pid>.log`). The Java dumps and GC logs need a JDK 25's
+`jcmd`: the one in `E:\Tools\zulu25...` (Azul Zulu, portable, not on PATH), or `$env:AIVZ_JCMD`. Without it, the
+restarts and native stacks still work. `watch-game.ps1 -DumpNow` saves one set of dumps by hand. To stop for the
+day, stop the agent (Ctrl+C) before you quit the game, or close the watcher's window.
 
 ## Run (rules baseline)
 
@@ -330,7 +343,7 @@ bridge/             bridge.py (rules baseline decision loop, dashboard server) a
 brain/              baseline decision code: goals, rules, percept conversion, strategy
 tests/              unit tests, the 31 benchmark situations, LuaCheck.java (the Lua compile check)
 scripts/            start.ps1 (one-click start), install-mod.ps1, reload-mod.ps1, publish-site.ps1 (the public page),
-                    watch-game.ps1 (GC logs and thread dumps of a hung game)
+                    watch-game.ps1 (restarts a hung or crashed game; GC logs, thread dumps), native_stacks.py
 docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and verification; ACTION_CATALOGUE,
                     OBSERVATION_AUDIT and GAP_LIST (audit against the installed game); REWARD_RESEARCH (reward
                     version 3); archive/ (BENCHMARK and DECISION_MODELS: the Phase 0 record, Qwen era)
@@ -413,12 +426,20 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   heap is still tight: 1.45 GB of it was live 9 minutes into that session, with peaks at 94%.
   [Details](docs/BACKLOG.md#out-of-memory-and-a-hang-after-a-respawn-2026-10-13).
 
-- **The game can hang**, including right after a new character arrives. Six captured stacks on 2026-10-13
-  stop in its native FMOD audio call while updating an animal; the reason inside that call is still unknown.
-  [Evidence and blockers](docs/BACKLOG_CHECK_2026-10-13.md#n16n17-heap-and-native-audio-hang). The window stops
-  responding. **Leave it a minute before you close it**: the game watcher saves thread dumps to
-  `logs\hang-*.txt` after a minute without a response. Then close it and run `scripts\start.ps1` again. The cause
-  isn't known yet (backlog N17).
+- **Gym 0.4.74 stops keeping every dead character in memory.** The game keeps a timed-action queue per
+  character and never drops one. The game's Lua has no weak tables, so each queue kept its dead character,
+  with its inventory, body, sound emitter and corpse: 45 player objects in the heap after 44 deaths, and about
+  5 MB more live heap per life. At about 22 lives an hour, the 3 GB heap would have run out in about 12 hours.
+  Each new life now drops the dead characters' queues. Lua checks pass; not yet run in the game.
+  [Details](docs/BACKLOG.md#out-of-memory-and-a-hang-after-a-respawn-2026-10-13).
+
+- **The game can hang, and the game watcher now restarts it.** In the hangs of 12:56 and 13:04 on 2026-10-13,
+  the game's update thread waited inside the FMOD sound library while FMOD Studio's own update thread kept
+  using CPU. The first hang came 10 seconds after a new character arrived and lasted 4.7 minutes before the game
+  carried on. The cause inside FMOD is unknown (backlog N17). The watcher saves Java and native stacks after a
+  minute. After 5 minutes it closes the game and starts it again, and the mod continues the save
+  ([the watcher](#one-click-start-windows)). The restart path is not yet run in the game. Until it has worked
+  once, check on the game after a hang.
 
 - **Gym 0.4.45/0.4.46 add removal of bandages, stitches and splints (G11).** `unbandage`, `unstitch` and
   `unsplint` are offered for up to 3 body parts each and queue the same timed actions as the health panel's
