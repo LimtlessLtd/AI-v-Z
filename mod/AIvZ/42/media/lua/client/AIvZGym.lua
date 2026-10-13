@@ -921,7 +921,7 @@ function G.options(p)
 	local nt = 0
 	for _, c in ipairs(ar.containers) do
 		local here = c.sq:getBuilding() == ar.building
-		if not c.known and count(list, "search") < 6 then
+		if not c.known and count(list, "search") < 8 then
 			add(list, "search", { d = r1(c.d), type = c.type, name = c.name, indoors = c.indoors, here = here }, c)
 		elseif c.known and c.d < 2.5 and nt < 12 then
 			U.eachItem(c.c, function(it)
