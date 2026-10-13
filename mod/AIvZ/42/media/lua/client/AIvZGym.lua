@@ -22,7 +22,7 @@ local U = A.u
 A.gym = A.gym or {}
 local G = A.gym
 -- 0.4.57 was taken twice (PR #102 the health panel, PR #103 search for 8 containers): 0.4.58 is both
-G.VERSION = "0.4.65"
+G.VERSION = "0.4.66"
 -- Trait picking at character creation (AIvZGymActions.lua, G.creation), under the owner's option B rule (a
 -- debt limit, then bad traits only until the points are back to 0). Off, the trait screen's Next is pressed
 -- with no traits chosen (gym 0.4.8 had it off while the rule was redone).
@@ -1586,6 +1586,7 @@ G.X.go_room = {
 	end,
 	step = queueStep(600, arrived),
 }
+local AIM_TICKS = 15   -- how long a gun is aimed before the first shot (gym 0.4.66)
 G.X.attack = {
 	start = function() end,
 	step = function(p, t, o)
@@ -1593,10 +1594,27 @@ G.X.attack = {
 		if not z or z:isDead() then return U.done(t, z and "it's down for good" or "gone") end
 		local d = dist(p, z:getX(), z:getY())
 		local w = p:getPrimaryHandItem()
-		local reach = (U.isMelee(w) and w:getMaxRange() or 0.9) + 0.3
+		-- A gun is fired from its range, as a click fires it: through the game's own attack hook
+		-- (ISReloadWeaponAction.attackHook, Hook.Attack, 42.21), which checks a round is ready (canShoot), makes the
+		-- shot's noise for the zombies to hear, and attacks. Aimed for AIM_TICKS first (a guess, not measured). With
+		-- nothing to shoot it stops, so a reload can come next. Until gym 0.4.66 a gun counted as no weapon: the
+		-- character walked up to the zombie and shoved it.
+		local ranged = w ~= nil and instanceof(w, "HandWeapon") and w:isRanged()
+		local reach = ranged and w:getMaxRange() or ((U.isMelee(w) and w:getMaxRange() or 0.9) + 0.3)
+		if ranged and not ISReloadWeaponAction.canShoot(p, w) then
+			p:setIsAiming(false)
+			return U.fail(t, "can't shoot: empty, jammed, safe or no round chambered")
+		end
 		if d <= reach then
 			if t.pathing then ISTimedActionQueue.clear(p); t.pathing = false end
-			A.swing(p, { z = z, d = d }, w)
+			if ranged then
+				p:faceThisObject(z)
+				p:setIsAiming(true)
+				t.aimFrom = t.aimFrom or tick()
+				if tick() - t.aimFrom >= AIM_TICKS and not p:isAttackStarted() then ISReloadWeaponAction.attackHook(p, 0, w) end
+			else
+				A.swing(p, { z = z, d = d }, w)
+			end
 		elseif not t.pathing or tick() - (t.lastPath or 0) > 90 then
 			ISTimedActionQueue.clear(p)
 			Q(ISPathFindAction:pathToLocationF(p, z:getX(), z:getY(), z:getZ()))
