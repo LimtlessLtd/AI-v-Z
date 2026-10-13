@@ -78,6 +78,12 @@ class EncodingTests(unittest.TestCase):
         k = list(F.OPTION_NUMBERS).index("bite")
         self.assertEqual(F.encode_option({"verb": "wear", "bite": 40})[0][k], 0.4)
 
+    def test_unstitch_and_unsplint_options_are_tied_to_their_body_part(self):
+        for verb in ("unstitch", "unsplint"):
+            toks = F.encode_option({"verb": verb, "part": "Hand_L"})[1]
+            self.assertIn(F.bucket("verb:" + verb), toks)
+            self.assertIn(F.bucket(verb + ":part:Hand_L"), toks)
+
     def test_unbandage_option_is_tied_to_its_body_part(self):
         toks = F.encode_option({"verb": "unbandage", "part": "Hand_L"})[1]
         self.assertIn(F.bucket("verb:unbandage"), toks)

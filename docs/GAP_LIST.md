@@ -219,7 +219,7 @@ Removing bandages/stitches/splints goes through the same panel classes (`HRemove
 | `HRemoveSplint:perform`, 1660-1662 | `ISSplint:new(doctor, patient, nil, nil, bodyPart, false)` | `getSplintFactor() > 0`, 1646-1657 |
 
 The constructors in `shared/TimedActions/ISApplyBandage.lua`, `ISStitch.lua` and `ISSplint.lua`
-confirm this argument order. Bandage removal is implemented as `unbandage` (gym 0.4.45, not live-tested); stitch and splint removal remain unimplemented; these are
+confirm this argument order. Bandage removal is implemented as `unbandage` (gym 0.4.45, not live-tested); stitch and splint removal are `unstitch` and `unsplint` (gym 0.4.46, not live-tested); these are
 source facts, not a claim that treatment worked. `HRemoveGlass:perform` at 1520-1528 passes
 `handPain = true` for Hands and false with a `REMOVE_GLASS` tool, SutureNeedleHolder or Tweezers;
 the menu at 1489-1503 offers both tool variants and Hands when the visible wound contains glass.
