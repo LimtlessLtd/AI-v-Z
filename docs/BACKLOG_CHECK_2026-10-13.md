@@ -79,3 +79,16 @@ The 68 network deaths since 10:26:43 have median survival 2.335 game hours and z
 bleeding decisions, 1,480 offered a bandage and 92 picked it. This is a larger cohort than yesterday's
 nine lives, but gym coverage and environments changed too; it does not establish a learning gain.
 No reward, policy or training settings are changed by this review.
+
+## Washing follow-through
+
+[PR #116](https://github.com/LimtlessLtd/AI-v-Z/pull/116) adds the manual Wash submenu (gym 0.4.69), with
+the installed water/item rules, optional soap, getting-up wrapper and checks of actual cleaning or dirty
+bandage conversion. All 132 tests pass, including compilation by the game and its method-name checks.
+Reload accepted the version at 13:32:14. A passive 150-second check from 13:33:02 sampled 601 decisions
+with no new console errors. No wash option was offered in this window, so it cannot verify an executor.
+The backlog retains natural body/item/All/bandage and disappearing-water checks.
+
+The 0.4.70 follow-up requires the same source and selected item set when re-picking a washing action;
+two identically named sinks or shirts must not count as the same target. This adds no network input
+or scripted behavior. [Installed menu audit](GAP_LIST.md#10-water-washing-cooking-light).

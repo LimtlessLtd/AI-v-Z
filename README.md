@@ -108,7 +108,7 @@ Pulls the latest `main`, switching to it if another branch is checked out (skipp
 changes), links the mod if needed, launches Project Zomboid through Steam and runs the self-taught agent
 (`-NoPull`, `-NoGame`, `-Policy` available). If the game is already running and the pull changed the mod's
 Lua, it hot-reloads the mod too. It prints the checkout's gym version; `Zomboid\Lua\aivz\loader.txt` shows
-the one the game loaded (`OK v0.5.8 (gym 0.4.69)` after reloading this update). The agent polls for the game, so start order doesn't
+the one the game loaded (`OK v0.5.8 (gym 0.4.70)` after reloading this update). The agent polls for the game, so start order doesn't
 matter: once a singleplayer game with AI-v-Z enabled is loaded, it takes over. Still manual: enable the
 mod once per save, and load/start the save. The agent plays with the network and trains it (`-Policy random`
 for the Phase 3 random player). Run it in its own window, not as a background task of an AI coding session,
@@ -342,7 +342,10 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
   all of a category at a visible water source. It uses the game's water requirements, optional soap and
   getting-up prerequisite, and checks that cleaning or bandage conversion happened. All 132 tests pass,
   including the installed game's Lua checks; natural-play verification is pending. The trained network is
-  preserved; the new Without Soap warning token reaches the playing agent at its next restart.
+  preserved; the new Without Soap warning token reaches the playing agent at its next restart. Gym 0.4.70
+  also checks the actual source and items when a washing choice is picked again, so another identically named
+  sink or shirt is a new action. Gym 0.4.69 loaded and ran through 601 sampled decisions with no new console
+  errors; no washing was offered during that window, so completion checks remain pending.
   [Conditions and remaining coverage](docs/GAP_LIST.md#10-water-washing-cooking-light).
 
 - **Gym 0.4.66 fires guns.** Until now `attack` with a gun walked up to the zombie and shoved it. Now it shoots from

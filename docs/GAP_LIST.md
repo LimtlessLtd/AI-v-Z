@@ -231,8 +231,14 @@ The item lists are the main inventory, as those methods enumerate it; they do no
 (`J:ItemContainer.getItemsFromCategory` delegates to `getAllCategory`, offsets 0-5). Soap is optional:
 `getSoapList(nil, true)` includes cleaning fluid for items, `getSoapList(nil, false)` is used for the body.
 The tooltip's Without Soap warning is `noSoap`, explicitly included in `features.OPTION_FLAGS` as a token.
-The existing `name`, `type`, `from`, `how` fields distinguish the source, item and category All choice.
+The existing `name`, `type`, `from`, `how` fields describe the source, item and category All choice.
 There is no dense layout or features-version change.
+
+Gym 0.4.70 also checks source identity and the selected item set before treating another washing pick as
+`continue`. Different sinks or duplicate shirts can have identical visible labels, so those labels alone
+cannot identify the executing action. The references stay local and are not serialized as observations.
+Gym 0.4.69 loaded at 13:32:14; a passive 13:33:02–13:35:32 check sampled 601 decisions and no new console
+errors. No washing was offered in that interval; the treatment's actual completion remains unverified.
 
 Completion is checked against `ISWashYourself:complete` (`shared/TimedActions/ISWashYourself.lua:114-144`)
 and `ISWashClothing:complete` (`shared/TimedActions/ISWashClothing.lua:125-183`): fewer dirty body parts;
