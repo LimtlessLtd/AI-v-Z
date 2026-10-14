@@ -152,6 +152,16 @@ class RewardTests(unittest.TestCase):
                                                   "cat": "clothing", "w": 0, "worn": True}])
         self.assertNotIn("new_items", self.step(OBS, bitten)[1])
 
+    def test_potential_is_the_sum_of_its_parts(self):
+        b = {"health": 80.0, "untreated": 2, "protection": 0.01, "weapon": 1.0}
+        parts = reward.potential_parts(b)
+        self.assertAlmostEqual(parts["health"], reward.PER_HEALTH * -20)
+        self.assertAlmostEqual(parts["wounds"], -2 * reward.PER_UNTREATED)
+        self.assertAlmostEqual(reward.potential(b), sum(parts.values()))
+        self.assertEqual(reward.potential(None), 0.0)   # dead: Φ is 0
+        full = dict(b, health=150.0, untreated=0, protection=0.0, weapon=0.0)
+        self.assertEqual(reward.potential(full), 0.0)   # health above 100 earns nothing
+
     def test_kills_and_death(self):
         _, parts, _ = self.step(OBS, later(OBS, 1, kills=2))
         self.assertEqual(parts["kills"], 2 * reward.KILL)
