@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from agent import reward  # noqa: E402
 from agent.link import GameLink, _clean  # noqa: E402
-from agent.lives import Lives  # noqa: E402
+from agent.lives import Life, Lives, learning_data, rules_lives  # noqa: E402
 from agent.policies import ProbePolicy, RandomPolicy, _bag, _label, robust_spread  # noqa: E402
 
 OBS = {
@@ -236,6 +236,51 @@ class LivesTests(unittest.TestCase):
             self.assertEqual((life.number, new, finished["life"], finished["ended"]), (2, True, 1, "left"))
             self.assertFalse(again.resumed)
             self.assertEqual(Lives(tmp).current.name, "Kate Smith")
+
+
+class LivesHelpersTests(unittest.TestCase):
+    def test_life_policy_is_the_one_with_most_decisions(self):
+        life = Life(1, OBS)
+        self.assertIsNone(life.policy())
+        life.policies = {"random": 3, "net": 9}
+        self.assertEqual(life.policy(), "net")
+
+    def test_rules_lives_keeps_only_died_records_and_skips_bad_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(rules_lives(tmp), [])   # no file
+            lines = [json.dumps({"life": 1, "ended": "died", "hours": 2.5, "reward": 10, "kills": 1, "items_seen": 4,
+                                 "buildings": 2, "decisions": 50}),
+                     json.dumps({"life": 2, "ended": "left", "hours": 1}),
+                     json.dumps({"life": 3, "ended": "died"})]
+            (Path(tmp) / "lives-rules.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            got = rules_lives(tmp)
+            self.assertEqual([x["life"] for x in got], [1, 3])
+            self.assertEqual((got[0]["policy"], got[0]["items"], got[0]["decisions"]), ("rules", 4, 50))
+            self.assertEqual((got[1]["hours"], got[1]["kills"]), (0, 0))   # defaults
+            self.assertEqual([x["life"] for x in rules_lives(tmp, last=1)], [3])   # only the last line is read
+            (Path(tmp) / "lives-rules.jsonl").write_text("{broken\n", encoding="utf-8")
+            self.assertEqual(rules_lives(tmp), [])
+
+    def test_learning_data_shows_reward_only_in_the_current_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            history = [{"life": 1, "ended": "died", "hours": 3, "reward": 99, "reward_v": reward.VERSION, "policy": "net"},
+                       {"life": 2, "ended": "died", "hours": 1, "reward": 50, "reward_v": reward.VERSION - 1},
+                       {"life": 3, "ended": "left", "hours": 9}]
+            out = learning_data(tmp, history)
+            self.assertEqual(out["history"], [])   # no training log yet
+            lives = out["lives"]
+            self.assertEqual([x["life"] for x in lives], [1, 2])   # a life that was left isn't a finished one
+            self.assertEqual((lives[0]["reward"], lives[0]["policy"]), (99, "net"))
+            self.assertIsNone(lives[1]["reward"])   # an older reward's points aren't comparable
+            self.assertEqual(lives[1]["policy"], "random")   # lives before Phase 4
+            model = Path(tmp) / "model"
+            model.mkdir()
+            (model / "history.jsonl").write_text('{"round": 1}\n\n{"round": 2}\nnot json\n', encoding="utf-8")
+            self.assertEqual(learning_data(tmp, history)["history"], [])   # a damaged log is dropped whole
+            (model / "history.jsonl").write_text('{"round": 1}\n{"round": 2}\n{"round": 3}\n', encoding="utf-8")
+            self.assertEqual([x["round"] for x in learning_data(tmp, history, rounds=2)["history"]], [2, 3])
+            self.assertEqual(len(learning_data(tmp, history, lives=1)["lives"]), 1)
+            self.assertEqual(len(learning_data(tmp, history, rounds=None, lives=None)["history"]), 3)
 
 
 class LinkTests(unittest.TestCase):
