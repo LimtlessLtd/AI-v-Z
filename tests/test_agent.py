@@ -153,6 +153,14 @@ class RewardTests(unittest.TestCase):
                                                   "cat": "clothing", "w": 0, "worn": True}])
         self.assertNotIn("new_items", self.step(OBS, bitten)[1])
 
+    def test_item_key_is_type_then_name_and_skips_wounds(self):
+        self.assertEqual(reward._item_key({"type": "Axe", "name": "Hand Axe"}), "Axe")
+        self.assertEqual(reward._item_key({"name": "Hand Axe"}), "Hand Axe")
+        self.assertIsNone(reward._item_key({}))
+        self.assertIsNone(reward._item_key({"type": "Wound_RHand_Bite"}))
+        self.assertIsNone(reward._item_key({"type": "Base.Wound_RHand_Bite"}))
+        self.assertIsNone(reward._item_key({"name": "Base.Wound_RHand_Bite"}))
+
     def test_potential_is_the_sum_of_its_parts(self):
         b = {"health": 80.0, "untreated": 2, "protection": 0.01, "weapon": 1.0}
         parts = reward.potential_parts(b)
