@@ -390,6 +390,19 @@ class HelperTests(unittest.TestCase):
             packed.write_bytes(gzip.compress(body.encode()))
             self.assertEqual(F.read_lines(packed), ['{"id": 1}', '{"id": 2}'])
 
+    def test_read_records_skips_bad_json_and_salvages_a_damaged_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            whole = Path(d) / "a.jsonl.gz"
+            whole.write_bytes(gzip.compress(b'{"id": 1}\n{"id": \n{"id": 3}\n'))
+            self.assertEqual(F.read_records(whole), [{"id": 1}, {"id": 3}])
+            # two agents wrote at once: plain text, then a good member, junk, a second good member
+            broken = Path(d) / "b.jsonl.gz"
+            broken.write_bytes(b"junk\n" + gzip.compress(b'{"id": 1}\n') + b"\x00\x01" + gzip.compress(b'{"id": 2}\n'))
+            self.assertEqual(F.read_records(broken), [{"id": 1}, {"id": 2}])
+            nothing = Path(d) / "c.jsonl.gz"
+            nothing.write_bytes(b"not gzip at all")
+            self.assertEqual(F.read_records(nothing), [])
+
 
 @needs_torch
 class NetworkTests(unittest.TestCase):
