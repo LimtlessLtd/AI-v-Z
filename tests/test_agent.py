@@ -8,6 +8,7 @@ import copy
 import gzip
 import json
 import math
+import os
 import random
 import sys
 import tempfile
@@ -19,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agent import reward  # noqa: E402
-from agent.link import GameLink  # noqa: E402
+from agent.link import GameLink, _clean  # noqa: E402
 from agent.lives import Lives  # noqa: E402
 from agent.policies import ProbePolicy, RandomPolicy, _bag, _label, robust_spread  # noqa: E402
 
@@ -252,6 +253,28 @@ class LinkTests(unittest.TestCase):
             self.assertEqual((Path(tmp) / "gym.txt").read_text(encoding="utf-8"), "on|1\n")
             (Path(tmp) / "obs.json").write_text('{"id": 8, "obs": {', encoding="utf-8")   # caught mid-write
             self.assertIsNone(link.poll())
+
+
+class LinkEdgeTests(unittest.TestCase):
+    def test_poll_wait_stop_and_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            link, obs = GameLink(tmp), Path(tmp) / "obs.json"
+            obs.write_text('{"id": 8, "obs": {', encoding="utf-8")
+            self.assertIsNone(link.poll())
+            obs.write_text(json.dumps({"id": 8, "options": "bad"}), encoding="utf-8")
+            os.utime(obs, ns=(1, 2 * 10**9))                 # the finished write is picked up on a later poll
+            self.assertEqual(link.poll()["options"], [])     # options that aren't a list become empty
+            obs.write_text("[1, 2]", encoding="utf-8")
+            os.utime(obs, ns=(1, 3 * 10**9))
+            self.assertIsNone(link.poll())                   # not a request
+            self.assertIsNone(link.wait(timeout=0.05, every=0.01))
+            obs.write_text(json.dumps({"id": 9, "options": [1]}), encoding="utf-8")
+            os.utime(obs, ns=(1, 4 * 10**9))
+            self.assertEqual(link.wait(timeout=1.0, every=0.01)["id"], 9)
+            link.stop()
+            self.assertEqual((Path(tmp) / "gym.txt").read_text(encoding="utf-8"), "off\n")
+        self.assertEqual(len(_clean("x" * 200)), 80)
+        self.assertEqual(_clean(None), "")
 
 
 class PolicyTests(unittest.TestCase):
