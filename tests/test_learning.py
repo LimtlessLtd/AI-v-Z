@@ -330,6 +330,26 @@ class EncodingTests(unittest.TestCase):
         # a malformed item gives no tokens and no exception
         self.assertEqual(F.item_status_tokens("not an item", "inv"), [])
 
+    def test_encode_option_tokens_and_zombies_ahead(self):
+        o = {"verb": "eat", "type": "Base.Apple", "fresh": "stale", "burnt": True, "frozen": False, "name": {"x": 1}}
+        dense, toks = F.encode_option(o)
+        self.assertEqual(len(dense), F.OPTION_DIM)
+        want = ["verb:eat", "eat:type:Base.Apple", "type:Base.Apple", "eat:fresh:stale", "fresh:stale", "eat:burnt"]
+        self.assertEqual(toks, [F.bucket(t) for t in want])   # a dict value and a false flag give no token
+        # attack: the zombie count and facing become tokens; disassemble's chance is binned by 25, at most 4
+        _, toks = F.encode_option({"verb": "attack", "zombies": 2, "facing": 1})
+        self.assertIn(F.bucket("attack:toward_zombies"), toks)
+        self.assertIn(F.bucket("attack:facing:" + F.facing_word(1)), toks)
+        _, toks = F.encode_option({"verb": "disassemble", "chance": 130})
+        self.assertIn(F.bucket("disassemble:chance:4"), toks)
+        # a direction option sees the zombies within 45 degrees of it, and only with an observation
+        obs = {"zombies": [{"dx": 5, "dy": 0, "d": 5}, {"dx": 0, "dy": 5, "d": 5}]}
+        east = {"verb": "walk", "dx": 4, "dy": 0}
+        self.assertEqual(F.encode_option(east)[0][-2:], [0.0, 0.0])
+        ahead, n = F.encode_option(east, obs)[0][-2:]
+        self.assertGreater(ahead, 0.0)
+        self.assertEqual(n, 1 / 3)       # one zombie (the south one is 90 degrees off)
+
     def test_transitions_stay_inside_a_life_and_skip_restarts(self):
         recs = life_records(1, 3) + life_records(2, 3, start_id=10)
         recs[-2]["resumed"] = True   # life 2's third decision came after an agent restart
