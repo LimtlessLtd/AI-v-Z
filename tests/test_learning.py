@@ -67,6 +67,15 @@ class EncodingTests(unittest.TestCase):
         d = F.encode_state({"obs": {**OBS, "clock": {"hour": 22, "min": 0}}})[0]
         self.assertNotEqual(a, d)   # the time counts once a watch shows it
 
+    def test_inventory_count_is_clipped_at_forty_in_the_dense_layout(self):
+        def inv(n):
+            return [{"name": f"Item{i}", "type": f"Base.Item{i}"} for i in range(n)]
+        a = F.encode_state({"obs": {**OBS, "inv": inv(10)}})[0]
+        b = F.encode_state({"obs": {**OBS, "inv": inv(40)}})[0]
+        c = F.encode_state({"obs": {**OBS, "inv": inv(80)}})[0]
+        self.assertNotEqual(a, b)
+        self.assertEqual(b, c)   # the gym sends at most 40 today; a larger cap must not change the layout
+
     def test_protection_goes_in_and_the_infection_stays_out(self):
         base = {**OBS, "protection": [{"part": "Torso_Upper", "bite": 0, "scratch": 0}]}
         jacket = {**OBS, "protection": [{"part": "Torso_Upper", "bite": 40, "scratch": 60}]}
