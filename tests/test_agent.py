@@ -161,6 +161,45 @@ class RewardTests(unittest.TestCase):
         self.assertIsNone(reward._item_key({"type": "Base.Wound_RHand_Bite"}))
         self.assertIsNone(reward._item_key({"name": "Base.Wound_RHand_Bite"}))
 
+    def test_weapon_counts_melee_by_damage_and_guns_zero(self):
+        self.assertEqual(reward.weapon({"cat": "weapon", "dmg": reward.WEAPON_FULL}), 1.0)
+        self.assertEqual(reward.weapon({"cat": "weapon", "dmg": 10}), 1.0)   # capped
+        self.assertAlmostEqual(reward.weapon({"cat": "weapon", "dmg": 0.75}), 0.75 / reward.WEAPON_FULL)
+        self.assertEqual(reward.weapon({"cat": "weapon", "dmg": 1.5, "ranged": True}), 0.0)
+        self.assertEqual(reward.weapon({"cat": "food", "dmg": 1.5}), 0.0)
+        self.assertEqual(reward.weapon({"cat": "weapon", "dmg": -1}), 0.0)
+        self.assertEqual(reward.weapon(None), 0.0)
+
+    def test_body_reads_wounds_protection_and_knox(self):
+        self.assertIsNone(reward.body({"dead": True, "health": 50}))
+        self.assertIsNone(reward.body({}))
+        b = reward.body({"health": 70, "knox": True,
+                         "body": [{"part": "Hand_R", "flags": ["bleeding"]},
+                                  {"part": "Hand_L", "flags": ["bleeding", "bandaged"]},
+                                  {"part": "Foot_L", "flags": ["scratch", "bite"]}],
+                         "protection": [{"bite": 100, "scratch": 100}, {"bite": 0, "scratch": 0}]})
+        self.assertEqual(b["health"], 70.0)
+        self.assertEqual(b["untreated"], 2)   # the bandaged part doesn't count
+        self.assertAlmostEqual(b["protection"], 0.5)
+        self.assertIs(b["knox"], True)
+        self.assertEqual(sorted(b["zombie_wounds"]), [("Foot_L", "bite"), ("Foot_L", "scratch")])
+        self.assertIsNone(reward.body({"health": 70, "knox": "yes"})["knox"])
+
+    def test_infected_flag_or_wound_chances_and_never_down(self):
+        flagged = {"knox": True, "zombie_wounds": []}
+        self.assertEqual(reward.infected(0.0, None, flagged), 1.0)
+        self.assertEqual(reward.infected(0.5, None, dict(flagged, knox=False)), 0.5)   # never goes down
+        none = {"knox": None, "zombie_wounds": []}
+        scratched = {"knox": None, "zombie_wounds": [("Hand_R", "scratch")]}
+        self.assertAlmostEqual(reward.infected(0.0, none, scratched), 0.07)
+        # the same wound seen before (even as a list after a JSON round trip) adds nothing
+        again = {"knox": None, "zombie_wounds": [["Hand_R", "scratch"]]}
+        self.assertAlmostEqual(reward.infected(0.07, again, scratched), 0.07)
+        both = {"knox": None, "zombie_wounds": [("Hand_R", "scratch"), ("Hand_L", "laceration")]}
+        self.assertAlmostEqual(reward.infected(0.0, none, both), 1 - 0.93 * 0.75)
+        bite = {"knox": None, "zombie_wounds": [("Hand_R", "bite")]}
+        self.assertEqual(reward.infected(0.0, None, bite), 1.0)
+
     def test_potential_is_the_sum_of_its_parts(self):
         b = {"health": 80.0, "untreated": 2, "protection": 0.01, "weapon": 1.0}
         parts = reward.potential_parts(b)
