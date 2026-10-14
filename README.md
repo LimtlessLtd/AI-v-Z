@@ -351,6 +351,12 @@ docs/               BACKLOG (what's open), SPECS, REVIEW; Phase 3 coverage and v
 
 ## Known issues (agent and gym)
 
+- **Gyms 0.4.47-0.4.86 raise the repo's own option caps** (backlog row 10, written in the cloud, so none of it has been
+  run in the game or through `tests.test_lua`): attack, shove, doors, windows, climb, smash, clear glass, curtains,
+  search, eat, drink, equip, wear, take off, drop, craft, unbandage/unstitch/unsplint, go_room and enter now offer
+  up to 8 choices each, take 16, and vehicles have no cap. The game's own range and prerequisite tests are unchanged.
+  More options per decision means more tokens for the network, with no change to the dense layout. Still capped:
+  the 40 observed inventory items (the reward counts them; the owner decides).
 - **Gym 0.4.71 adds household supplies and cooking controls.** The bot can open an oven or microwave's real
   settings window and choose its temperature, timer, On/Off button and Close. It can reuse dirty
   bandages with the installed CleanBandage recipe and carried water, connect a plumbable fixture with a pipe wrench, switch washers/dryers and
