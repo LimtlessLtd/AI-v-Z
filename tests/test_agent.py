@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 from agent import reward  # noqa: E402
 from agent.link import GameLink  # noqa: E402
 from agent.lives import Lives  # noqa: E402
-from agent.policies import ProbePolicy, RandomPolicy, robust_spread  # noqa: E402
+from agent.policies import ProbePolicy, RandomPolicy, _bag, _label, robust_spread  # noqa: E402
 
 OBS = {
     "who": {"name": "Chris Hooks", "save": "test"}, "born": 26.0,
@@ -273,6 +273,18 @@ class PolicyTests(unittest.TestCase):
         self.assertLess(robust_spread(q), sd / 5)
         self.assertAlmostEqual(robust_spread([1.0, 2.0, 3.0]), 1.4826)
         self.assertGreater(robust_spread([0.0, 0.0, 0.0, 0.0, 9.0]), 0)   # most equal: the standard deviation
+
+    def test_bag_counts_inventory_and_the_held_item(self):
+        obs = {"inv": [{"name": "Bandage"}, {"name": "Bandage"}, {"name": "Axe"}], "held": {"name": "Axe"}}
+        self.assertEqual(_bag(obs), {"Bandage": 2, "Axe": 2})
+        self.assertEqual(_bag({"held": "nothing"}), {})   # a held item that is not a record is ignored
+        self.assertEqual(_bag(None), {})
+
+    def test_label_names_what_an_option_acts_on(self):
+        self.assertEqual(_label({"verb": "eat", "name": "Apple"}), "eat Apple")
+        self.assertEqual(_label({"verb": "craft", "recipe": "Make Bandage", "name": "Rag"}), "craft Make Bandage (Rag)")
+        self.assertEqual(_label({"verb": "go_room", "dir": "north"}), "go_room north")
+        self.assertEqual(_label({"verb": "rest"}), "rest")
 
 
 class ProbeTests(unittest.TestCase):
