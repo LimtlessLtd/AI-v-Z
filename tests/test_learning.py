@@ -658,6 +658,16 @@ class FeatureScalarHelpers(unittest.TestCase):
         self.assertIn('{"b":2}', out)
         self.assertEqual(F._salvage(b"no gzip here"), "")
 
+    def test_item_tokens_for_ammo_holes_drainables_and_pages(self):
+        gun = F.item_status_tokens({"type": "Base.Pistol", "loaded": 0, "maxAmmo": 15, "ammo": "Base.Bullets9mm",
+                                    "holes": 9}, "inv")
+        self.assertEqual(gun, ["inv:ammo:Base.Bullets9mm", "inv:ammo_level:0", "inv:holes:4"])   # holes cap at 4
+        self.assertIn("inv:ammo_level:3", F.item_status_tokens({"loaded": 15, "maxAmmo": 15}, "inv"))
+        self.assertIn("inv:left:0", F.item_status_tokens({"left": 0}, "inv"))   # used up
+        self.assertIn("inv:left:4", F.item_status_tokens({"left": 1.0}, "inv"))
+        self.assertEqual([F.item_status_tokens({"pages": p}, "inv") for p in (0, 0.4, 1.0)],
+                         [["inv:pages:0"], ["inv:pages:1"], ["inv:pages:3"]])
+
 
 if __name__ == "__main__":
     unittest.main()
