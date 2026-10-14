@@ -289,6 +289,24 @@ class EncodingTests(unittest.TestCase):
             self.assertIn(1, ids)
             self.assertIn(2, ids)
 
+    def test_item_tokens_for_clothing_bags_and_magazines(self):
+        shirt = {"type": "Base.Shirt", "cat": "clothing", "cond": 0.6, "blood": 0.9, "dirt": 0.1, "wet": 0.3,
+                 "patches": 1, "bite": 10, "scratch": 15}
+        toks = F.item_status_tokens(shirt, "worn")
+        for t in ("worn:cond:2", "worn:blood:3", "worn:dirt:0", "worn:wet:1", "worn:patched", "worn:defence:2"):
+            self.assertIn(t, toks)
+        # blood, dirt and wetness are clothing's: a tool's tooltip doesn't show them
+        tool = F.item_status_tokens({"type": "Base.Axe", "cat": "weapon", "cond": 0.6, "blood": 0.9, "sharp": 0.5}, "inv")
+        self.assertIn("inv:cond:2", tool)
+        self.assertIn("inv:sharp:1", tool)   # 0.5 is not above the 0.5 edge
+        self.assertFalse([t for t in tool if ":blood:" in t])
+        self.assertIn("inv:reduce:2", F.item_status_tokens({"type": "Base.Bag", "reduce": 60}, "inv"))
+        self.assertEqual(F.item_status_tokens({"type": "Base.Bag", "reduce": 0}, "inv"), [])
+        mag = F.item_status_tokens({"type": "Base.9mmClip", "clip": True, "chambered": True, "slot": "Clip"}, "inv")
+        self.assertEqual(mag, ["inv:slot:Clip", "inv:clip", "inv:chambered"])
+        # a malformed item gives no tokens and no exception
+        self.assertEqual(F.item_status_tokens("not an item", "inv"), [])
+
     def test_transitions_stay_inside_a_life_and_skip_restarts(self):
         recs = life_records(1, 3) + life_records(2, 3, start_id=10)
         recs[-2]["resumed"] = True   # life 2's third decision came after an agent restart
