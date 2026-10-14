@@ -93,6 +93,17 @@ class EncodingTests(unittest.TestCase):
             self.assertIn(F.bucket("verb:" + verb), toks)
             self.assertIn(F.bucket(verb + ":part:Hand_L"), toks)
 
+    def test_every_treatment_option_is_tied_to_its_body_part_and_tool(self):
+        # GAP_LIST item 11: the health panel's treatments, so the network can tell a stitch on a hand from one on a leg
+        for verb in ("bandage", "disinfect", "poultice", "stitch", "remove_glass", "remove_bullet", "clean_burn",
+                     "splint"):
+            toks = F.encode_option({"verb": verb, "part": "Foot_R", "item": "Base.Needle"})[1]
+            self.assertIn(F.bucket("verb:" + verb), toks)
+            self.assertIn(F.bucket(verb + ":part:Foot_R"), toks)
+            self.assertIn(F.bucket(verb + ":item:Base.Needle"), toks)
+            other = F.encode_option({"verb": verb, "part": "Hand_L", "item": "Base.Needle"})[1]
+            self.assertNotEqual(sorted(toks), sorted(other))
+
     def test_unbandage_option_is_tied_to_its_body_part(self):
         toks = F.encode_option({"verb": "unbandage", "part": "Hand_L"})[1]
         self.assertIn(F.bucket("verb:unbandage"), toks)
