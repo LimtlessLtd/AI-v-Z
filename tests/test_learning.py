@@ -289,6 +289,29 @@ class EncodingTests(unittest.TestCase):
             self.assertIn(1, ids)
             self.assertIn(2, ids)
 
+    def test_read_records_drops_unreadable_lines_and_keeps_the_rest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            whole = Path(tmp) / "whole.jsonl.gz"
+            whole.write_bytes(gzip.compress(b'{"id": 1}\nnot json\n{"id": 2\n\n  {"id": 3}  \n'))
+            self.assertEqual([r["id"] for r in F.read_records(whole)], [1, 3])
+            # a file that never was gzip: no member to salvage, so no records and no exception
+            plain = Path(tmp) / "plain.jsonl.gz"
+            plain.write_bytes(b'{"id": 9}\n')
+            self.assertEqual(F.read_records(plain), [])
+            # two whole members joined by garbage: both are read
+            two = Path(tmp) / "two.jsonl.gz"
+            two.write_bytes(gzip.compress(b'{"id": 4}\n') + b"garbage" + gzip.compress(b'{"id": 5}\n'))
+            self.assertEqual([r["id"] for r in F.read_records(two)], [4, 5])
+
+    def test_transitions_skip_decisions_without_a_choice_or_options(self):
+        recs = life_records(1, 4)
+        recs[1]["choice"] = None          # nothing was chosen: nothing to learn from
+        recs[2]["options"] = []           # nothing was offered
+        tr = F.transitions(recs)
+        self.assertIn((0, 1), tr)
+        self.assertNotIn((1, 2), tr)
+        self.assertNotIn((2, 3), tr)
+
     def test_item_tokens_for_clothing_bags_and_magazines(self):
         shirt = {"type": "Base.Shirt", "cat": "clothing", "cond": 0.6, "blood": 0.9, "dirt": 0.1, "wet": 0.3,
                  "patches": 1, "bite": 10, "scratch": 15}
