@@ -104,6 +104,20 @@ class EncodingTests(unittest.TestCase):
             other = F.encode_option({"verb": verb, "part": "Hand_L", "item": "Base.Needle"})[1]
             self.assertNotEqual(sorted(toks), sorted(other))
 
+    def test_household_options_differ_by_their_setting(self):
+        # HOUSEHOLD_ACTIONS.md: the dial value, the switch state and the washer/dryer mode ride in `how`, so the
+        # network can tell 200 degrees from 150, switching on from off, and a washer from a dryer
+        for verb, base, other in (
+                ("appliance_temperature", {"name": "oven", "what": "temperature dial", "how": "200"}, {"how": "150"}),
+                ("appliance_timer", {"name": "oven", "minutes": 15, "how": "15"}, {"minutes": 30, "how": "30"}),
+                ("appliance_toggle", {"name": "oven", "how": "on"}, {"how": "off"}),
+                ("laundry", {"name": "washer", "how": "on"}, {"how": "off"}),
+                ("laundry_mode", {"name": "combo", "how": "dryer"}, {"how": "washer"})):
+            toks = F.encode_option({"verb": verb, **base})[1]
+            self.assertIn(F.bucket("verb:" + verb), toks)
+            self.assertIn(F.bucket(f"{verb}:how:{base['how']}"), toks)
+            self.assertNotEqual(sorted(toks), sorted(F.encode_option({"verb": verb, **base, **other})[1]))
+
     def test_unbandage_option_is_tied_to_its_body_part(self):
         toks = F.encode_option({"verb": "unbandage", "part": "Hand_L"})[1]
         self.assertIn(F.bucket("verb:unbandage"), toks)
