@@ -371,6 +371,17 @@ class EncodingTests(unittest.TestCase):
 
 
 class HelperTests(unittest.TestCase):
+    def test_near_and_container_guards(self):
+        self.assertEqual(F._near(0.0), 1.0)
+        self.assertEqual(F._near(F.ZOMBIE_RANGE), 0.0)
+        self.assertEqual(F._near(F.ZOMBIE_RANGE * 3), 0.0)      # never below 0
+        self.assertAlmostEqual(F._near(F.ZOMBIE_RANGE / 2), 0.5)
+        # a wrong-typed field becomes an empty container, so callers can iterate it
+        self.assertEqual(F._d([1]), {})
+        self.assertEqual(F._d({"a": 1}), {"a": 1})
+        self.assertEqual(F._l({"a": 1}), [])
+        self.assertEqual(F._l([1]), [1])
+
     def test_health_band_steps_with_the_panel_wording(self):
         self.assertEqual(F.health_band(100), 1.0)
         self.assertEqual(F.health_band(95), 0.9)
