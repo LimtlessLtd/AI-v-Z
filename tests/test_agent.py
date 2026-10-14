@@ -412,6 +412,22 @@ class HearingTests(unittest.TestCase):
         self.assertTrue(ws[2].get("gap"))
         self.assertEqual(snap["gaps"], 1)
 
+    def test_silence_empty_windows_and_history_limit(self):
+        from agent import hearing
+        from agent.hearing import Hearing
+        self.assertIsNone(hearing.analyse([], [], 8000))
+        quiet = hearing.analyse([0.0] * 800, [0.0] * 800, 8000)
+        self.assertEqual((quiet["db_l"], quiet["db_r"], quiet["peak_db"]), (hearing.FLOOR_DB,) * 3)
+        self.assertEqual(quiet["balance"], 0.0)
+        # a band at or above the Nyquist frequency reads as the floor, not as an error
+        self.assertEqual(quiet["bands_db"], [hearing.FLOOR_DB] * len(hearing.BANDS_HZ))
+
+        class Src:
+            available = True
+            def read(s): return [(0.1 * i, [0.1] * 800, [0.1] * 800, 8000) for i in range(1, 6)]
+        h = Hearing(Src(), history=3)
+        self.assertEqual(len(h.snapshot(1)["windows"]), 3)
+
     def test_numpy_windows_give_the_same_numbers(self):
         try:
             import numpy as np
