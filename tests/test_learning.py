@@ -592,5 +592,39 @@ class TraitRuleLuaTest(unittest.TestCase):
         self.assertEqual(F.VERSION, 3)   # 2: protection and clothing status (reward version 3); 3: where the zombies are
 
 
+class FeatureScalarHelpers(unittest.TestCase):
+    def test_num(self):
+        self.assertEqual(F._num(True), 1.0)
+        self.assertEqual(F._num(3), 3.0)
+        self.assertEqual(F._num("3", 7.0), 7.0)
+        self.assertEqual(F._num(float("nan"), -1.0), -1.0)
+        self.assertEqual(F._num(float("inf")), 0.0)
+        self.assertEqual(F._num(None), 0.0)
+
+    def test_clip_and_bin(self):
+        self.assertEqual((F._clip(-9), F._clip(2.5), F._clip(9)), (-5.0, 2.5, 5.0))
+        self.assertEqual([F._bin(x) for x in (0.0, 0.25, 0.3, 0.6, 0.9)], [0, 0, 1, 2, 3])
+
+    def test_bucket_is_stable_and_in_range(self):
+        self.assertEqual(F.bucket("inv:fresh:stale"), F.bucket("inv:fresh:stale"))
+        for t in ("", "a", "ünï", "x" * 200):
+            self.assertTrue(0 <= F.bucket(t) < F.BUCKETS)
+
+    def test_zombies_skips_junk_and_defaults_distance(self):
+        zs = F._zombies({"zombies": [{"dx": 3, "dy": 4}, {"dx": 1, "dy": 0, "d": 9}, "junk", None]})
+        self.assertEqual(zs[0], (3.0, 4.0, 5.0))
+        self.assertEqual(zs[1], (1.0, 0.0, 9.0))
+        self.assertEqual(len(zs), 4)   # a non-dict entry becomes a zombie at (0, 0)
+        self.assertEqual(F._zombies({"zombies": "no"}), [])
+        self.assertEqual(F._zombies(None), [])
+
+    def test_salvage_recovers_good_members_after_a_bad_one(self):
+        good1, good2 = gzip.compress(b'{"a":1}\n'), gzip.compress(b'{"b":2}\n')
+        out = F._salvage(good1 + b"\x1f\x8b\x08garbage-not-gzip" + good2)
+        self.assertIn('{"a":1}', out)
+        self.assertIn('{"b":2}', out)
+        self.assertEqual(F._salvage(b"no gzip here"), "")
+
+
 if __name__ == "__main__":
     unittest.main()
