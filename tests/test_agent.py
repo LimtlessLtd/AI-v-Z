@@ -555,6 +555,28 @@ class HearingTests(unittest.TestCase):
         h = Hearing(Src(), history=3)
         self.assertEqual(len(h.snapshot(1)["windows"]), 3)
 
+    def test_db_and_goertzel_helpers(self):
+        from agent import hearing
+        self.assertEqual(hearing._db(0.0), hearing.FLOOR_DB)
+        self.assertEqual(hearing._db(1e-12), hearing.FLOOR_DB)   # below the floor clamps
+        self.assertAlmostEqual(hearing._db(1.0), 0.0)
+        self.assertAlmostEqual(hearing._db(0.1), -20.0)
+        # a sinusoid of amplitude A at the probed frequency gives power A^2
+        self.assertAlmostEqual(hearing._goertzel_power(self.tone(1000, 0.5), 8000, 1000), 0.25, places=3)
+        # another frequency, empty input and the Nyquist frequency give (almost) nothing
+        self.assertLess(hearing._goertzel_power(self.tone(1000, 0.5), 8000, 250), 1e-4)
+        self.assertEqual(hearing._goertzel_power([], 8000, 1000), 0.0)
+        self.assertEqual(hearing._goertzel_power([0.5] * 100, 8000, 4000), 0.0)
+
+    def test_balance_follows_the_louder_ear(self):
+        from agent import hearing
+        right = hearing.analyse([0.0] * 800, [0.3] * 800, 8000)
+        both = hearing.analyse([0.3] * 800, [0.3] * 800, 8000)
+        self.assertGreater(right["balance"], 0.9)
+        self.assertEqual(both["balance"], 0.0)
+        # unequal lengths: the shorter channel decides the window
+        self.assertIsNotNone(hearing.analyse([0.1] * 800, [0.1] * 400, 8000))
+
     def test_numpy_windows_give_the_same_numbers(self):
         try:
             import numpy as np
