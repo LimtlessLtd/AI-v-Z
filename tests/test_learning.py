@@ -350,6 +350,47 @@ class EncodingTests(unittest.TestCase):
         self.assertIn((1, 2), tr)
 
 
+class HelperTests(unittest.TestCase):
+    def test_health_band_steps_with_the_panel_wording(self):
+        self.assertEqual(F.health_band(100), 1.0)
+        self.assertEqual(F.health_band(95), 0.9)
+        self.assertEqual(F.health_band(90), 0.8)    # the band edge belongs to the lower band
+        self.assertEqual(F.health_band(45), 0.4)
+        self.assertEqual(F.health_band(5), 0.1)
+        self.assertEqual(F.health_band(0), 0.0)
+        self.assertEqual(F.health_band(-3), 0.0)
+
+    def test_facing_word_thresholds(self):
+        self.assertEqual(F.facing_word(1), "toward")
+        self.assertEqual(F.facing_word(0.7), "toward")
+        self.assertEqual(F.facing_word(0.69), "side")
+        self.assertEqual(F.facing_word(-0.3), "away")
+        self.assertEqual(F.facing_word(-0.29), "side")
+
+    def test_sector_names_and_own_square(self):
+        self.assertIsNone(F.sector(0, 0))
+        self.assertEqual(F.sector(0, -3), "N")
+        self.assertEqual(F.sector(3, 0), "E")
+        self.assertEqual(F.sector(3, 3), "SE")
+        self.assertEqual(F.sector(-3, -3), "NW")
+        self.assertEqual(F.sector(5, 1), "E")       # inside 22.5 degrees of east
+
+    def test_zombies_toward_counts_the_45_degree_cone(self):
+        zs = [(5.0, 0.0, 5.0), (0.0, 5.0, 5.0), (12.0, 0.0, 12.0), (5.0, 4.0, 6.4)]
+        best, n = F.zombies_toward(1, 0, zs)
+        self.assertAlmostEqual(best, F._near(5.0))
+        self.assertEqual(n, 2)                       # (5, 0) and (5, 4, 39 degrees off); (12, 0) is in the cone but past 10 tiles
+        self.assertEqual(F.zombies_toward(0, 0, zs), (0.0, 0))
+        self.assertEqual(F.zombies_toward(-1, 0, zs), (0.0, 0))
+
+    def test_read_lines_keeps_only_record_lines(self):
+        with tempfile.TemporaryDirectory() as d:
+            packed = Path(d) / "b.jsonl.gz"
+            body = '{"id": 1}\nnoise\n  {"id": 2}  \n'
+            packed.write_bytes(gzip.compress(body.encode()))
+            self.assertEqual(F.read_lines(packed), ['{"id": 1}', '{"id": 2}'])
+
+
 @needs_torch
 class NetworkTests(unittest.TestCase):
     def test_one_score_per_option_and_it_survives_saving(self):
