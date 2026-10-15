@@ -636,6 +636,37 @@ class AgentLoopTests(unittest.TestCase):
             finally:
                 first.server_close()
 
+    def test_dashboard_refuses_a_foreign_host_header(self):
+        """The DNS-rebinding guard: only 127.0.0.1 and localhost may read the API; unknown paths are 404."""
+        import http.client
+        import threading
+        from agent.run import Agent
+        with tempfile.TemporaryDirectory() as tmp:
+            srv = Agent(argparse.Namespace(lua_dir=tmp, log_dir=tmp, port=0)).server()
+            t = threading.Thread(target=srv.serve_forever, daemon=True)
+            t.start()
+            try:
+                port = srv.server_address[1]
+
+                def get(path, host):
+                    c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                    try:
+                        c.request("GET", path, headers={"Host": host})
+                        r = c.getresponse()
+                        return r.status, r.read()
+                    finally:
+                        c.close()
+
+                self.assertEqual(get("/api/agent", f"evil.example:{port}")[0], 403)
+                self.assertEqual(get("/api/agent", f"127.0.0.1:{port}")[0], 200)
+                status, body = get("/api/agent", f"localhost:{port}")
+                self.assertEqual(status, 200)
+                self.assertIn("decisions", json.loads(body))
+                self.assertEqual(get("/nope", f"127.0.0.1:{port}")[0], 404)
+            finally:
+                srv.shutdown()
+                srv.server_close()
+
     def test_decisions_are_answered_and_logged(self):
         from agent.run import Agent
         with tempfile.TemporaryDirectory() as tmp:
