@@ -263,12 +263,17 @@ class LivesTests(unittest.TestCase):
             life, *_ = again.observe({"id": 4, "obs": other, "options": OPTIONS})
             self.assertEqual((life.number, life.name), (2, "Kate Smith"))
 
-    def test_damaged_state_and_history_files_start_empty(self):
+    def test_damaged_state_file_starts_empty_and_history_is_salvaged(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "agent-state.json").write_text("{not json", encoding="utf-8")
             (Path(tmp) / "lives.jsonl").write_text('{"life":1}\n{broken', encoding="utf-8")
             lives = Lives(tmp)
-            self.assertEqual((lives.count, lives.current, lives.history, lives.world_deaths), (0, None, [], {}))
+            self.assertEqual((lives.count, lives.current, lives.history, lives.world_deaths), (0, None, [{"life": 1}], {}))
+
+    def test_history_keeps_whole_lines_around_a_bad_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "lives.jsonl").write_text('{"life":1}\n{broken\n[1]\n\n{"life":2}\n', encoding="utf-8")
+            self.assertEqual(Lives(tmp).history, [{"life": 1}, {"life": 2}])
 
     def test_each_finished_life_is_appended_to_lives_jsonl(self):
         with tempfile.TemporaryDirectory() as tmp:

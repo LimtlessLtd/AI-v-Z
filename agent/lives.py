@@ -116,9 +116,18 @@ class Lives:
 
     def _load_history(self):
         try:
-            return [json.loads(line) for line in self.lives_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        except (OSError, ValueError):
+            lines = self.lives_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
             return []
+        out = []
+        for line in lines:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue    # a half-written line must not empty the whole history
+            if isinstance(rec, dict):
+                out.append(rec)
+        return out
 
     def save(self):
         st = {"lives": self.count, "world_deaths": self.world_deaths, "current": self.current.state() if self.current else None}
