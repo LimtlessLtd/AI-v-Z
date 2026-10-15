@@ -67,5 +67,31 @@ class SiteHelpers(unittest.TestCase):
             self.assertIn(text, ("facing it", "facing away", "facing side-on"))
 
 
+class SiteLives(unittest.TestCase):
+    def test_pick_lives_recent_longest_and_current(self):
+        history = [{"life": n, "hours": n % 7} for n in range(1, 31)] + [{"life": "x"}, {"hours": 9}]
+        recent, longest, now = site.pick_lives(history, types.SimpleNamespace(number=31))
+        self.assertEqual(recent, list(range(21, 31)))   # the last RECENT finished lives, junk rows skipped
+        self.assertEqual(len(longest), 30)               # LONGEST * 4 candidates, but only 30 lives exist
+        self.assertEqual(longest[0] % 7, 6)              # longest first
+        self.assertEqual(now, [31])
+        self.assertEqual(site.pick_lives([], None), ([], [], []))
+
+    def test_collect_parses_only_wanted_lives(self):
+        import gzip
+        import json
+        import tempfile
+        rec = lambda n, **kw: json.dumps({"ts": "t", "life": n, "obs": {"traits": ["Lucky", 5]}, **kw})
+        lines = [rec(1), rec(2, reason="creation"), rec(2), rec(3), "not json", '{"life": 2, "x": [', rec(2)]
+        with tempfile.TemporaryDirectory() as d:
+            with gzip.open(Path(d) / "a.jsonl.gz", "wt") as f:
+                f.write("\n".join(lines) + "\n")
+            steps, traits = site.collect(d, {2, 9})
+        self.assertEqual(set(steps), {2, 9})
+        self.assertEqual(len(steps[2]), 2)               # creation record and bad JSON skipped
+        self.assertEqual(steps[9], [])
+        self.assertEqual(traits, {2: ["Lucky", ""]})     # traits as text (non-strings blank), from the first kept record
+
+
 if __name__ == "__main__":
     unittest.main()
