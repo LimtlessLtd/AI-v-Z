@@ -523,6 +523,50 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(i, len(options))   # use the bottle already in the bag before taking another
 
 
+    def _done_except(self, *verbs):
+        pol = ProbePolicy(random.Random(1), tries=1)
+        for verb in pol.TEST + pol.LATE:
+            if verb not in verbs:
+                pol.tally[verb]["done"] = 1
+        return pol
+
+    def test_probe_orders_the_candidates_of_search_enter_and_sleep(self):
+        search = [{"verb": "search", "name": "far", "here": False, "d": 1},
+                  {"verb": "search", "name": "here far", "here": True, "d": 5},
+                  {"verb": "search", "name": "here near", "here": True, "d": 2}]
+        i, _, _ = self._done_except("search").choose({"options": search, "obs": OBS})
+        self.assertEqual(search[i]["name"], "here near")   # this building first, nearest first
+        enter = [{"verb": "enter", "name": "seen", "visited": True, "d": 1},
+                 {"verb": "enter", "name": "new far", "d": 9},
+                 {"verb": "enter", "name": "new near", "d": 4}]
+        i, _, _ = self._done_except("enter").choose({"options": enter, "obs": OBS})
+        self.assertEqual(enter[i]["name"], "new near")   # an unvisited building before a visited one
+        enter = [{"verb": "enter", "name": "b", "visited": True, "d": 7}, {"verb": "enter", "name": "a", "visited": True, "d": 3}]
+        i, _, _ = self._done_except("enter").choose({"options": enter, "obs": OBS})
+        self.assertEqual(enter[i]["name"], "a")   # all visited: still the nearest
+        sleep = [{"verb": "sleep", "name": "floor"}, {"verb": "sleep", "name": "bed", "bed": True}]
+        pol = self._done_except("sleep")
+        pol.rng = random.Random(0)
+        pol.rng.random = lambda: 0.0   # the late verbs are in the order now
+        i, _, _ = pol.choose({"options": sleep, "obs": OBS})
+        self.assertEqual(sleep[i]["name"], "bed")   # a bed before the floor
+
+    def test_probe_explores_when_everything_on_offer_is_tried(self):
+        pol = self._done_except()
+        opts = [{"verb": "walk", "dir": "north"}, {"verb": "go_room", "name": "kitchen", "d": 6},
+                {"verb": "go_room", "name": "hall", "d": 2}]
+        i, _, _ = pol.choose({"options": opts, "obs": OBS})
+        self.assertEqual(opts[i]["name"], "hall")   # a room before a random walk, the nearest
+        pol = self._done_except()
+        pol.tally["go_room"]["done"] = 7   # shuttled enough between rooms in one house
+        i, _, _ = pol.choose({"options": opts, "obs": OBS})
+        self.assertEqual(opts[i]["verb"], "walk")
+        pol = self._done_except()
+        only = [{"verb": "continue"}, {"verb": "rest"}]
+        pol.continues = pol.max_continues   # the continue cap is spent: it must pick something else
+        i, _, _ = pol.choose({"options": only, "obs": OBS})
+        self.assertEqual(only[i]["verb"], "rest")
+
     def test_probe_outcomes_died_failed_replaced_and_continue_cap(self):
         eat = {"verb": "eat", "name": "Apple", "type": "Apple", "cat": "food"}
         walk = {"verb": "walk", "dir": "north"}
