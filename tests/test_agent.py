@@ -323,6 +323,19 @@ class LivesTests(unittest.TestCase):
             _, _, _, _, rec = again.observe({"id": 5, "dead": True, "obs": {"dead": True, "kills": 1, "t": {"age": 29.0}}})
             self.assertEqual((rec["life"], rec["ended"], rec["hours"]), (1, "died", 3.0))
 
+    def test_a_death_right_after_a_restart_ends_the_life_but_earns_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lives = Lives(tmp)
+            lives.observe({"id": 1, "obs": OBS, "options": OPTIONS})
+            total = lives.current.reward
+            again = Lives(tmp)
+            life, r, parts, new, rec = again.observe({"id": 2, "dead": True, "obs": {"dead": True, "kills": 0, "t": {"age": 29.0}}})
+            self.assertEqual((r, parts, new), (0.0, {}, False))   # not the last decision's doing, no death penalty
+            self.assertEqual((rec["life"], rec["ended"]), (1, "died"))
+            self.assertAlmostEqual(life.reward, total)
+            self.assertEqual(again.deaths_in("test"), 1)
+            self.assertIsNone(Lives(tmp).current)
+
     def test_a_different_character_after_a_restart_ends_the_old_life(self):
         with tempfile.TemporaryDirectory() as tmp:
             lives = Lives(tmp)
