@@ -263,6 +263,24 @@ class LivesTests(unittest.TestCase):
             life, *_ = again.observe({"id": 4, "obs": other, "options": OPTIONS})
             self.assertEqual((life.number, life.name), (2, "Kate Smith"))
 
+    def test_damaged_state_and_history_files_start_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "agent-state.json").write_text("{not json", encoding="utf-8")
+            (Path(tmp) / "lives.jsonl").write_text('{"life":1}\n{broken', encoding="utf-8")
+            lives = Lives(tmp)
+            self.assertEqual((lives.count, lives.current, lives.history, lives.world_deaths), (0, None, [], {}))
+
+    def test_each_finished_life_is_appended_to_lives_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lives = Lives(tmp)
+            for i in range(2):
+                lives.observe({"id": i, "obs": later(OBS, 1), "options": OPTIONS})
+                lives.observe({"id": 9, "dead": True, "obs": {"dead": True, "t": {"age": 5.0}}})
+            lines = (Path(tmp) / "lives.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual([json.loads(x)["life"] for x in lines], [1, 2])
+            self.assertEqual([r["life"] for r in lives.history], [1, 2])
+            self.assertIsNone(lives.current)
+
     def test_deaths_are_counted_per_save_and_survive_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
             lives = Lives(tmp)
