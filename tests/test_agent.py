@@ -148,6 +148,34 @@ class RewardTests(unittest.TestCase):
         reward.start_life(OBS, fresh)
         self.assertNotIn("new_items", reward.step(OBS, later(OBS, 1), fresh)[1])   # the shirt it started in
 
+    def test_searched_containers_kills_and_the_day_cap(self):
+        _, parts, _ = reward.step(OBS, later(OBS, 1), self.progress, searched=3)
+        self.assertAlmostEqual(parts["new_containers"], 3 * reward.NEW_CONTAINER)
+        self.assertEqual(self.progress.containers, 3)
+        _, parts, _ = self.step(OBS, later(OBS, 1, kills=2))
+        self.assertAlmostEqual(parts["kills"], 2 * reward.KILL)
+        _, parts, _ = self.step(OBS, later(OBS, 3 * 24 * 60))   # a clock jump of three days counts as one
+        self.assertAlmostEqual(parts["alive"], reward.ALIVE_PER_MIN * 24 * 60)
+        _, parts, _ = self.step(OBS, later(OBS, -30))   # time never runs backwards
+        self.assertNotIn("alive", parts)
+
+    def test_start_life_counts_the_held_item_and_building_and_reports_infection(self):
+        first = later(OBS, held={"name": "Axe", "type": "Axe", "cat": "weapon"}, where={"building": "7,8"}, knox=True)
+        fresh = reward.LifeProgress()
+        self.assertEqual(reward.start_life(first, fresh), 1.0)
+        self.assertIn("Axe", fresh.items)
+        self.assertIn("7,8", fresh.buildings)
+        self.assertEqual(reward.start_life(later(OBS, knox=False), reward.LifeProgress()), 0.0)
+        self.assertEqual(reward.start_life({"dead": True}, reward.LifeProgress()), 0.0)   # no body at creation
+
+    def test_current_version_records_are_rescored_from_their_base_parts(self):
+        rec = {"reward_v": 4, "parts": {"alive": 6.0, "kills": 25.0, "new_items": 1.0, "health": -9.0, "death": -500.0}}
+        r, minutes = reward.rescore(rec)
+        self.assertAlmostEqual(r, 32.0)   # the observations carry health, death and infection
+        self.assertAlmostEqual(minutes, 6.0 / reward.ALIVE_PER_MIN)
+        self.assertEqual(reward.rescore({"reward_v": 3}), (0.0, 0.0))
+        self.assertEqual(reward.rescore({"reward_v": 4, "resumed": True, "parts": {"alive": 5}}), (0.0, 0.0))
+
     def test_wounds_are_not_new_items(self):
         bitten = later(OBS, 1, inv=OBS["inv"] + [{"name": "Base.Wound_RHand_Bite_Female", "type": "Wound_RHand_Bite_Female",
                                                   "cat": "clothing", "w": 0, "worn": True}])
