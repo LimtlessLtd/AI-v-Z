@@ -604,6 +604,45 @@ class AgentLoopTests(unittest.TestCase):
                 self.assertEqual([json.loads(x)["id"] for x in g if x.strip()], [1])
             self.assertEqual(log.lines, [])
 
+    def test_experience_log_rollover_writes_the_old_hour_to_its_own_file(self):
+        from unittest import mock
+        from agent import run as run_mod
+        with tempfile.TemporaryDirectory() as tmp:
+            log = run_mod.ExperienceLog(tmp)
+            real = run_mod.datetime
+            with mock.patch.object(run_mod, "datetime") as dt:
+                dt.now.return_value = real(2026, 10, 15, 9, 59)
+                log.add({"id": 1})
+                dt.now.return_value = real(2026, 10, 15, 10, 0)
+                log.add({"id": 2})
+                log.flush()
+            names = sorted(f.name for f in Path(tmp).glob("*.jsonl.gz"))
+            self.assertEqual(names, ["20261015-09.jsonl.gz", "20261015-10.jsonl.gz"])
+
+    def test_trainer_due_and_status(self):
+        """A round is due when the saved network is older than the interval, or there is none; after a try, the
+        interval counts from that try."""
+        import os
+        import time
+        from agent.run import Trainer
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Trainer(tmp, every_min=10)
+            self.assertTrue(t.due())                      # no network yet
+            (Path(tmp) / "model").mkdir()
+            t.model.write_bytes(b"x")
+            self.assertFalse(t.due())                     # just saved
+            old = time.time() - 601
+            os.utime(t.model, (old, old))
+            self.assertTrue(t.due())                      # older than 10 minutes
+            t.last_try = time.time()
+            self.assertFalse(t.due())                     # counted from the try, not the file
+            t.last_try = time.time() - 601
+            self.assertTrue(t.due())
+            self.assertEqual(t.status(), {"every_min": 10, "running": False, "running_s": None, "last_code": None})
+            t.running, t.started = True, time.time() - 5
+            self.assertEqual(t.status()["running"], True)
+            self.assertGreaterEqual(t.status()["running_s"], 5)
+
     def test_experience_log_flushes_at_twenty_decisions_and_on_death(self):
         from agent.run import ExperienceLog
 
