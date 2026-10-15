@@ -432,6 +432,32 @@ class LinkTests(unittest.TestCase):
             self.assertIsNone(link.poll())
 
 
+class LinkWriteTests(unittest.TestCase):
+    def test_write_retries_while_the_game_reads_and_heartbeat_runs(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            link = GameLink(tmp)
+            real = os.replace
+            calls = []
+
+            def flaky(a, b):
+                calls.append(1)
+                if len(calls) < 3:
+                    raise PermissionError("in use")
+                real(a, b)
+            with mock.patch("agent.link.os.replace", flaky):
+                link._write(link.act_path, "x")
+            self.assertEqual(len(calls), 3)               # two refusals, then the swap went through
+            self.assertEqual(link.act_path.read_text(encoding="utf-8"), "x\n")
+            link.start_heartbeat()
+            end = time.time() + 3
+            while time.time() < end and not link.beat_path.exists():
+                time.sleep(0.01)
+            link.stop()
+            time.sleep(0.05)
+            self.assertTrue(link.beat_path.read_text(encoding="utf-8").startswith(("on|", "off")))
+
+
 class LinkEdgeTests(unittest.TestCase):
     def test_poll_wait_stop_and_clean(self):
         with tempfile.TemporaryDirectory() as tmp:
