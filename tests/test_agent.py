@@ -292,6 +292,40 @@ class LivesHelpersTests(unittest.TestCase):
         life.policies = {"random": 3, "net": 9}
         self.assertEqual(life.policy(), "net")
 
+    def test_life_add_tick_and_hours(self):
+        life = Life(1, OBS)
+        life.add(2.0, {"alive": 1.5, "kill": 0.5})
+        life.add(1.0, {"alive": 0.25})
+        self.assertEqual((life.reward, life.parts), (3.0, {"alive": 1.75, "kill": 0.5}))
+        life.age = life.born + 1.5
+        self.assertEqual(life.hours(), 1.5)
+        life.age = life.born - 5
+        self.assertEqual(life.hours(), 0.0)   # never negative
+        life.seen_at -= 1000   # a long gap (the agent was off) counts as GAP_S at most
+        life.tick()
+        self.assertEqual(life.real_s, 30.0)
+
+    def test_life_state_round_trips_through_json(self):
+        life = Life(4, OBS)
+        life.add(1.5, {"alive": 1.5})
+        life.policies = {"net": 2}
+        life.progress.items = {"Bat"}
+        life.progress.buildings = {"b1"}
+        back = Life.restore(json.loads(json.dumps(life.state())))
+        self.assertEqual((back.number, back.reward, back.parts, back.policies), (4, 1.5, {"alive": 1.5}, {"net": 2}))
+        self.assertEqual((back.progress.items, back.progress.buildings), ({"Bat"}, {"b1"}))
+        self.assertTrue(back.resumed)
+        self.assertFalse(life.resumed)
+
+    def test_lives_ignore_a_damaged_state_file_and_creation_or_stray_death(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "agent-state.json").write_text("{broken", encoding="utf-8")
+            lives = Lives(tmp)
+            self.assertEqual((lives.count, lives.current, lives.history), (0, None, []))
+            self.assertEqual(lives.observe({"id": 1, "creation": True}), (None, 0.0, {}, False, None))
+            self.assertEqual(lives.observe({"id": 2, "dead": True, "obs": {"dead": True}}), (None, 0.0, {}, False, None))
+            self.assertEqual(lives.world_deaths, {})   # a death with no life behind it counts nothing
+
     def test_rules_lives_keeps_only_died_records_and_skips_bad_lines(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(rules_lives(tmp), [])   # no file
