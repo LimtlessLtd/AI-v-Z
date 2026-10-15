@@ -749,6 +749,28 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class ExclusiveServerTest(unittest.TestCase):
+    def test_dashboard_server_owns_its_port_on_loopback(self):
+        import socket
+        from http.server import BaseHTTPRequestHandler
+        from agent.run import ExclusiveHTTPServer
+        self.assertFalse(ExclusiveHTTPServer.allow_reuse_address)
+        srv = ExclusiveHTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
+        try:
+            host, port = srv.server_address
+            self.assertEqual(host, "127.0.0.1")
+            # a second bind of the same port must fail, not share it
+            other = socket.socket()
+            try:
+                with self.assertRaises(OSError):
+                    other.bind(("127.0.0.1", port))
+                    other.listen(1)
+            finally:
+                other.close()
+        finally:
+            srv.server_close()
+
+
 class HearingTests(unittest.TestCase):
     def tone(self, freq, amp, n=2000, rate=8000):
         return [amp * math.sin(2 * math.pi * freq * i / rate) for i in range(n)]
