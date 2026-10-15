@@ -500,6 +500,37 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(i, len(options))   # use the bottle already in the bag before taking another
 
 
+    def test_probe_outcomes_died_failed_replaced_and_continue_cap(self):
+        eat = {"verb": "eat", "name": "Apple", "type": "Apple", "cat": "food"}
+        walk = {"verb": "walk", "dir": "north"}
+        pol = ProbePolicy(random.Random(1), tries=5, max_continues=2)
+        opts = [eat, walk]
+        pol.choose({"options": opts, "obs": OBS})
+        self.assertEqual(pol.pending["verb"], "eat")
+        # a failed try keeps the game's message in the tally key
+        pol.choose({"options": opts, "obs": OBS, "last": {"verb": "eat", "status": "failed", "msg": "not hungry"}})
+        self.assertEqual(pol.tally["eat"]["failed: not hungry"], 1)
+        self.assertIn("eat          failed: not hungry 1", pol.report())
+        # a different pick while one is running counts the running one as replaced
+        pol = ProbePolicy(random.Random(1), tries=5)
+        pol.choose({"options": opts, "obs": OBS})
+        pol.choose({"options": opts, "obs": OBS, "last": {"verb": "walk", "status": "running"}})
+        self.assertEqual(pol.tally["eat"]["replaced"], 1)
+        # death ends the pending try as died
+        pol = ProbePolicy(random.Random(1), tries=5)
+        pol.choose({"options": opts, "obs": OBS})
+        pol.choose({"options": [], "obs": OBS, "dead": True})
+        self.assertEqual(pol.tally["eat"]["died"], 1)
+        self.assertIsNone(pol.pending)
+        # `continue` is taken at most max_continues times in a row
+        pol = ProbePolicy(random.Random(1), tries=5, max_continues=2)
+        cont = [{"verb": "continue"}] + opts
+        picks = [pol.choose({"options": cont, "obs": OBS, "last": {"verb": "eat", "status": "running"}})[0] for _ in range(3)]
+        self.assertEqual(picks[:2], [0, 0])
+        self.assertNotEqual(picks[2], 0)
+        self.assertEqual(pol.choose({"options": [], "obs": OBS}), (None, [], ""))
+
+
 class AgentLoopTests(unittest.TestCase):
     def test_a_second_agent_cannot_take_the_dashboard_port(self):
         from agent.run import Agent
@@ -548,6 +579,28 @@ class AgentLoopTests(unittest.TestCase):
             log.flush_stale()
             with gzip.open(next(Path(tmp).glob("*.jsonl.gz")), "rt", encoding="utf-8") as g:
                 self.assertEqual([json.loads(x)["id"] for x in g if x.strip()], [1])
+            self.assertEqual(log.lines, [])
+
+    def test_experience_log_flushes_at_twenty_decisions_and_on_death(self):
+        from agent.run import ExperienceLog
+
+        def count(tmp):
+            n = 0
+            for f in Path(tmp).glob("*.jsonl.gz"):
+                with gzip.open(f, "rt", encoding="utf-8") as g:
+                    n += sum(1 for x in g if x.strip())
+            return n
+        with tempfile.TemporaryDirectory() as tmp:
+            log = ExperienceLog(tmp)
+            for i in range(19):
+                log.add({"id": i})
+            self.assertEqual(count(tmp), 0)
+            log.add({"id": 19})
+            self.assertEqual(count(tmp), 20)
+            log.add({"id": 20})
+            self.assertEqual(count(tmp), 20)
+            log.add({"id": 21, "dead": True})
+            self.assertEqual(count(tmp), 22)
             self.assertEqual(log.lines, [])
 
 
