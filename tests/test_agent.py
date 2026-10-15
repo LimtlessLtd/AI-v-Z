@@ -691,6 +691,26 @@ class AgentLoopTests(unittest.TestCase):
             self.assertEqual(len(snap["lives"]), 1)
             self.assertIsNone(snap["life"])
 
+    def test_snapshot_shows_the_last_decision_for_the_dashboard(self):
+        from agent.run import Agent
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Agent(argparse.Namespace(lua_dir=tmp, log_dir=tmp, port=0))
+            self.assertFalse(a.snapshot()["connected"])
+            obs = later(OBS, 0, zombies=[{"x": 1}, {"x": 2}])
+            a.handle({"id": 1, "reason": "idle", "obs": obs, "options": OPTIONS, "gym": "9.9.9"})
+            snap = a.snapshot()
+            self.assertTrue(snap["connected"])
+            self.assertEqual((snap["decisions"], snap["reason"], snap["gym"]), (1, "idle", "9.9.9"))
+            self.assertEqual(snap["obs"]["zombies"], 2)
+            self.assertEqual([o["verb"] for o in snap["options"]], [o["verb"] for o in OPTIONS])
+            self.assertAlmostEqual(sum(o["p"] for o in snap["options"]), 1.0, places=2)
+            self.assertEqual(snap["life"]["decisions"], 1)
+            self.assertIn(snap["choice"], range(len(OPTIONS)))
+            # the activity list shows the pick unless it was "continue"
+            self.assertEqual(len([r for r in snap["recent"] if r.startswith("#1 idle")]), 1)
+            a.last_at -= 60
+            self.assertFalse(a.snapshot()["connected"])
+
     def test_decisions_are_saved_while_the_game_sends_none(self):
         """Backlog N4: the 30 s check also runs while no decision arrives, so a stalled game loses nothing."""
         from agent.run import ExperienceLog
